@@ -1,0 +1,14 @@
+{
+  "name": "argon2",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Argon2d and Argon2id key derivation function implementation for keepass-web.",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test 'tests/**/*.test.ts'"
+  }
+}

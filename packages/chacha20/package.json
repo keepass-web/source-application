@@ -1,0 +1,14 @@
+{
+  "name": "chacha20",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ChaCha20 and Salsa20 stream cipher implementation for keepass-web.",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test 'tests/**/*.test.ts'"
+  }
+}

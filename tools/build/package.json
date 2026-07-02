@@ -1,0 +1,11 @@
+{
+  "name": "build-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Build toolchain for keepass-web: the IIFE bundler and HTML inliner used to produce the single-file distributables.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p inliner/tsconfig.json",
+    "test": "node --experimental-strip-types --test inliner/tests/build.test.ts"
+  }
+}

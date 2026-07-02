@@ -1,0 +1,57 @@
+# Agent instructions
+
+This repo builds a password manager. Any code an agent writes here — a one-line fix or a large refactor — must be in complete agreement with the philosophy, approach, user-mindfulness, conventions, and quality requirements below. When a request seems to conflict with any of them, say so and ask, rather than quietly picking a side.
+
+## Philosophy
+
+The org-level [philosophy and rationale][philosophy] is the authoritative statement of intent; this section exists so an agent doesn't have to fetch it to get the gist. In short: minimalism (ship as a single, self-contained HTML file; no frameworks; only WebCrypto as a runtime dependency), impeccability (100% test coverage, enforced lint with no exceptions, no long-lived open issues), and trustworthiness (open source, auditable, independently verified).
+
+The concrete implication for an agent: don't reach for a framework, a general-purpose library, or a build step where hand-written, fully-owned code would do. If it isn't obvious why a piece of complexity exists, it probably shouldn't.
+
+## Approach
+
+Every internal dependency is owned, not borrowed. `packages/argon2`, `packages/chacha20`, and `packages/kdbx` are consumed by relative import to each other's built `dist/` output — never through a `dependencies` entry in any `package.json`, and never published. `grep -r '"dependencies"' --include=package.json .` should always come back empty for internal code; if a change makes it not empty, that change is wrong.
+
+Builds are reproducible and every build-time dependency is pinned to an exact, integrity-verified version — see [Reproducing a build][reproducing]. Don't introduce a floating version (`^`, `~`, `latest`) for anything that produces the shipped output.
+
+## User-mindfulness
+
+This app handles other people's passwords. Before making a change, ask: does this add a network call, telemetry, or any other way for data to leave the browser? The entire trust model rests on a user being able to watch the network tab and see nothing. Don't compromise that without it being an explicit, deliberate, documented decision — never as a side effect.
+
+Keep code readable by a literate technical user in a single sitting. Prefer the obvious approach over the clever one. Never log, transmit, or persist a password, secret, or decrypted field anywhere outside in-memory browser state.
+
+## Conventions
+
+- Markdown links are always [reference-link style][gfm-reflinks] — `[text][key]` with definitions collected at the bottom of the file — never inline `[text](url)`.
+- Repo layout: `packages/<name>/` holds a library's source, tests, `README.md`, and `SPEC.md` together; `pages/` is the browser app; `tools/build/` is the build tooling; `docs/` holds process and reference documentation that isn't specific to one package or page — it does not duplicate org-level docs, and it does not hold per-package or per-page READMEs.
+- Names describe function, not just identity (`pages/`, not `app/`; `source-application` describes what the repo contains).
+- One version number, at the repo root. Packages under `packages/` don't carry independent versions — they aren't published.
+- Biome lint and format are enforced with no exceptions. `npm run lint` must be clean before a change is done.
+
+## Quality requirements
+
+Before considering any change complete, all four must pass — this is exactly what CI runs:
+
+```sh
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
+New logic needs tests; the project's standing bar is 100% coverage, not "we'll add tests later." Don't silently fix unrelated pre-existing issues inside an unrelated change — note them instead, so diffs stay auditable — but do fix anything the change itself breaks. Prefer the smallest correct change, and check before touching release/deploy credentials, branch protection rulesets, or anything published or externally reachable.
+
+## See also
+
+- [Contributing][contributing] — how to propose a change and the local dev loop
+- [Releases][releases] — what a release produces and how it ships
+- [Pipeline][pipeline] — the full CI/release/deploy picture
+- [Reproducing a build][reproducing] — verifying a distributable independently
+- [Branch protection rulesets][rulesets] — what every repo in the org requires
+- [Licensing][licensing] — the open-core model
+
+[philosophy]: https://github.com/keepass-web/.github/blob/main/profile/PHILOSOPHY.md
+[reproducing]: docs/REPRODUCING.md
+[gfm-reflinks]: https://github.github.com/gfm/#reference-link
+[contributing]: docs/CONTRIBUTING.md
+[releases]: docs/RELEASES.md
+[pipeline]: docs/PIPELINE.md
+[rulesets]: docs/RULESETS.md
+[licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md

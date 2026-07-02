@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeePass Web</title>
+  <!--STYLES-->
+</head>
+<body>
+  <!-- Live screen container -->
+  <div id="root"></div>
+
+  <!-- ============================================================
+       Screen: Upload
+       ============================================================ -->
+  <template id="tpl-upload">
+    <div class="screen screen-upload">
+      <div class="wordmark">KeePass Web</div>
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-icon">🔑</div>
+        <p class="drop-zone-label">Drop your .kdbx file here</p>
+        <label class="btn btn-primary">
+          Choose file
+          <input type="file" id="file-input" accept=".kdbx,.kdb" hidden>
+        </label>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Unlock
+       ============================================================ -->
+  <template id="tpl-unlock">
+    <div class="screen screen-unlock">
+      <button class="back-link" data-action="back">← Back</button>
+      <div class="wordmark">KeePass Web</div>
+      <h1 id="db-filename" class="db-filename"></h1>
+      <form id="unlock-form" class="unlock-form" novalidate>
+        <div class="field">
+          <label for="master-password">Master password</label>
+          <input type="password" id="master-password" autocomplete="current-password" autofocus>
+        </div>
+        <div class="field">
+          <label>Key file <span class="optional">(optional)</span></label>
+          <label class="file-pick">
+            <span id="keyfile-label">No file chosen</span>
+            <input type="file" id="keyfile-input" hidden>
+          </label>
+        </div>
+        <div id="unlock-error" class="error-msg" hidden></div>
+        <button type="submit" id="unlock-btn" class="btn btn-primary btn-block">Unlock</button>
+      </form>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Entry List (main app)
+       ============================================================ -->
+  <template id="tpl-entry-list">
+    <div class="screen screen-app">
+      <header class="app-header">
+        <span class="wordmark">KeePass Web</span>
+        <div class="search-wrap">
+          <input type="search" id="search-input" class="search-input" placeholder="Search all entries…" autocomplete="off">
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" data-action="settings" title="Settings">⚙</button>
+          <button class="icon-btn" data-action="lock" title="Lock">🔒</button>
+        </div>
+      </header>
+      <div class="app-body">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <span class="sidebar-label">Groups</span>
+            <button class="icon-btn" data-action="add-group" title="New group">+</button>
+          </div>
+          <nav id="group-tree" class="group-tree"></nav>
+        </aside>
+        <main class="entry-panel">
+          <div class="panel-header">
+            <span id="panel-title" class="panel-title"></span>
+            <button class="icon-btn" data-action="add-entry" title="New entry">+</button>
+          </div>
+          <div id="entry-list" class="entry-list"></div>
+        </main>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Entry Detail
+       ============================================================ -->
+  <template id="tpl-entry-detail">
+    <div class="screen screen-detail">
+      <header class="detail-header">
+        <button class="back-link" data-action="back">← Entries</button>
+        <div class="detail-header-actions">
+          <button class="btn btn-secondary" data-action="edit">Edit</button>
+          <button class="btn btn-danger" data-action="delete">Delete</button>
+        </div>
+      </header>
+      <div class="detail-body">
+        <h1 id="detail-title" class="detail-title"></h1>
+        <div id="detail-fields" class="detail-fields"></div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Entry Edit
+       ============================================================ -->
+  <template id="tpl-entry-edit">
+    <div class="screen screen-edit">
+      <header class="edit-header">
+        <button class="back-link" data-action="cancel">Cancel</button>
+        <h1 id="edit-title" class="edit-title">Edit Entry</h1>
+        <button class="btn btn-primary" data-action="save">Save</button>
+      </header>
+      <div class="edit-body">
+        <div id="edit-fields" class="edit-fields"></div>
+        <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Dialog: Settings
+       ============================================================ -->
+  <dialog id="dlg-settings" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Settings</h2>
+      <button class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="field">
+        <label for="clipboard-timeout">Clipboard clear timeout (seconds)</label>
+        <input type="number" id="clipboard-timeout" min="5" max="300" value="30">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn btn-primary" data-action="save-settings">Save</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Save / Download
+       ============================================================ -->
+  <dialog id="dlg-save" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Save database</h2>
+      <button class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p>Download the updated database file to your computer.</p>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn btn-secondary" data-action="close">Later</button>
+      <button class="btn btn-primary" data-action="download">Download</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Confirm Delete
+       ============================================================ -->
+  <dialog id="dlg-confirm-delete" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Delete entry?</h2>
+    </div>
+    <div class="dialog-body">
+      <p>This cannot be undone.</p>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn btn-secondary" data-action="cancel-delete">Cancel</button>
+      <button class="btn btn-danger" data-action="confirm-delete">Delete</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: New Group
+       ============================================================ -->
+  <dialog id="dlg-new-group" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>New group</h2>
+      <button class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="field">
+        <label for="new-group-name">Group name</label>
+        <input type="text" id="new-group-name" autocomplete="off">
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn btn-secondary" data-action="cancel-group">Cancel</button>
+      <button class="btn btn-primary" data-action="create-group">Create</button>
+    </div>
+  </dialog>
+
+  <!--SCRIPTS-->
+</body>
+</html>

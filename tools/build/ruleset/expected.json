@@ -1,0 +1,10 @@
+{
+  "comment": "Required branch protection rules for every keepass-web repository. The CI ruleset check validates that all of these rule types are active on the default branch. Rules are created manually once per the process documented in RULESETS.md; CI validates them on every run.",
+  "required_rule_types": [
+    "deletion",
+    "non_fast_forward",
+    "pull_request",
+    "required_signatures",
+    "required_status_checks"
+  ]
+}

@@ -1,0 +1,117 @@
+name: Release
+
+# Builds the distributables, creates a GitHub release, and attaches each
+# file with its checksum. Triggered by pushing a version tag:
+#
+#   npm version minor
+#   git push --follow-tags
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# No permissions by default.
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create release and upload assets
+      id-token: write      # request OIDC token for attestation signing
+      attestations: write  # write attestation to repo
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: '22.23.0'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint and format (Biome)
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Guard: refuse to release if the tag and package.json disagree.
+      - name: Verify tag matches package version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' does not match package.json version '${version}'"
+            exit 1
+          fi
+
+      # The inliner prints sha256:<hex> to stdout for each built file.
+      # CNAME is copied verbatim; its checksum is surfaced in the step summary.
+      # Note: this does not re-run the bundler — deps.js is committed source,
+      # kept current by `npm run build` in the CI pipeline on every push/PR.
+      - name: Build distributables
+        run: |
+          mkdir -p dist
+          cp pages/CNAME dist/CNAME
+
+          printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
+
+          for page in index keepass-web-router keepass-web-0x67; do
+            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
+            printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          printf '| `CNAME` | `sha256:%s` |\n' "$(sha256sum dist/CNAME | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest distributables
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
+        with:
+          subject-path: |
+            dist/keepass-web-0x67.html
+            dist/keepass-web-router.html
+            dist/index.html
+            dist/CNAME
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="### Distributable checksums"$'\n'
+          notes+="| File | SHA-256 |"$'\n'
+          notes+="|------|---------|"$'\n'
+          for file in dist/index.html dist/keepass-web-router.html dist/keepass-web-0x67.html dist/CNAME; do
+            notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
+          done
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "${notes}" \
+            dist/keepass-web-0x67.html \
+            dist/keepass-web-router.html \
+            dist/index.html \
+            dist/CNAME
+
+      # repositories: and --repo below must match the deploy repo's current
+      # name exactly — keep them in sync if that repo is ever renamed.
+      - name: Generate deploy token
+        id: deploy-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.DEPLOY_BOT_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_BOT_APP_PRIVATE_KEY }}
+          repositories: keepass-web.github.io
+
+      - name: Trigger deploy workflow
+        env:
+          GH_TOKEN: ${{ steps.deploy-token.outputs.token }}
+        run: |
+          gh workflow run deploy.yml \
+            --repo keepass-web/keepass-web.github.io \
+            --field release-tag="$GITHUB_REF_NAME"

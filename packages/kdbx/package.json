@@ -1,0 +1,14 @@
+{
+  "name": "kdbx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KDBX 3.1 and 4.x parser and serializer for keepass-web.",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test 'tests/**/*.test.ts'"
+  }
+}
