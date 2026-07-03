@@ -17,11 +17,12 @@
   },
   "scripts": {
     "clean": "rm -rf build dist",
-    "build": "npm run build --workspace=argon2 --workspace=chacha20 && npm run build --workspace=kdbx && npm run build --workspace=pages",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20",
+    "build": "npm run build:deps && npm run build --workspace=kdbx && npm run build --workspace=pages",
+    "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run build:deps && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.18.0"
