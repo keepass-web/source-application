@@ -1,7 +1,13 @@
 name: CI
 
+# push runs CI for commits landing directly on main (e.g. a squash merge);
+# pull_request runs it for every commit on a PR branch, which is what the
+# branch protection ruleset actually requires before merge. Scoping push to
+# main avoids running the same commit through CI twice — once as a bare
+# push and once as a pull_request synchronize event — while a PR is open.
 on:
   push:
+    branches: [main]
   pull_request:
 
 # No permissions by default. Each job declares only what it needs.
