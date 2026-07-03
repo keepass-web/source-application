@@ -1,16 +1,18 @@
 # KeePass Web
 
-A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. A single HTML file, no native application install, no web server, and no network: just your KeePass database file in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds it into a single distributable HTML file. No external dependencies are used.
+A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. A single purpose HTML files, no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds it into a distributable HTML files. No external dependencies are used.
+
+## Contents
 
 ```
-packages/     argon2, chacha20, kdbx — the cryptographic and file-format building blocks
+packages/     argon2, chacha20, kdbx: the cryptographic and file-format building blocks
 pages/        the browser app itself (what actually ships)
-tools/build/  the bundler and inliner that produce the single-file distributable
+tools/build/  the bundler and inliner that produce the distributables
 ```
 
 ## Using it
 
-- **Local:** download the latest files from [Releases][gh-releases] and open `keepass-web.html` in any modern browser. Upload your KeePass database file and go.
+- **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go.
 - **Online:** visit [keepass-web.app][app], exactly the same code, but convenient for sponsors of this project who want to access their KeePass files from cloud storage.
 
 Refer to [Reproducing a build][reproducing] to verify for yourself how these files are built.
@@ -23,7 +25,7 @@ The whole point of shipping as a single, un-minified HTML file is that you don't
 
 See [Contributing][contributing] for how to report a bug, propose a change, and build/test/lint locally. See each package's own `README.md`/`SPEC.md` (`packages/argon2`, `packages/chacha20`, `packages/kdbx`) for the algorithms implemented and why.
 
-This project runs on an open-core model:the core app is MIT-licensed and always free; [GitHub Sponsors][sponsors] funds development and security audits and unlocks the hosted cloud-storage features. See [Licensing][licensing] for how that works.
+This project runs on an open-core model: the core app is MIT-licensed and always free; [GitHub Sponsors][sponsors] funds development and security audits and unlocks the hosted cloud-storage features. See [Licensing][licensing] for how that works.
 
 ## License
 
