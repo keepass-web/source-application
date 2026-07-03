@@ -29,6 +29,18 @@
       "type": "required_signatures"
     },
     {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          {
+            "tool": "CodeQL",
+            "alerts_threshold": "all",
+            "security_alerts_threshold": "all"
+          }
+        ]
+      }
+    },
+    {
       "type": "required_status_checks",
       "parameters": {
         "required_status_checks": [
