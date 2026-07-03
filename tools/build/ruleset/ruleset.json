@@ -33,7 +33,7 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "CI / Pipeline (pull_request)",
+            "context": "Pipeline",
             "integration_id": 15368
           }
         ],
