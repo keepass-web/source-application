@@ -88,7 +88,7 @@ jobs:
       - name: Record checksums
         run: |
           printf '### Distributable checksums\n' >> "$GITHUB_STEP_SUMMARY"
-          for page in index keepass-web-router keepass-web-0x67; do
+          for page in index router 0x67; do
             checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
             printf '- `%s.html`: `%s`\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done

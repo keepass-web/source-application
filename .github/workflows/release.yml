@@ -64,7 +64,7 @@ jobs:
 
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
 
-          for page in index keepass-web-router keepass-web-0x67; do
+          for page in index router 0x67; do
             checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
             printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done
@@ -75,8 +75,8 @@ jobs:
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
         with:
           subject-path: |
-            dist/keepass-web-0x67.html
-            dist/keepass-web-router.html
+            dist/0x67.html
+            dist/router.html
             dist/index.html
             dist/CNAME
 
@@ -87,14 +87,14 @@ jobs:
           notes="### Distributable checksums"$'\n'
           notes+="| File | SHA-256 |"$'\n'
           notes+="|------|---------|"$'\n'
-          for file in dist/index.html dist/keepass-web-router.html dist/keepass-web-0x67.html dist/CNAME; do
+          for file in dist/index.html dist/router.html dist/0x67.html dist/CNAME; do
             notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
           done
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes "${notes}" \
-            dist/keepass-web-0x67.html \
-            dist/keepass-web-router.html \
+            dist/0x67.html \
+            dist/router.html \
             dist/index.html \
             dist/CNAME
 

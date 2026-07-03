@@ -10,7 +10,7 @@ See [SPEC.md][spec].
 
 ## Usage
 
-Not published — this package isn't consumed through the npm registry at all. It's bundled into `pages/keepass-web-0x67` (see that page's `bundle-iife.json`), and imports [`chacha20`][chacha20] (ChaCha20/Salsa20) and [`argon2`][argon2] (Argon2d/Argon2id) by relative path from their built `dist/` output. AES, HMAC, SHA, and GZip come from WebCrypto and the Web Streams compression API, so the package is isomorphic (browser and Node) and otherwise dependency-free.
+Not published — this package isn't consumed through the npm registry at all. It's bundled into `pages/0x67` (see that page's `bundle-iife.json`), and imports [`chacha20`][chacha20] (ChaCha20/Salsa20) and [`argon2`][argon2] (Argon2d/Argon2id) by relative path from their built `dist/` output. AES, HMAC, SHA, and GZip come from WebCrypto and the Web Streams compression API, so the package is isomorphic (browser and Node) and otherwise dependency-free.
 
 The example below assumes you've built this package (`npm run build`) and are importing its compiled output directly, e.g. from a sibling directory:
 
@@ -28,11 +28,7 @@ const reopened = await Kdbx.load(bytes, credentials);
 const entry = getChild(reopened.getRootGroup(), 'Entry')!;
 ```
 
-`Kdbx.create` accepts `version` (3 or 4), `cipher` (`aes`/`chacha20`), `kdf`
-(`argon2id`/`argon2d`/`aes`), `compression`, and KDF tuning. The canonical state
-of a database is its `<KeePassFile>` XML tree (`db.root`); `Protected="True"`
-values are held as plaintext in memory and (re-)encrypted with the inner random
-stream on save.
+`Kdbx.create` accepts `version` (3 or 4), `cipher` (`aes`/`chacha20`), `kdf` (`argon2id`/`argon2d`/`aes`), `compression`, and KDF tuning. The canonical state of a database is its `<KeePassFile>` XML tree (`db.root`); `Protected="True"` values are held as plaintext in memory and (re-)encrypted with the inner random stream on save.
 
 ## Development
 
