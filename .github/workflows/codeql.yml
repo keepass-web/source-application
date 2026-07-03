@@ -1,0 +1,42 @@
+name: CodeQL
+
+# Runs independently of ci.yml so that code scanning results exist for the
+# `code_scanning` branch protection rule to evaluate on every pull request —
+# see docs/RULESETS.md. No schedule trigger: every commit that reaches main
+# goes through this same workflow already (via push and pull_request), so
+# there's no unscanned code for a periodic re-scan to catch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# No permissions by default. The job declares only what it needs.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa  # v4.36.0
+        with:
+          languages: javascript-typescript
+
+      # No separate build step: javascript-typescript is analyzed by
+      # extraction, not compilation, so there's nothing for autobuild to do.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa  # v4.36.0
+        with:
+          category: /language:javascript-typescript
