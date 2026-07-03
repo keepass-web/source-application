@@ -232,7 +232,12 @@ export class Kdbx {
     }
 
     const encrypted = await readHmacBlockStream(blockStream, hmacBaseKey);
-    let payload = await kx_decryptPayload(header.cipherId, cipherKey, header.encryptionIv, encrypted);
+    let payload = await kx_decryptPayload(
+      header.cipherId,
+      cipherKey,
+      header.encryptionIv,
+      encrypted,
+    );
     if (header.compression === Compression.GZip) {
       payload = await gunzip(payload);
     }

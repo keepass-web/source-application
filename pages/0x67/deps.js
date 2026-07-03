@@ -24,7 +24,9 @@ const CC_BLOCK_BYTES = 64;
 const CC_CHACHA_NONCE_BYTES = 12;
 const CC_SALSA_NONCE_BYTES = 8;
 /** "expand 32-byte k" as four little-endian 32-bit words. */
-const CC_SIGMA = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+const CC_SIGMA = [
+    0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+];
 /** Left-rotate a 32-bit word by `n` bits. */
 const cc_rotl = (x, n) => ((x << n) | (x >>> (32 - n))) >>> 0;
 function cc_assertLength(bytes, expected, name) {

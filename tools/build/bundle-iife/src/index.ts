@@ -10,4 +10,6 @@ if (!configPath) {
 }
 
 const count = bundle(configPath);
-process.stdout.write(`Bundled ${count} files to ${configPath.replace(/\/bundle-iife\.json$/, '/deps.js')}\n`);
+process.stdout.write(
+  `Bundled ${count} files to ${configPath.replace(/\/bundle-iife\.json$/, '/deps.js')}\n`,
+);

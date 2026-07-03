@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from '../src/build.ts';
@@ -34,16 +34,20 @@ const indexPath = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 
 function runCLI(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(
-      process.execPath,
-      ['--experimental-strip-types', indexPath, ...args],
-      { stdio: 'pipe' },
-    );
+    const child = spawn(process.execPath, ['--experimental-strip-types', indexPath, ...args], {
+      stdio: 'pipe',
+    });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.on('close', (code) => { resolve({ code: code ?? 1, stdout, stderr }); });
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    child.on('close', (code) => {
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
   });
 }
 
@@ -56,7 +60,12 @@ test('inlines style and script into the template', () => {
   write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--></html>');
   write(dir, 'style.css', 'body { color: red; }');
   write(dir, 'script.js', 'console.log(1);');
-  manifest(dir, { template: 'template.html', styles: ['style.css'], scripts: ['script.js'], output: 'out.html' });
+  manifest(dir, {
+    template: 'template.html',
+    styles: ['style.css'],
+    scripts: ['script.js'],
+    output: 'out.html',
+  });
 
   const checksum = build(join(dir, 'build.json'));
 
@@ -71,7 +80,12 @@ test('concatenates multiple CSS files in manifest order', () => {
   write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
   write(dir, 'a.css', '.a {}');
   write(dir, 'b.css', '.b {}');
-  manifest(dir, { template: 'template.html', styles: ['a.css', 'b.css'], scripts: [], output: 'out.html' });
+  manifest(dir, {
+    template: 'template.html',
+    styles: ['a.css', 'b.css'],
+    scripts: [],
+    output: 'out.html',
+  });
 
   build(join(dir, 'build.json'));
 
@@ -84,7 +98,12 @@ test('concatenates multiple JS files in manifest order', () => {
   write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
   write(dir, 'a.js', 'const a = 1;');
   write(dir, 'b.js', 'const b = 2;');
-  manifest(dir, { template: 'template.html', styles: [], scripts: ['a.js', 'b.js'], output: 'out.html' });
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: ['a.js', 'b.js'],
+    output: 'out.html',
+  });
 
   build(join(dir, 'build.json'));
 
@@ -95,7 +114,12 @@ test('concatenates multiple JS files in manifest order', () => {
 test('creates the output directory when it does not exist', () => {
   const dir = tempDir();
   write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
-  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'deep/nested/out.html' });
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    output: 'deep/nested/out.html',
+  });
 
   assert.doesNotThrow(() => build(join(dir, 'build.json')));
   assert.ok(readFileSync(join(dir, 'deep', 'nested', 'out.html'), 'utf8').length > 0);

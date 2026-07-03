@@ -42,7 +42,15 @@ function b2_rotr64(x: bigint, n: bigint): bigint {
 }
 
 /** The BLAKE2b mixing function G (RFC 7693, Section 3.1). */
-function b2_mix(v: bigint[], a: number, b: number, c: number, d: number, x: bigint, y: bigint): void {
+function b2_mix(
+  v: bigint[],
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  x: bigint,
+  y: bigint,
+): void {
   let va = v[a] as bigint;
   let vb = v[b] as bigint;
   let vc = v[c] as bigint;
