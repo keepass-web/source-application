@@ -67,12 +67,13 @@ test('inlines style and script into the template', () => {
     output: 'out.html',
   });
 
-  const checksum = build(join(dir, 'build.json'));
+  const { checksum, outputPath } = build(join(dir, 'build.json'));
 
   const expected =
     '<html><style>\nbody { color: red; }\n</style><script>\nconsole.log(1);\n</script></html>';
   assert.equal(readFileSync(join(dir, 'out.html'), 'utf8'), expected);
   assert.equal(checksum, sha256(expected));
+  assert.equal(outputPath, join(dir, 'out.html'));
 });
 
 test('concatenates multiple CSS files in manifest order', () => {
@@ -157,7 +158,7 @@ test('CLI: exits 1 and prints usage when no manifest path is given', async () =>
   assert.ok(stderr.includes('Usage:'), `expected usage message, got: ${stderr}`);
 });
 
-test('CLI: exits 0 and prints sha256 checksum on success', async () => {
+test('CLI: exits 0 and prints sha256 checksum and output path on success', async () => {
   const dir = tempDir();
   write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
   manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
@@ -165,5 +166,5 @@ test('CLI: exits 0 and prints sha256 checksum on success', async () => {
   const { code, stdout } = await runCLI([join(dir, 'build.json')]);
   assert.equal(code, 0);
   assert.ok(stdout.startsWith('sha256:'), `expected sha256: prefix, got: ${stdout}`);
-  assert.match(stdout.trim(), /^sha256:[0-9a-f]{64}$/);
+  assert.match(stdout.trim(), /^sha256:[0-9a-f]{64} {2}.+out\.html$/);
 });

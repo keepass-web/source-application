@@ -58,8 +58,9 @@ jobs:
       # build/ and the final distributables to dist/ — see ci.yml Step 6.
       # Neither directory is committed, so this rebuild from source is the
       # only place dist/*.html come from; there's nothing to reuse from CI.
-      # The inliner prints sha256:<hex> to stdout for each built file; the
-      # loop below re-runs it to capture that for the summary. CNAME is
+      # The inliner prints "sha256:<hex>  <output path>" to stdout for each
+      # built file; the loop below re-runs it and keeps only the first
+      # whitespace-separated field (the checksum) for the summary. CNAME is
       # copied verbatim; its checksum is computed separately since it isn't
       # inlined.
       - name: Build distributables
@@ -70,7 +71,7 @@ jobs:
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
 
           for page in index router 0x67; do
-            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
+            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
             printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done
 

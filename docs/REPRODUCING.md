@@ -23,7 +23,7 @@ Any party can reproduce a versioned distributable and verify it against the publ
      sh -c "npm ci && npm run build"
    ```
 
-   `npm run build` builds `argon2`, `chacha20`, and `kdbx`, then bundles and inlines each page. The inliner prints `sha256:<hex>` to stdout once per distributable (`index.html`, `router.html`, `0x67.html`).
+   `npm run build` builds `argon2`, `chacha20`, and `kdbx`, then bundles and inlines each page. The inliner prints `sha256:<hex>  <output path>` to stdout once per distributable (`index.html`, `router.html`, `0x67.html`), so each checksum is unambiguously tied to the file it belongs to.
 
 4. Compare each printed checksum against the corresponding value published with the release.
 

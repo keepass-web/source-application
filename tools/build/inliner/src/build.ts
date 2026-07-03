@@ -9,12 +9,12 @@ const SCRIPTS_SENTINEL = '<!--SCRIPTS-->';
 /**
  * Reads the manifest at `manifestPath`, inlines all styles and scripts into the
  * HTML template in the order listed, writes the output file, and returns its
- * SHA-256 checksum (hex-encoded).
+ * SHA-256 checksum (hex-encoded) alongside the resolved output path.
  *
  * Throws if either sentinel is absent from the template, or if any listed file
  * cannot be read.
  */
-export function build(manifestPath: string): string {
+export function build(manifestPath: string): { checksum: string; outputPath: string } {
   const base = dirname(resolve(manifestPath));
   const manifest: Manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
 
@@ -38,5 +38,6 @@ export function build(manifestPath: string): string {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, html, 'utf8');
 
-  return createHash('sha256').update(html, 'utf8').digest('hex');
+  const checksum = createHash('sha256').update(html, 'utf8').digest('hex');
+  return { checksum, outputPath };
 }

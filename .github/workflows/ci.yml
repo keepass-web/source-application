@@ -91,10 +91,13 @@ jobs:
       # Surfaces each distributable's checksum in the workflow summary. For
       # tagged releases, these values are attached to the GitHub release as the
       # published checksums that third parties verify against.
+      #
+      # The inliner prints "sha256:<hex>  <output path>"; only the first
+      # whitespace-separated field is the checksum itself.
       - name: Record checksums
         run: |
-          printf '### Distributable checksums\n' >> "$GITHUB_STEP_SUMMARY"
+          printf -- '### Distributable checksums\n' >> "$GITHUB_STEP_SUMMARY"
           for page in index router 0x67; do
-            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
-            printf '- `%s.html`: `%s`\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
+            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
+            printf -- '- `%s.html`: `%s`\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done

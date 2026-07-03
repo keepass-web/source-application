@@ -9,5 +9,5 @@ if (!manifestPath) {
   process.exit(1);
 }
 
-const checksum = build(manifestPath);
-process.stdout.write(`sha256:${checksum}\n`);
+const { checksum, outputPath } = build(manifestPath);
+process.stdout.write(`sha256:${checksum}  ${outputPath}\n`);
