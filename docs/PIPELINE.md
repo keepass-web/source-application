@@ -129,7 +129,7 @@ flowchart TD
 
 ### Deploy PR verification
 
-Every PR targeting `gh-pages` runs `keepass-web.app/ci.yml`, which verifies the distributables before the PR can be merged. Checksum verification against the published release is [not yet implemented][deploy-ci]. For how the resulting artifacts are verified end to end, see [Verifying a release independently][releases-verify].
+Every PR targeting `gh-pages` runs `keepass-web.app/ci.yml`, which verifies the distributables — including each file's checksum against the one published with the release — before the PR can be merged. For how the resulting artifacts are verified end to end, see [Verifying a release independently][releases-verify].
 
 [ci-workflow]: https://github.com/keepass-web/source-application/blob/main/.github/workflows/ci.yml
 [release-workflow]: https://github.com/keepass-web/source-application/blob/main/.github/workflows/release.yml

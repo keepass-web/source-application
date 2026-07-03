@@ -29,8 +29,6 @@ Any party can reproduce a versioned distributable and verify it against the publ
 
 Two independent builds of the same source commit must produce an identical checksum. A mismatch means the build is not reproducible and should be treated as suspect.
 
----
-
 ## Verifying pinned dependencies
 
 All build-time dependencies are pinned with enforced integrity checks:
@@ -50,8 +48,6 @@ To verify the base image digest independently:
 ```sh
 docker buildx imagetools inspect node:22.23.0-slim --format '{{.Manifest.Digest}}'
 ```
-
----
 
 ## Updating a dependency
 

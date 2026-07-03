@@ -11,6 +11,7 @@ Found a security vulnerability? Do not open a public issue. See the org's [secur
 ```sh
 git clone git@github.com:keepass-web/source-application.git
 cd source-application
+npm install
 npm ci
 ```
 
@@ -23,7 +24,7 @@ npm test            # every package's test suite
 npm run build       # produces dist/*.html, the same distributables a release ships
 ```
 
-All four are what CI runs on every push and pull request.
+All four are what CI runs on every push to `main` and pull request.
 
 ### Where things live
 
