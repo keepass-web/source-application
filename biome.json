@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!pages/*/deps.js", "!pages/*/page.js"]
+    "includes": ["**", "!build/**", "!dist/**"]
   },
   "linter": {
     "enabled": true,

@@ -16,7 +16,7 @@
     "typescript": "6.0.3"
   },
   "scripts": {
-    "clean": "npm run clean --workspaces --if-present",
+    "clean": "rm -rf build dist",
     "build": "npm run build --workspace=argon2 --workspace=chacha20 && npm run build --workspace=kdbx && npm run build --workspace=pages",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "biome check .",

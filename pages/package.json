@@ -7,6 +7,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test 'tests/**/*.test.ts'",
-    "build": "node --experimental-strip-types ../tools/build/bundle-iife/src/index.ts 0x67/bundle-iife.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts 0x67/build.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts router/build.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts index/build.json"
+    "build": "tsc --project tsconfig.build.json && node --experimental-strip-types ../tools/build/bundle-iife/src/index.ts 0x67/bundle-iife.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts 0x67/build.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts router/build.json && node --experimental-strip-types ../tools/build/inliner/src/index.ts index/build.json"
   }
 }

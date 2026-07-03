@@ -53,13 +53,18 @@ jobs:
             exit 1
           fi
 
-      # The inliner prints sha256:<hex> to stdout for each built file.
-      # CNAME is copied verbatim; its checksum is surfaced in the step summary.
-      # Note: this does not re-run the bundler — deps.js is committed source,
-      # kept current by `npm run build` in the CI pipeline on every push/PR.
+      # The root build script builds argon2 and chacha20, then kdbx, then
+      # pages, in that dependency order, writing all intermediate output to
+      # build/ and the final distributables to dist/ — see ci.yml Step 6.
+      # Neither directory is committed, so this rebuild from source is the
+      # only place dist/*.html come from; there's nothing to reuse from CI.
+      # The inliner prints sha256:<hex> to stdout for each built file; the
+      # loop below re-runs it to capture that for the summary. CNAME is
+      # copied verbatim; its checksum is computed separately since it isn't
+      # inlined.
       - name: Build distributables
         run: |
-          mkdir -p dist
+          npm run build
           cp pages/CNAME dist/CNAME
 
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"

@@ -95,7 +95,7 @@ flowchart TD
     TAG --> AREL["release.yml"]
     AREL --> CI3["Lint · type check · test"]
     CI3 --> VER2["Verify tag = package.json version"]
-    VER2 --> BUILD["Copy CNAME; run the inliner\nfor each page (deps.js is committed\nsource, kept fresh by CI's build step)\nOutputs: 0x67.html\nrouter.html\nindex.html · CNAME"]
+    VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html\nrouter.html\nindex.html · CNAME"]
     BUILD --> ATTEST["Attest all four files\nactions/attest-build-provenance\nSigns to Sigstore transparency log"]
     ATTEST --> GHREL["Create GitHub release\nUpload all four files\nPublish checksums in release notes"]
     GHREL --> TOKEN["Generate short-lived App token\nscoped to the deploy repo"]

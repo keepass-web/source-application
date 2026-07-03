@@ -10,7 +10,7 @@
  *          compress → encrypt → chunk → prepend header + SHA-256 + HMAC (4.x).
  */
 
-import { ChaCha20 } from '../../chacha20/dist/src/index.js';
+import { ChaCha20 } from '../../../build/packages/chacha20/src/index.js';
 import {
   bytesEqual,
   bytesEqualConstantTime,

@@ -5,12 +5,10 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "rootDir": ".",
-    "outDir": "../../build/packages/kdbx",
-    "declaration": true,
-    "rewriteRelativeImportExtensions": true,
+    "outDir": "../build/pages",
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["*/page.ts", "*/globals.d.ts"]
 }

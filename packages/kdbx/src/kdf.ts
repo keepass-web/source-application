@@ -7,7 +7,7 @@
  *   built-in functions are AES-KDF, Argon2d, and Argon2id.
  */
 
-import { type Argon2Type, argon2 } from '../../argon2/dist/src/index.js';
+import { type Argon2Type, argon2 } from '../../../build/packages/argon2/src/index.js';
 import { bytesEqual } from './bytes.ts';
 import { Argon2Version, KdfId, KdfParam } from './constants.ts';
 import { aesKdfTransform } from './crypto.ts';

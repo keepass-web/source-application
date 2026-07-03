@@ -76,7 +76,7 @@ jobs:
 
       # Step 6 — Build distributables
       # The root build script builds argon2 and chacha20, then kdbx, then pages,
-      # in that dependency order — pages' bundler reads their compiled dist/
+      # in that dependency order — pages' bundler reads their compiled build/
       # output, so they must exist first.
       - name: Build distributables
         run: npm run build

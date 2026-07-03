@@ -10,12 +10,12 @@ See [SPEC.md][spec].
 
 ## Usage
 
-Not published — this package isn't consumed through the npm registry at all. It's bundled into `pages/0x67` (see that page's `bundle-iife.json`), and imports [`chacha20`][chacha20] (ChaCha20/Salsa20) and [`argon2`][argon2] (Argon2d/Argon2id) by relative path from their built `dist/` output. AES, HMAC, SHA, and GZip come from WebCrypto and the Web Streams compression API, so the package is isomorphic (browser and Node) and otherwise dependency-free.
+Not published — this package isn't consumed through the npm registry at all. It's bundled into `pages/0x67` (see that page's `bundle-iife.json`), and imports [`chacha20`][chacha20] (ChaCha20/Salsa20) and [`argon2`][argon2] (Argon2d/Argon2id) by relative path from their compiled output in `build/packages/`. AES, HMAC, SHA, and GZip come from WebCrypto and the Web Streams compression API, so the package is isomorphic (browser and Node) and otherwise dependency-free.
 
-The example below assumes you've built this package (`npm run build`) and are importing its compiled output directly, e.g. from a sibling directory:
+The example below assumes you've built this package (`npm run build`) and are importing its compiled output directly from a `packages/<name>/src/` file elsewhere in this repo — the same relative depth `packages/kdbx/src` itself uses to import `chacha20` and `argon2` (see `kdf.ts`, `kdbx.ts`, `protected-stream.ts`):
 
 ```ts
-import { Kdbx, Credentials, createEntry, appendChild, getText, getChild } from './kdbx/dist/src/index.js';
+import { Kdbx, Credentials, createEntry, appendChild, getText, getChild } from '../../../build/packages/kdbx/src/index.js';
 
 // Create a new KDBX 4.x database (ChaCha20 + Argon2id by default).
 const credentials = Credentials.fromPassword('correct horse battery staple');

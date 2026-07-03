@@ -50,7 +50,7 @@ git push --follow-tags
 2. Installs dependencies (`npm ci` — every hash verified against `package-lock.json`)
 3. Runs lint, type checking, and tests
 4. Guards that the tag matches the `package.json` version
-5. Copies `CNAME` and runs the inliner for each page. This does *not* re-run the bundler — `pages/0x67/deps.js` is committed source, kept current by the CI pipeline's `npm run build` step on every push and pull request, not regenerated at release time
+5. Runs the full build from source — compiling `packages/*` and `pages/*/page.ts`, bundling, then inlining each page — and copies `CNAME`. Nothing under `build/` or `dist/` is committed, so this is the only place the release's distributables come from
 6. Attests each using `actions/attest-build-provenance`, writing a signed SLSA provenance record to the Sigstore transparency log
 7. Creates the GitHub release and uploads all distributables
 8. Generates a short-lived App token scoped to the deploy repo and triggers its Deploy workflow
