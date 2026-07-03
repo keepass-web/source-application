@@ -39,6 +39,18 @@ docs/                this document, plus the pipeline, release, and reproducibil
 
 Each package under `packages/` is a separate npm workspace with its own `build`/`typecheck`/`test` scripts; the root scripts above run across all of them.
 
+### Test coverage
+
+Every workspace's `test` script runs with `node:test`'s built-in coverage (`--experimental-test-coverage`) and fails the run if line, branch, or function coverage falls short of 100% (`--test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100`) — matching the 100%-coverage bar in [AGENTS.md][agents]. `npm test` failing on a coverage shortfall is expected, not a bug in the tooling.
+
+One thing to know about how this works: node:test's coverage only reports on files V8 actually loads during the run. A source file with zero tests doesn't show up as 0% — it doesn't show up at all, so the percentage is computed only over what *is* loaded, and a completely untested file can't fail the threshold. Every workspace with source files therefore has a `tests/coverage.test.ts` that imports every file under `src/` (or the package's other module directories) for exactly this reason: once a file is loaded, its untested lines/branches/functions are visible and do fail the threshold like anywhere else.
+
+Two kinds of files can't be handled by that blanket import, and are excluded on purpose rather than silently:
+
+- **CLI entry points** (`tools/build/inliner/src/index.ts`, `tools/build/bundle-iife/src/index.ts`) call `process.exit()` at module scope on the no-args path. Unlike a thrown exception, `process.exit()` can't be caught, so force-importing them would kill the whole test run. They're run as subprocesses instead (see each tool's `tests/*.test.ts`); node:test's coverage collector picks up subprocess coverage automatically via `NODE_V8_COVERAGE`, so this still counts them.
+- **`pages/0x67/page.ts`** calls real DOM APIs at module scope and is left to throw when force-imported under plain Node (no DOM available) — see `pages/tests/coverage.test.ts`. The throw is expected and intentional: V8 still records coverage for whatever ran before it, so the file shows up in the report at its real, low percentage instead of vanishing. Actually testing it needs a DOM implementation for tests (e.g. jsdom/happy-dom), which isn't set up yet — a real decision for the team, not something routed around here.
+- **`tools/build/ruleset/check.js`** is excluded from `tools/build`'s coverage entirely (not in its `--test-coverage-include` globs): it's a live script that calls the GitHub API and `process.exit()`, not a pure module, so it isn't safely importable either, and it currently has no automated tests at all.
+
 ### Branch protection
 
 Pull requests are required on `main`; direct pushes are blocked. See [Branch protection rulesets][rulesets] for the exact requirements.
@@ -53,3 +65,4 @@ This project runs on an open-core model: the core app is MIT-licensed and always
 [rulesets]: RULESETS.md
 [sponsors]: https://github.com/sponsors/keepass-web
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
+[agents]: ../AGENTS.md
