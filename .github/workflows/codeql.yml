@@ -2,13 +2,15 @@ name: CodeQL
 
 # Runs independently of ci.yml so that code scanning results exist for the
 # `code_scanning` branch protection rule to evaluate on every pull request —
-# see docs/RULESETS.md. No schedule trigger: every commit that reaches main
-# goes through this same workflow already (via push and pull_request), so
-# there's no unscanned code for a periodic re-scan to catch.
+# see docs/RULESETS.md. Also scheduled weekly against main (scheduled runs
+# check out the default branch) so newly published CodeQL queries get run
+# against code that otherwise hasn't changed since its last scan.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '24 2 * * 1'
 
 # No permissions by default. The job declares only what it needs.
 permissions: {}
