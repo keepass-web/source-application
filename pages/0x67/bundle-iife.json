@@ -1,0 +1,41 @@
+{
+  "packagesDir": "../../build/packages",
+  "output": "../../build/pages/0x67/deps.js",
+  "files": [
+    "chacha20/src/index.js",
+
+    "argon2/src/blake2b.js",
+    "argon2/src/argon2.js",
+    "argon2/src/index.js",
+
+    "kdbx/src/bytes.js",
+    "kdbx/src/xml.js",
+    "kdbx/src/constants.js",
+    "kdbx/src/variant-dictionary.js",
+    "kdbx/src/crypto.js",
+    "kdbx/src/key.js",
+    "kdbx/src/credentials.js",
+    "kdbx/src/protected-stream.js",
+    "kdbx/src/hashed-block-stream.js",
+    "kdbx/src/hmac-block-stream.js",
+    "kdbx/src/header.js",
+    "kdbx/src/inner-header.js",
+    "kdbx/src/kdf.js",
+    "kdbx/src/model.js",
+    "kdbx/src/kdbx.js"
+  ],
+  "exports": [
+    "Kdbx",
+    "Credentials",
+    "ProtectedValue",
+    "getChildren",
+    "getChild",
+    "getText",
+    "getAttribute",
+    "setAttribute",
+    "createElement",
+    "appendChild",
+    "createEntry",
+    "createGroup"
+  ]
+}

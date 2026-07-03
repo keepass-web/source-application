@@ -16,12 +16,13 @@
     "typescript": "6.0.3"
   },
   "scripts": {
-    "clean": "npm run clean --workspaces --if-present",
-    "build": "npm run build --workspace=argon2 --workspace=chacha20 && npm run build --workspace=kdbx && npm run build --workspace=pages",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "rm -rf build dist",
+    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20",
+    "build": "npm run build:deps && npm run build --workspace=kdbx && npm run build --workspace=pages",
+    "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run build:deps && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.18.0"

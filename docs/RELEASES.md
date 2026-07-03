@@ -4,9 +4,9 @@
 
 | File | Purpose |
 |------|---------|
-| `keepass-web-0x67.html` | The app itself — KDBX 3.1 and 4.x database support |
-| `keepass-web-router.html` | Identifies a database's KDBX format and links to the right app version |
 | `index.html` | Landing page |
+| `router.html` | Identifies a database's KDBX format and links to the right app version |
+| `0x67.html` | The app itself, for KDBX 3.1 and 4.x database support |
 | `CNAME` | The custom domain GitHub Pages serves the deploy from |
 
 Every file served from [keepass-web.app][app] is a verbatim copy of a file published in a GitHub release — nothing is created, modified, or synthesized during deployment. A copy downloaded from Releases and a copy served from the hosted site are the same bytes; see [Reproducing a build][reproducing] to verify that yourself.
@@ -50,7 +50,7 @@ git push --follow-tags
 2. Installs dependencies (`npm ci` — every hash verified against `package-lock.json`)
 3. Runs lint, type checking, and tests
 4. Guards that the tag matches the `package.json` version
-5. Copies `CNAME` and runs the inliner for each page. This does *not* re-run the bundler — `pages/keepass-web-0x67/deps.js` is committed source, kept current by the CI pipeline's `npm run build` step on every push and pull request, not regenerated at release time
+5. Runs the full build from source — compiling `packages/*` and `pages/*/page.ts`, bundling, then inlining each page — and copies `CNAME`. Nothing under `build/` or `dist/` is committed, so this is the only place the release's distributables come from
 6. Attests each using `actions/attest-build-provenance`, writing a signed SLSA provenance record to the Sigstore transparency log
 7. Creates the GitHub release and uploads all distributables
 8. Generates a short-lived App token scoped to the deploy repo and triggers its Deploy workflow
@@ -87,6 +87,23 @@ gh attestation verify <file> --repo keepass-web/source-application
 ```
 
 This queries the Sigstore transparency log and confirms the attestation signature matches a run of this repo's Release workflow. A file not produced by that workflow cannot be verified.
+
+Everything from the build onward is mechanical and independently checkable — the one link in this chain that's a matter of human trust rather than cryptographic proof is the source code itself:
+
+```mermaid
+flowchart LR
+    SRC["Source code<br/>(human review)"]
+    SRC --> BUILD2["Release workflow<br/>builds distributables"]
+    BUILD2 --> SIG["Sigstore<br/>transparency log<br/>attestation signed"]
+    SIG --> REL["GitHub release<br/>artifacts + checksums"]
+    REL --> VER3["Deploy workflow<br/>gh attestation verify"]
+    VER3 --> SITE["keepass-web.app<br/>identical files"]
+    REL --> LOCAL["Local download<br/>identical files"]
+
+    SITE -. "same bytes" .- LOCAL
+```
+
+A file on keepass-web.app and a file downloaded from the GitHub release are the same bytes. Trust established by auditing the source transfers to both without qualification, because every step after that is verified by attestation rather than taken on faith.
 
 [app]: https://keepass-web.app/
 [reproducing]: REPRODUCING.md

@@ -23,9 +23,9 @@ function stripModuleSyntax(src: string): string {
 /**
  * Reads the config at `configPath`, concatenates the listed dist files into a
  * single IIFE, hoists the named exports onto `globalThis`, writes the output
- * file, and returns the number of files bundled.
+ * file, and returns the number of files bundled and the resolved output path.
  */
-export function bundle(configPath: string): number {
+export function bundle(configPath: string): { count: number; outputPath: string } {
   const base = dirname(resolve(configPath));
   const config: BundleConfig = JSON.parse(readFileSync(configPath, 'utf8')) as BundleConfig;
   const nm = resolve(base, config.packagesDir);
@@ -51,5 +51,5 @@ export function bundle(configPath: string): number {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, parts.join('\n'), 'utf8');
 
-  return config.files.length;
+  return { count: config.files.length, outputPath };
 }

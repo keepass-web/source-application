@@ -9,5 +9,5 @@ if (!configPath) {
   process.exit(1);
 }
 
-const count = bundle(configPath);
-process.stdout.write(`Bundled ${count} files to ${configPath.replace(/\/bundle-iife\.json$/, '/deps.js')}\n`);
+const { count, outputPath } = bundle(configPath);
+process.stdout.write(`Bundled ${count} files to ${outputPath}\n`);

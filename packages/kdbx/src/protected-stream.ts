@@ -8,7 +8,7 @@
  * XORed against it in document order, so the order of processing matters.
  */
 
-import { ChaCha20, Salsa20 } from '../../chacha20/dist/src/index.js';
+import { ChaCha20, Salsa20 } from '../../../build/packages/chacha20/src/index.js';
 import { InnerStreamCipher, SALSA20_NONCE } from './constants.ts';
 import { sha256, sha512 } from './crypto.ts';
 

@@ -1,7 +1,13 @@
 name: CI
 
+# push runs CI for commits landing directly on main (e.g. a squash merge);
+# pull_request runs it for every commit on a PR branch, which is what the
+# branch protection ruleset actually requires before merge. Scoping push to
+# main avoids running the same commit through CI twice — once as a bare
+# push and once as a pull_request synchronize event — while a PR is open.
 on:
   push:
+    branches: [main]
   pull_request:
 
 # No permissions by default. Each job declares only what it needs.
@@ -76,7 +82,7 @@ jobs:
 
       # Step 6 — Build distributables
       # The root build script builds argon2 and chacha20, then kdbx, then pages,
-      # in that dependency order — pages' bundler reads their compiled dist/
+      # in that dependency order — pages' bundler reads their compiled build/
       # output, so they must exist first.
       - name: Build distributables
         run: npm run build
@@ -85,10 +91,13 @@ jobs:
       # Surfaces each distributable's checksum in the workflow summary. For
       # tagged releases, these values are attached to the GitHub release as the
       # published checksums that third parties verify against.
+      #
+      # The inliner prints "sha256:<hex>  <output path>"; only the first
+      # whitespace-separated field is the checksum itself.
       - name: Record checksums
         run: |
-          printf '### Distributable checksums\n' >> "$GITHUB_STEP_SUMMARY"
-          for page in index keepass-web-router keepass-web-0x67; do
-            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
-            printf '- `%s.html`: `%s`\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
+          printf -- '### Distributable checksums\n' >> "$GITHUB_STEP_SUMMARY"
+          for page in index router 0x67; do
+            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
+            printf -- '- `%s.html`: `%s`\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done

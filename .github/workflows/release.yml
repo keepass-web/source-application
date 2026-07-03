@@ -53,19 +53,25 @@ jobs:
             exit 1
           fi
 
-      # The inliner prints sha256:<hex> to stdout for each built file.
-      # CNAME is copied verbatim; its checksum is surfaced in the step summary.
-      # Note: this does not re-run the bundler — deps.js is committed source,
-      # kept current by `npm run build` in the CI pipeline on every push/PR.
+      # The root build script builds argon2 and chacha20, then kdbx, then
+      # pages, in that dependency order, writing all intermediate output to
+      # build/ and the final distributables to dist/ — see ci.yml Step 6.
+      # Neither directory is committed, so this rebuild from source is the
+      # only place dist/*.html come from; there's nothing to reuse from CI.
+      # The inliner prints "sha256:<hex>  <output path>" to stdout for each
+      # built file; the loop below re-runs it and keeps only the first
+      # whitespace-separated field (the checksum) for the summary. CNAME is
+      # copied verbatim; its checksum is computed separately since it isn't
+      # inlined.
       - name: Build distributables
         run: |
-          mkdir -p dist
+          npm run build
           cp pages/CNAME dist/CNAME
 
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
 
-          for page in index keepass-web-router keepass-web-0x67; do
-            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json")
+          for page in index router 0x67; do
+            checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
             printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done
 
@@ -75,8 +81,8 @@ jobs:
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
         with:
           subject-path: |
-            dist/keepass-web-0x67.html
-            dist/keepass-web-router.html
+            dist/0x67.html
+            dist/router.html
             dist/index.html
             dist/CNAME
 
@@ -87,14 +93,14 @@ jobs:
           notes="### Distributable checksums"$'\n'
           notes+="| File | SHA-256 |"$'\n'
           notes+="|------|---------|"$'\n'
-          for file in dist/index.html dist/keepass-web-router.html dist/keepass-web-0x67.html dist/CNAME; do
+          for file in dist/index.html dist/router.html dist/0x67.html dist/CNAME; do
             notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
           done
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes "${notes}" \
-            dist/keepass-web-0x67.html \
-            dist/keepass-web-router.html \
+            dist/0x67.html \
+            dist/router.html \
             dist/index.html \
             dist/CNAME
 

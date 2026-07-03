@@ -1,0 +1,6 @@
+{
+  "template": "page.html",
+  "styles": ["page.css"],
+  "scripts": ["../../build/pages/0x67/deps.js", "../../build/pages/0x67/page.js"],
+  "output": "../../dist/0x67.html"
+}

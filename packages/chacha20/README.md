@@ -14,7 +14,7 @@ See [SPEC.md][spec].
 
 ## Usage
 
-Not published — this package isn't consumed through the npm registry at all. It's imported by relative path from its built `dist/` output, currently by `packages/kdbx` (see `kdbx.ts` and `protected-stream.ts`). If you want to use it outside this repo, copy the package or import its `src/` directly; there's nothing else it depends on.
+Not published — this package isn't consumed through the npm registry at all. It's imported by relative path from its compiled output in `build/packages/chacha20`, currently by `packages/kdbx` (see `kdbx.ts` and `protected-stream.ts`). If you want to use it outside this repo, copy the package or import its `src/` directly; there's nothing else it depends on.
 
 ## Development
 

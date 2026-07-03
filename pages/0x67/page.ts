@@ -1,54 +1,71 @@
-'use strict';
-
 // ============================================================
 // Application state
 // ============================================================
 
-const app = {
-  file: null,          // ArrayBuffer of the loaded .kdbx file
-  filename: '',        // original filename for download
-  db: null,            // Kdbx instance
-  currentGroup: null,  // XmlElement — currently selected group
-  currentEntry: null,  // XmlElement — entry being viewed/edited
+interface AppState {
+  file: ArrayBuffer | null;
+  filename: string;
+  db: Kdbx | null;
+  currentGroup: XmlElement | null;
+  currentEntry: XmlElement | null;
+  searchQuery: string;
+  clipboardTimeout: number; // seconds
+  dirty: boolean; // unsaved edits exist
+}
+
+const app: AppState = {
+  file: null,
+  filename: '',
+  db: null,
+  currentGroup: null,
+  currentEntry: null,
   searchQuery: '',
-  clipboardTimeout: 30, // seconds
-  dirty: false,         // unsaved edits exist
-  deleteCallback: null, // set before openConfirmDelete
+  clipboardTimeout: 30,
+  dirty: false,
 };
 
 // ============================================================
 // DOM helpers
 // ============================================================
 
-function byId(id) {
-  return document.getElementById(id);
+/** Unwrap a possibly-missing lookup, or fail loudly. The app's screens are
+ * generated from its own templates, so a missing element means a real bug,
+ * not a state to handle gracefully. */
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('expected element not found');
+  }
+  return value;
+}
+
+function byId<T extends HTMLElement = HTMLElement>(id: string): T {
+  return must(document.getElementById(id) as T | null);
 }
 
 /** Clone a <template> and return the DocumentFragment. */
-function cloneTemplate(id) {
-  return byId(id).content.cloneNode(true);
+function cloneTemplate(id: string): DocumentFragment {
+  return byId<HTMLTemplateElement>(id).content.cloneNode(true) as DocumentFragment;
 }
 
 /** Replace the #root content with the given fragment. */
-function setRoot(fragment) {
+function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
   root.appendChild(fragment);
 }
 
 /** Shorthand querySelector on #root. */
-function qs(selector) {
-  return byId('root').querySelector(selector);
+function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
+  return must(byId('root').querySelector<T>(selector));
 }
 
 // ============================================================
 // kdbx XML model helpers
-// (These functions — getChildren, getChild, getText, etc. —
-//  are declared in deps.js from the kdbx library and are
-//  in scope as globals in the concatenated script.)
+// (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
+//  injected as globals by deps.js in the concatenated script — see that file.)
 // ============================================================
 
-function entryField(entry, key) {
+function entryField(entry: XmlElement, key: string): string {
   for (const string of getChildren(entry, 'String')) {
     const k = getChild(string, 'Key');
     const v = getChild(string, 'Value');
@@ -57,22 +74,17 @@ function entryField(entry, key) {
   return '';
 }
 
-function entryTitle(entry) {
+function entryTitle(entry: XmlElement): string {
   return entryField(entry, 'Title') || '(no title)';
 }
 
-function groupName(group) {
+function groupName(group: XmlElement): string {
   const n = getChild(group, 'Name');
   return n ? getText(n) : '(unnamed)';
 }
 
-function groupUUID(group) {
-  const u = getChild(group, 'UUID');
-  return u ? getText(u) : '';
-}
-
 /** Find the group that directly contains the given entry. */
-function findEntryParent(rootGroup, entry) {
+function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null {
   for (const e of getChildren(rootGroup, 'Entry')) {
     if (e === entry) return rootGroup;
   }
@@ -83,9 +95,13 @@ function findEntryParent(rootGroup, entry) {
   return null;
 }
 
+interface EntryWithGroup {
+  entry: XmlElement;
+  group: XmlElement;
+}
+
 /** Collect every entry in the tree, paired with its containing group. */
-function collectAllEntries(group, results) {
-  if (!results) results = [];
+function collectAllEntries(group: XmlElement, results: EntryWithGroup[] = []): EntryWithGroup[] {
   for (const entry of getChildren(group, 'Entry')) {
     results.push({ entry, group });
   }
@@ -96,8 +112,11 @@ function collectAllEntries(group, results) {
 }
 
 /** Return the group path from rootGroup to target as an array of names. */
-function groupPathTo(rootGroup, target, path) {
-  if (!path) path = [];
+function groupPathTo(
+  rootGroup: XmlElement,
+  target: XmlElement,
+  path: string[] = [],
+): string[] | null {
   const thisPath = path.concat(groupName(rootGroup));
   if (rootGroup === target) return thisPath;
   for (const sub of getChildren(rootGroup, 'Group')) {
@@ -111,9 +130,9 @@ function groupPathTo(rootGroup, target, path) {
 // Clipboard
 // ============================================================
 
-let clipboardTimer = null;
+let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function copyToClipboard(text) {
+async function copyToClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     if (clipboardTimer) clearTimeout(clipboardTimer);
@@ -130,15 +149,15 @@ async function copyToClipboard(text) {
 // Screen: Upload
 // ============================================================
 
-function showUpload() {
+function showUpload(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-upload'));
 
   const dropZone = qs('#drop-zone');
-  const fileInput = qs('#file-input');
+  const fileInput = qs<HTMLInputElement>('#file-input');
 
-  fileInput.addEventListener('change', (e) => {
-    const f = e.target.files[0];
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
     if (f) handleFile(f);
   });
 
@@ -154,12 +173,12 @@ function showUpload() {
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
+    const f = e.dataTransfer?.files[0];
     if (f) handleFile(f);
   });
 }
 
-async function handleFile(file) {
+async function handleFile(file: File): Promise<void> {
   app.filename = file.name;
   app.file = await file.arrayBuffer();
   showUnlock();
@@ -169,14 +188,15 @@ async function handleFile(file) {
 // Screen: Unlock
 // ============================================================
 
-function showUnlock() {
+function showUnlock(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-unlock'));
 
   qs('#db-filename').textContent = app.filename;
-  qs('#master-password').focus();
+  const passwordInput = qs<HTMLInputElement>('#master-password');
+  passwordInput.focus();
 
-  let keyfileData = null;
+  let keyfileData: Uint8Array | null = null;
 
   qs('[data-action="back"]').addEventListener('click', () => {
     app.file = null;
@@ -184,8 +204,9 @@ function showUnlock() {
     showUpload();
   });
 
-  qs('#keyfile-input').addEventListener('change', async (e) => {
-    const f = e.target.files[0];
+  const keyfileInput = qs<HTMLInputElement>('#keyfile-input');
+  keyfileInput.addEventListener('change', async () => {
+    const f = keyfileInput.files?.[0];
     if (f) {
       keyfileData = new Uint8Array(await f.arrayBuffer());
       qs('#keyfile-label').textContent = f.name;
@@ -194,27 +215,28 @@ function showUnlock() {
 
   qs('#unlock-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn = qs('#unlock-btn');
+    const btn = qs<HTMLButtonElement>('#unlock-btn');
     const errorEl = qs('#unlock-error');
     btn.disabled = true;
     btn.textContent = 'Unlocking…';
     errorEl.hidden = true;
 
     try {
-      const input = { password: qs('#master-password').value };
+      const input: CredentialsInput = { password: passwordInput.value };
       if (keyfileData) input.keyFile = keyfileData;
       const creds = new Credentials(input);
-      app.db = await Kdbx.load(new Uint8Array(app.file), creds);
+      app.db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
       app.currentGroup = app.db.getRootGroup();
       app.searchQuery = '';
       app.dirty = false;
       showEntryList();
     } catch (err) {
-      errorEl.textContent = err.message || 'Incorrect credentials or corrupt file.';
+      errorEl.textContent =
+        err instanceof Error ? err.message : 'Incorrect credentials or corrupt file.';
       errorEl.hidden = false;
       btn.disabled = false;
       btn.textContent = 'Unlock';
-      qs('#master-password').focus();
+      passwordInput.focus();
     }
   });
 }
@@ -223,7 +245,7 @@ function showUnlock() {
 // Screen: Entry List
 // ============================================================
 
-function showEntryList() {
+function showEntryList(): void {
   document.body.classList.add('app-mode');
   setRoot(cloneTemplate('tpl-entry-list'));
   renderGroupTree();
@@ -231,25 +253,26 @@ function showEntryList() {
   wireEntryListEvents();
 }
 
-function renderGroupTree() {
+function renderGroupTree(): void {
   const container = qs('#group-tree');
   container.innerHTML = '';
   const ul = document.createElement('ul');
   ul.className = 'group-list';
-  ul.appendChild(buildGroupNode(app.db.getRootGroup()));
+  ul.appendChild(buildGroupNode(must(app.db).getRootGroup()));
   container.appendChild(ul);
 }
 
-function buildGroupNode(group) {
+function buildGroupNode(group: XmlElement): HTMLLIElement {
   const li = document.createElement('li');
 
   const btn = document.createElement('button');
-  btn.className = 'group-btn' + (group === app.currentGroup ? ' active' : '');
+  btn.type = 'button';
+  btn.className = `group-btn${group === app.currentGroup ? ' active' : ''}`;
   btn.textContent = groupName(group);
   btn.addEventListener('click', () => {
     app.currentGroup = group;
     app.searchQuery = '';
-    const searchInput = qs('#search-input');
+    const searchInput = document.querySelector<HTMLInputElement>('#search-input');
     if (searchInput) searchInput.value = '';
     renderGroupTree();
     renderEntryPanel();
@@ -268,17 +291,17 @@ function buildGroupNode(group) {
   return li;
 }
 
-function renderEntryPanel() {
+function renderEntryPanel(): void {
   const panelTitle = qs('#panel-title');
   const listEl = qs('#entry-list');
   listEl.innerHTML = '';
 
-  let rows;
+  let rows: EntryWithGroup[];
 
   if (app.searchQuery) {
     const q = app.searchQuery.toLowerCase();
     panelTitle.textContent = `"${app.searchQuery}"`;
-    const all = collectAllEntries(app.db.getRootGroup());
+    const all = collectAllEntries(must(app.db).getRootGroup());
     rows = all.filter(({ entry }) => {
       for (const string of getChildren(entry, 'String')) {
         const v = getChild(string, 'Value');
@@ -287,10 +310,11 @@ function renderEntryPanel() {
       return false;
     });
   } else {
-    panelTitle.textContent = groupName(app.currentGroup);
-    rows = getChildren(app.currentGroup, 'Entry').map((entry) => ({
+    const currentGroup = must(app.currentGroup);
+    panelTitle.textContent = groupName(currentGroup);
+    rows = getChildren(currentGroup, 'Entry').map((entry) => ({
       entry,
-      group: app.currentGroup,
+      group: currentGroup,
     }));
   }
 
@@ -307,7 +331,7 @@ function renderEntryPanel() {
   }
 }
 
-function buildEntryRow(entry, group) {
+function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
   const div = document.createElement('div');
   div.className = 'entry-row';
 
@@ -319,7 +343,7 @@ function buildEntryRow(entry, group) {
   metaEl.className = 'entry-row-meta';
 
   if (app.searchQuery) {
-    const path = groupPathTo(app.db.getRootGroup(), group);
+    const path = groupPathTo(must(app.db).getRootGroup(), group);
     if (path) {
       const pathSpan = document.createElement('span');
       pathSpan.className = 'entry-row-path';
@@ -344,17 +368,21 @@ function buildEntryRow(entry, group) {
   return div;
 }
 
-function wireEntryListEvents() {
-  qs('#search-input').addEventListener('input', (e) => {
-    app.searchQuery = e.target.value.trim();
+function wireEntryListEvents(): void {
+  qs<HTMLInputElement>('#search-input').addEventListener('input', (e) => {
+    app.searchQuery = (e.target as HTMLInputElement).value.trim();
     renderEntryPanel();
   });
 
   qs('[data-action="lock"]').addEventListener('click', () => {
     Object.assign(app, {
-      db: null, file: null, filename: '',
-      currentGroup: null, currentEntry: null,
-      searchQuery: '', dirty: false,
+      db: null,
+      file: null,
+      filename: '',
+      currentGroup: null,
+      currentEntry: null,
+      searchQuery: '',
+      dirty: false,
     });
     showUpload();
   });
@@ -363,14 +391,14 @@ function wireEntryListEvents() {
 
   qs('[data-action="add-entry"]').addEventListener('click', () => {
     const newEntry = createEntry({ title: 'New Entry' });
-    appendChild(app.currentGroup, newEntry);
+    appendChild(must(app.currentGroup), newEntry);
     app.currentEntry = newEntry;
     app.dirty = true;
     showEntryEdit(true);
   });
 
   qs('[data-action="add-group"]').addEventListener('click', () => {
-    openNewGroupDialog(app.currentGroup, () => showEntryList());
+    openNewGroupDialog(must(app.currentGroup), () => showEntryList());
   });
 }
 
@@ -378,11 +406,11 @@ function wireEntryListEvents() {
 // Screen: Entry Detail
 // ============================================================
 
-function showEntryDetail() {
+function showEntryDetail(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-detail'));
 
-  const entry = app.currentEntry;
+  const entry = must(app.currentEntry);
   qs('#detail-title').textContent = entryTitle(entry);
 
   const fieldsEl = qs('#detail-fields');
@@ -410,7 +438,7 @@ function showEntryDetail() {
 
   qs('[data-action="delete"]').addEventListener('click', () => {
     openConfirmDelete(() => {
-      const parent = findEntryParent(app.db.getRootGroup(), entry);
+      const parent = findEntryParent(must(app.db).getRootGroup(), entry);
       if (parent) {
         parent.children = parent.children.filter((c) => c !== entry);
         app.dirty = true;
@@ -421,7 +449,7 @@ function showEntryDetail() {
   });
 }
 
-function buildDetailField(key, value, isProtected) {
+function buildDetailField(key: string, value: string, isProtected: boolean): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'detail-field';
 
@@ -433,7 +461,7 @@ function buildDetailField(key, value, isProtected) {
   valueWrap.className = 'detail-value-wrap';
 
   const valueSpan = document.createElement('span');
-  valueSpan.className = 'detail-value' + (isProtected ? ' protected' : '');
+  valueSpan.className = `detail-value${isProtected ? ' protected' : ''}`;
   valueSpan.textContent = isProtected ? '••••••••' : value;
 
   const actions = document.createElement('div');
@@ -441,6 +469,7 @@ function buildDetailField(key, value, isProtected) {
 
   if (isProtected) {
     const revealBtn = document.createElement('button');
+    revealBtn.type = 'button';
     revealBtn.className = 'icon-btn';
     revealBtn.title = 'Show / hide';
     revealBtn.textContent = '👁';
@@ -453,13 +482,16 @@ function buildDetailField(key, value, isProtected) {
   }
 
   const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
   copyBtn.className = 'icon-btn';
   copyBtn.title = 'Copy';
   copyBtn.textContent = '📋';
   copyBtn.addEventListener('click', async () => {
     await copyToClipboard(value);
     copyBtn.textContent = '✓';
-    setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+    setTimeout(() => {
+      copyBtn.textContent = '📋';
+    }, 1500);
   });
   actions.appendChild(copyBtn);
 
@@ -474,11 +506,11 @@ function buildDetailField(key, value, isProtected) {
 // Screen: Entry Edit
 // ============================================================
 
-function showEntryEdit(isNew) {
+function showEntryEdit(isNew: boolean): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-edit'));
 
-  const entry = app.currentEntry;
+  const entry = must(app.currentEntry);
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
 
   const fieldsEl = qs('#edit-fields');
@@ -501,7 +533,7 @@ function showEntryEdit(isNew) {
 
   qs('[data-action="cancel"]').addEventListener('click', () => {
     if (isNew) {
-      const parent = findEntryParent(app.db.getRootGroup(), entry);
+      const parent = findEntryParent(must(app.db).getRootGroup(), entry);
       if (parent) parent.children = parent.children.filter((c) => c !== entry);
       app.currentEntry = null;
       showEntryList();
@@ -511,11 +543,16 @@ function showEntryEdit(isNew) {
   });
 
   qs('[data-action="save"]').addEventListener('click', () => {
-    commitEdits(entry, fieldsEl, isNew);
+    commitEdits(entry, fieldsEl);
   });
 }
 
-function buildEditField(key, value, isProtected, removable) {
+function buildEditField(
+  key: string,
+  value: string,
+  isProtected: boolean,
+  removable: boolean,
+): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'edit-field';
   row.dataset.protected = isProtected ? '1' : '0';
@@ -562,16 +599,14 @@ function buildEditField(key, value, isProtected, removable) {
   return row;
 }
 
-function commitEdits(entry, fieldsEl, isNew) {
+function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
   // Remove all existing String children
-  entry.children = entry.children.filter(
-    (c) => !(c.type === 'element' && c.name === 'String')
-  );
+  entry.children = entry.children.filter((c) => !(c.type === 'element' && c.name === 'String'));
 
   // Write back from form
-  for (const row of fieldsEl.querySelectorAll('.edit-field')) {
-    const key = row.querySelector('.edit-key').value.trim();
-    const value = row.querySelector('.edit-value').value;
+  for (const row of fieldsEl.querySelectorAll<HTMLElement>('.edit-field')) {
+    const key = must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim();
+    const value = must(row.querySelector<HTMLInputElement>('.edit-value')).value;
     const protect = row.dataset.protected === '1';
     if (!key) continue;
 
@@ -594,16 +629,17 @@ function commitEdits(entry, fieldsEl, isNew) {
 // Dialog: Settings
 // ============================================================
 
-function openSettings() {
-  const dlg = byId('dlg-settings');
-  byId('clipboard-timeout').value = String(app.clipboardTimeout);
+function openSettings(): void {
+  const dlg = byId<HTMLDialogElement>('dlg-settings');
+  const timeoutInput = byId<HTMLInputElement>('clipboard-timeout');
+  timeoutInput.value = String(app.clipboardTimeout);
 
-  dlg.querySelector('[data-action="save-settings"]').onclick = () => {
-    const v = parseInt(byId('clipboard-timeout').value, 10);
-    if (!isNaN(v) && v >= 5) app.clipboardTimeout = v;
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
+    const v = Number.parseInt(timeoutInput.value, 10);
+    if (!Number.isNaN(v) && v >= 5) app.clipboardTimeout = v;
     dlg.close();
   };
-  dlg.querySelector('[data-action="close"]').onclick = () => dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
   dlg.showModal();
 }
 
@@ -611,25 +647,25 @@ function openSettings() {
 // Dialog: Save / Download
 // ============================================================
 
-function openSaveDialog() {
-  const dlg = byId('dlg-save');
+function openSaveDialog(): void {
+  const dlg = byId<HTMLDialogElement>('dlg-save');
 
-  dlg.querySelector('[data-action="download"]').onclick = async () => {
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]')).onclick = async () => {
     await downloadDatabase();
     dlg.close();
   };
 
   // Both close buttons (Later + ✕) dismiss
-  for (const btn of dlg.querySelectorAll('[data-action="close"]')) {
+  for (const btn of dlg.querySelectorAll<HTMLButtonElement>('[data-action="close"]')) {
     btn.onclick = () => dlg.close();
   }
 
   dlg.showModal();
 }
 
-async function downloadDatabase() {
-  const bytes = await app.db.save();
-  const blob = new Blob([bytes], { type: 'application/octet-stream' });
+async function downloadDatabase(): Promise<void> {
+  const bytes = await must(app.db).save();
+  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -645,14 +681,15 @@ async function downloadDatabase() {
 // Dialog: Confirm Delete
 // ============================================================
 
-function openConfirmDelete(callback) {
-  const dlg = byId('dlg-confirm-delete');
+function openConfirmDelete(callback: () => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
 
-  dlg.querySelector('[data-action="confirm-delete"]').onclick = () => {
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]')).onclick = () => {
     dlg.close();
     callback();
   };
-  dlg.querySelector('[data-action="cancel-delete"]').onclick = () => dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-delete"]')).onclick = () =>
+    dlg.close();
 
   dlg.showModal();
 }
@@ -661,28 +698,34 @@ function openConfirmDelete(callback) {
 // Dialog: New Group
 // ============================================================
 
-function openNewGroupDialog(parentGroup, onCreated) {
-  const dlg = byId('dlg-new-group');
-  const nameInput = byId('new-group-name');
+function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-new-group');
+  const nameInput = byId<HTMLInputElement>('new-group-name');
   nameInput.value = '';
 
-  dlg.querySelector('[data-action="create-group"]').onclick = () => {
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).onclick = () => {
     const name = nameInput.value.trim();
-    if (!name) { nameInput.focus(); return; }
+    if (!name) {
+      nameInput.focus();
+      return;
+    }
     const newGroup = createGroup(name);
     appendChild(parentGroup, newGroup);
     app.currentGroup = newGroup;
     app.dirty = true;
     dlg.close();
-    if (onCreated) onCreated();
+    onCreated();
   };
 
-  dlg.querySelector('[data-action="cancel-group"]').onclick = () => dlg.close();
-  dlg.querySelector('[data-action="close"]').onclick = () => dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-group"]')).onclick = () =>
+    dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
 
   // Allow Enter to submit
   nameInput.onkeydown = (e) => {
-    if (e.key === 'Enter') dlg.querySelector('[data-action="create-group"]').click();
+    if (e.key === 'Enter') {
+      must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).click();
+    }
   };
 
   dlg.showModal();

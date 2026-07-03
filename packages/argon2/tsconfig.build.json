@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "rootDir": ".",
-    "outDir": "dist",
+    "outDir": "../../build/packages/argon2",
     "declaration": true,
     "rewriteRelativeImportExtensions": true,
     "noUncheckedIndexedAccess": true,
