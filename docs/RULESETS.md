@@ -32,10 +32,10 @@ The `ruleset` CI job calls `tools/build/ruleset/check.js`, which:
 3. Calls the rulesets endpoint to find any disabled rulesets that apply to the default branch, and collects their rule types.
 4. For each required rule type:
    - **Active** — present in an active ruleset → pass
-   - **Disabled** — present only in a disabled ruleset → warning printed, CI continues
+   - **Disabled** — present only in a disabled ruleset → CI fails immediately
    - **Absent** — not in any ruleset → CI fails immediately
-5. Fails with a clear message listing any absent rules.
+5. Fails with a clear message listing any absent and any disabled rules.
 
 The check runs before the rest of the pipeline and blocks it on failure.
 
-Rulesets may be temporarily disabled during high-churn periods (e.g. initial development). In that state the check warns but does not fail, so CI remains useful. Re-enable the ruleset before any code reaches a stable state.
+Rulesets must remain active at all times, including during high-churn periods (e.g. initial development). Disabling a ruleset — even temporarily — fails CI immediately; re-enable it in Settings → Rules → Rulesets to unblock the pipeline.

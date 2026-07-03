@@ -4,7 +4,7 @@
  *
  * Outcomes per required rule type:
  *   - Present and active   → pass (exit 0)
- *   - Present but disabled → warn (exit 0); re-enable when churn period ends
+ *   - Present but disabled → fail (exit 1)
  *   - Absent entirely      → fail (exit 1)
  *
  * Requires: gh CLI authenticated via GITHUB_TOKEN with contents:read (the
@@ -110,14 +110,17 @@ if (missing.length > 0) {
     `Branch '${defaultBranch}' is missing required rules entirely: ${missing.join(', ')}\n` +
       'Import tools/build/ruleset/ruleset.json via Settings → Rules → Rulesets → Import and re-run CI.\n',
   );
-  process.exit(1);
 }
 
 if (disabled.length > 0) {
-  process.stdout.write(
-    `Warning: required rules present but disabled on '${defaultBranch}': ${disabled.join(', ')}\n` +
-      'Re-enable the ruleset in Settings → Rules → Rulesets when the high-churn period ends.\n',
+  process.stderr.write(
+    `Branch '${defaultBranch}' has required rules present but disabled: ${disabled.join(', ')}\n` +
+      'Re-enable the ruleset in Settings → Rules → Rulesets and re-run CI.\n',
   );
+}
+
+if (missing.length > 0 || disabled.length > 0) {
+  process.exit(1);
 }
 
 if (active.length > 0) {
