@@ -2,5 +2,5 @@
   "template": "page.html",
   "styles": ["page.css"],
   "scripts": ["deps.js", "page.js"],
-  "output": "../../dist/keepass-web-0x67.html"
+  "output": "../../dist/0x67.html"
 }

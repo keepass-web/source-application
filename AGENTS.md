@@ -8,6 +8,10 @@ The org-level [philosophy and rationale][philosophy] is the authoritative statem
 
 The concrete implication for an agent: don't reach for a framework, a general-purpose library, or a build step where hand-written, fully-owned code would do. If it isn't obvious why a piece of complexity exists, it probably shouldn't.
 
+## Priorities
+
+When a design decision has more than one reasonable answer, resolve it in this order: correct operation, minimal surface area (to-the-point comments, efficient algorithms, no excess features), readable (plain language, clear names), explicit (the user does something deliberate to kick off a behavior — nothing fires as a side effect), convenient, performant. Higher wins. Don't trade a higher priority for a lower one to make a later item nicer — for example, don't add a persisted session to make something more convenient at the cost of making it less explicit, and don't reach for a shared abstraction at the cost of a larger, harder-to-audit surface area.
+
 ## Approach
 
 Every internal dependency is owned, not borrowed. `packages/argon2`, `packages/chacha20`, and `packages/kdbx` are consumed by relative import to each other's built `dist/` output — never through a `dependencies` entry in any `package.json`, and never published. `grep -r '"dependencies"' --include=package.json .` should always come back empty for internal code; if a change makes it not empty, that change is wrong.
@@ -23,8 +27,9 @@ Keep code readable by a literate technical user in a single sitting. Prefer the 
 ## Conventions
 
 - Markdown links are always [reference-link style][gfm-reflinks] — `[text][key]` with definitions collected at the bottom of the file — never inline `[text](url)`.
+- Markdown files are written without hard breaks or line wraps.
 - Repo layout: `packages/<name>/` holds a library's source, tests, `README.md`, and `SPEC.md` together; `pages/` is the browser app; `tools/build/` is the build tooling; `docs/` holds process and reference documentation that isn't specific to one package or page — it does not duplicate org-level docs, and it does not hold per-package or per-page READMEs.
-- Names describe function, not just identity (`pages/`, not `app/`; `source-application` describes what the repo contains).
+- Names describe function, not just identity (`pages/`, not `app/`; `source-application` describes what the repo contains). Connector pages under `pages/` follow `cloud-{vendor}-{brand}.html`, falling back to `storage` as the brand when a vendor has no separately-named product — see [Pages][pages].
 - One version number, at the repo root. Packages under `packages/` don't carry independent versions — they aren't published.
 - Biome lint and format are enforced with no exceptions. `npm run lint` must be clean before a change is done.
 
@@ -43,6 +48,7 @@ New logic needs tests; the project's standing bar is 100% coverage, not "we'll a
 - [Contributing][contributing] — how to propose a change and the local dev loop
 - [Releases][releases] — what a release produces and how it ships
 - [Pipeline][pipeline] — the full CI/release/deploy picture
+- [Pages][pages] — what each page does and how a visitor moves between them
 - [Reproducing a build][reproducing] — verifying a distributable independently
 - [Branch protection rulesets][rulesets] — what every repo in the org requires
 - [Licensing][licensing] — the open-core model
@@ -53,5 +59,6 @@ New logic needs tests; the project's standing bar is 100% coverage, not "we'll a
 [contributing]: docs/CONTRIBUTING.md
 [releases]: docs/RELEASES.md
 [pipeline]: docs/PIPELINE.md
+[pages]: docs/PAGES.md
 [rulesets]: docs/RULESETS.md
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
