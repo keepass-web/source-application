@@ -108,7 +108,7 @@ const active = expected.required_rule_types.filter((t) => activeTypes.has(t));
 if (missing.length > 0) {
   process.stderr.write(
     `Branch '${defaultBranch}' is missing required rules entirely: ${missing.join(', ')}\n` +
-      'Import ruleset/ruleset.json from keepass-web/build via Settings → Rules → Rulesets → Import and re-run CI.\n',
+      'Import tools/build/ruleset/ruleset.json via Settings → Rules → Rulesets → Import and re-run CI.\n',
   );
   process.exit(1);
 }
