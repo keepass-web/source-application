@@ -97,14 +97,28 @@ function kx_bytes(value: Uint8Array): VdValue {
   return { type: 'bytes', value };
 }
 
-function kx_ivLengthFor(cipherId: Uint8Array): number {
-  if (bytesEqual(cipherId, CipherId.ChaCha20)) {
-    return 12;
-  }
+/**
+ * Classify a cipher ID, or throw if it names neither outer cipher this
+ * package supports. This is the single point where "supported outer cipher"
+ * is defined; `kx_ivLengthFor`/`kx_encryptPayload`/`kx_decryptPayload` all
+ * dispatch through it rather than each re-checking the same two IDs, so
+ * there's exactly one "unsupported outer cipher" error site instead of three
+ * copies (which, in kx_encryptPayload's case, could never actually be
+ * reached: the only caller, `#save4`, always calls `kx_ivLengthFor` on the
+ * same `cipherId` first and would already have thrown by then).
+ */
+function kx_cipherKind(cipherId: Uint8Array): 'aes' | 'chacha20' {
   if (bytesEqual(cipherId, CipherId.Aes256)) {
-    return 16;
+    return 'aes';
+  }
+  if (bytesEqual(cipherId, CipherId.ChaCha20)) {
+    return 'chacha20';
   }
   throw new Error('unsupported outer cipher');
+}
+
+function kx_ivLengthFor(cipherId: Uint8Array): number {
+  return kx_cipherKind(cipherId) === 'chacha20' ? 12 : 16;
 }
 
 async function kx_encryptPayload(
@@ -113,13 +127,9 @@ async function kx_encryptPayload(
   iv: Uint8Array,
   payload: Uint8Array,
 ): Promise<Uint8Array> {
-  if (bytesEqual(cipherId, CipherId.Aes256)) {
-    return aesCbcEncrypt(cipherKey, iv, payload);
-  }
-  if (bytesEqual(cipherId, CipherId.ChaCha20)) {
-    return new ChaCha20(cipherKey, iv).encrypt(payload);
-  }
-  throw new Error('unsupported outer cipher');
+  return kx_cipherKind(cipherId) === 'aes'
+    ? aesCbcEncrypt(cipherKey, iv, payload)
+    : new ChaCha20(cipherKey, iv).encrypt(payload);
 }
 
 async function kx_decryptPayload(
@@ -128,13 +138,9 @@ async function kx_decryptPayload(
   iv: Uint8Array,
   data: Uint8Array,
 ): Promise<Uint8Array> {
-  if (bytesEqual(cipherId, CipherId.Aes256)) {
-    return aesCbcDecrypt(cipherKey, iv, data);
-  }
-  if (bytesEqual(cipherId, CipherId.ChaCha20)) {
-    return new ChaCha20(cipherKey, iv).decrypt(data);
-  }
-  throw new Error('unsupported outer cipher');
+  return kx_cipherKind(cipherId) === 'aes'
+    ? aesCbcDecrypt(cipherKey, iv, data)
+    : new ChaCha20(cipherKey, iv).decrypt(data);
 }
 
 /** Transform the composite key according to the header's KDF settings. */

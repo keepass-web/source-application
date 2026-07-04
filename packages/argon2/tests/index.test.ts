@@ -21,6 +21,13 @@ test('blake2b matches RFC 7693 test vector', () => {
   );
 });
 
+test('blake2b rejects an out-of-range output length', () => {
+  const input = new TextEncoder().encode('abc');
+  assert.throws(() => blake2b(0, input), RangeError);
+  assert.throws(() => blake2b(65, input), RangeError);
+  assert.throws(() => blake2b(1.5, input), RangeError);
+});
+
 // RFC 9106, Appendix B (Section 5). Shared parameters for the test vectors.
 const VECTOR = {
   password: filled(32, 0x01),
@@ -70,4 +77,78 @@ test('rejects out-of-range parameters', () => {
     () => argon2({ ...base, memory: 8, tagLength: 32, type: 'argon2i' as never }),
     RangeError,
   ); // Argon2i unsupported
+});
+
+test('rejects an unsupported version number', () => {
+  const base = {
+    password: filled(8, 0),
+    salt: filled(8, 0),
+    parallelism: 1,
+    memory: 8,
+    iterations: 1,
+    tagLength: 32,
+  };
+  assert.throws(() => argon2id({ ...base, version: 0x11 }), RangeError);
+});
+
+test('rejects a non-Uint8Array byte field', () => {
+  const base = { salt: filled(8, 0), parallelism: 1, memory: 8, iterations: 1, tagLength: 32 };
+  assert.throws(
+    () => argon2id({ ...base, password: 'not bytes' as unknown as Uint8Array }),
+    TypeError,
+  );
+});
+
+test('rejects a byte field longer than 2^32-1 bytes without allocating that much memory', () => {
+  // A real 4 GiB Uint8Array isn't practical to allocate in a test. This proxy
+  // reports itself as an instance of Uint8Array (satisfying the `instanceof`
+  // check) with an oversized `.length`, exercising the length check alone.
+  const oversized = new Proxy(new Uint8Array(0), {
+    get(target, prop, receiver) {
+      if (prop === 'length') return 2 ** 32;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  assert.ok(oversized instanceof Uint8Array);
+  const base = { salt: filled(8, 0), parallelism: 1, memory: 8, iterations: 1, tagLength: 32 };
+  assert.throws(() => argon2id({ ...base, password: oversized as Uint8Array }), RangeError);
+});
+
+test('covers the first-slice reference-area branch of index_alpha', () => {
+  // The RFC 9106 test vector above uses the minimum memory for its
+  // parallelism (segmentLength = 2), so fillSegment's loop for pass 0,
+  // slice 0 never actually runs (it starts at index 2). A slightly larger,
+  // single-lane memory budget (segmentLength = 3) exercises that loop body,
+  // including index_alpha's slice === 0 branch and the same-lane refLane
+  // override for the first slice.
+  const tagA = argon2id({
+    password: filled(8, 0x01),
+    salt: filled(16, 0x02),
+    parallelism: 1,
+    memory: 12,
+    iterations: 1,
+    tagLength: 32,
+  });
+  const tagB = argon2id({
+    password: filled(8, 0x01),
+    salt: filled(16, 0x03), // different salt
+    parallelism: 1,
+    memory: 12,
+    iterations: 1,
+    tagLength: 32,
+  });
+  assert.equal(tagA.length, 32);
+  assert.notDeepEqual(tagA, tagB, 'different salts must produce different tags');
+  // Deterministic: same inputs always produce the same tag.
+  assert.deepEqual(
+    tagA,
+    argon2id({
+      password: filled(8, 0x01),
+      salt: filled(16, 0x02),
+      parallelism: 1,
+      memory: 12,
+      iterations: 1,
+      tagLength: 32,
+    }),
+  );
 });

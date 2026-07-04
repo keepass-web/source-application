@@ -261,7 +261,12 @@ class CC_KeystreamCipher {
         this.#counter += 1;
         this.#position = 0;
       }
-      out[i] = byte ^ (this.#buffer[this.#position] ?? 0);
+      // #buffer is always exactly CC_BLOCK_BYTES long (both block functions
+      // return a fixed 64-byte Uint8Array) and #position is always reset to 0
+      // before it can reach CC_BLOCK_BYTES again, so this index is always in
+      // range; the cast (rather than `?? 0`) only satisfies
+      // noUncheckedIndexedAccess and doesn't change behavior.
+      out[i] = byte ^ (this.#buffer[this.#position] as number);
       this.#position += 1;
       i += 1;
     }
