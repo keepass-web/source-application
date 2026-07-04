@@ -10,5 +10,5 @@
     "exactOptionalPropertyTypes": true,
     "types": ["node"]
   },
-  "include": ["*/page.ts", "*/globals.d.ts", "tests/**/*.ts"]
+  "include": ["*/page.ts", "*/logic.ts", "*/globals.d.ts", "tests/**/*.ts"]
 }

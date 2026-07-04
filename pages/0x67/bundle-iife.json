@@ -22,7 +22,9 @@
     "kdbx/src/inner-header.js",
     "kdbx/src/kdf.js",
     "kdbx/src/model.js",
-    "kdbx/src/kdbx.js"
+    "kdbx/src/kdbx.js",
+
+    "../pages/0x67/logic.js"
   ],
   "exports": [
     "Kdbx",
@@ -36,6 +38,13 @@
     "createElement",
     "appendChild",
     "createEntry",
-    "createGroup"
+    "createGroup",
+
+    "entryField",
+    "entryTitle",
+    "groupName",
+    "findEntryParent",
+    "collectAllEntries",
+    "groupPathTo"
   ]
 }

@@ -62,69 +62,12 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
 // ============================================================
 // kdbx XML model helpers
 // (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
-//  injected as globals by deps.js in the concatenated script — see that file.)
+//  injected as globals by deps.js in the concatenated script — see that file.
+//  entryField, entryTitle, groupName, findEntryParent, collectAllEntries, and
+//  groupPathTo are pure logic and live in logic.ts instead, so they can be
+//  unit tested without a DOM; they're likewise declared in globals.d.ts and
+//  injected as globals by that same deps.js bundle — see bundle-iife.json.)
 // ============================================================
-
-function entryField(entry: XmlElement, key: string): string {
-  for (const string of getChildren(entry, 'String')) {
-    const k = getChild(string, 'Key');
-    const v = getChild(string, 'Value');
-    if (k && getText(k) === key) return v ? getText(v) : '';
-  }
-  return '';
-}
-
-function entryTitle(entry: XmlElement): string {
-  return entryField(entry, 'Title') || '(no title)';
-}
-
-function groupName(group: XmlElement): string {
-  const n = getChild(group, 'Name');
-  return n ? getText(n) : '(unnamed)';
-}
-
-/** Find the group that directly contains the given entry. */
-function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null {
-  for (const e of getChildren(rootGroup, 'Entry')) {
-    if (e === entry) return rootGroup;
-  }
-  for (const sub of getChildren(rootGroup, 'Group')) {
-    const found = findEntryParent(sub, entry);
-    if (found) return found;
-  }
-  return null;
-}
-
-interface EntryWithGroup {
-  entry: XmlElement;
-  group: XmlElement;
-}
-
-/** Collect every entry in the tree, paired with its containing group. */
-function collectAllEntries(group: XmlElement, results: EntryWithGroup[] = []): EntryWithGroup[] {
-  for (const entry of getChildren(group, 'Entry')) {
-    results.push({ entry, group });
-  }
-  for (const sub of getChildren(group, 'Group')) {
-    collectAllEntries(sub, results);
-  }
-  return results;
-}
-
-/** Return the group path from rootGroup to target as an array of names. */
-function groupPathTo(
-  rootGroup: XmlElement,
-  target: XmlElement,
-  path: string[] = [],
-): string[] | null {
-  const thisPath = path.concat(groupName(rootGroup));
-  if (rootGroup === target) return thisPath;
-  for (const sub of getChildren(rootGroup, 'Group')) {
-    const found = groupPathTo(sub, target, thisPath);
-    if (found) return found;
-  }
-  return null;
-}
 
 // ============================================================
 // Clipboard
