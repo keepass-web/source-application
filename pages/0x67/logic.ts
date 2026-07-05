@@ -1,8 +1,8 @@
 /**
- * Pure XML-tree helpers for the 0x67 app: field/name lookups and tree
- * traversal over a decoded KDBX document. None of these touch the DOM, so
- * unlike page.ts they can be — and are — unit tested directly under plain
- * Node (see tests/0x67-logic.test.ts).
+ * Pure logic for the 0x67 app: field/name lookups, tree traversal, entry
+ * search, and entry-edit commit, all over a decoded KDBX document. None of
+ * these touch the DOM, so unlike page.ts they can be — and are — unit
+ * tested directly under plain Node (see tests/0x67-logic.test.ts).
  *
  * This is a real ES module (imports kdbx's build output, same convention
  * used between argon2/chacha20/kdbx themselves — see e.g. kdbx/src/kdf.ts)
@@ -26,7 +26,14 @@
  * for an unrelated change — noted, not routed around silently.
  */
 
-import { getChild, getChildren, getText } from '../../build/packages/kdbx/src/model.js';
+import {
+  appendChild,
+  createElement,
+  getChild,
+  getChildren,
+  getText,
+  setAttribute,
+} from '../../build/packages/kdbx/src/model.js';
 import type { XmlElement } from '../../build/packages/kdbx/src/xml.js';
 
 export function entryField(entry: XmlElement, key: string): string {
@@ -91,4 +98,56 @@ export function groupPathTo(
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * Keep only entries with a String field whose value contains the query,
+ * case-insensitively.
+ */
+export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[] {
+  const q = query.toLowerCase();
+  return entries.filter(({ entry }) => {
+    for (const string of getChildren(entry, 'String')) {
+      const v = getChild(string, 'Value');
+      if (v && getText(v).toLowerCase().includes(q)) return true;
+    }
+    return false;
+  });
+}
+
+/** A single row from the entry-edit form, already read out of the DOM. */
+export interface EditedField {
+  key: string;
+  value: string;
+  protect: boolean;
+}
+
+/**
+ * Replace an entry's String fields with the given key/value pairs, in order,
+ * skipping any with a blank key.
+ */
+export function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void {
+  entry.children = entry.children.filter((c) => !(c.type === 'element' && c.name === 'String'));
+
+  for (const { key, value, protect } of fields) {
+    if (!key) continue;
+    const stringEl = createElement('String');
+    appendChild(stringEl, createElement('Key', key));
+    const valueEl = createElement('Value', value);
+    if (protect) setAttribute(valueEl, 'Protected', 'True');
+    appendChild(stringEl, valueEl);
+    appendChild(entry, stringEl);
+  }
+}
+
+/** The standard entry fields every entry gets; anything else is a custom field. */
+export const STANDARD_FIELD_NAMES = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
+
+export function isCustomField(key: string): boolean {
+  return !STANDARD_FIELD_NAMES.includes(key);
+}
+
+/** The settings dialog's minimum accepted clipboard-clear timeout, in seconds. */
+export function isValidClipboardTimeout(seconds: number): boolean {
+  return !Number.isNaN(seconds) && seconds >= 5;
 }

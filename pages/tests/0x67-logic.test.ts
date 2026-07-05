@@ -8,12 +8,16 @@ import {
   type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
 import {
+  applyEntryEdits,
   collectAllEntries,
   entryField,
   entryTitle,
+  filterEntriesByQuery,
   findEntryParent,
   groupName,
   groupPathTo,
+  isCustomField,
+  isValidClipboardTimeout,
 } from '../0x67/logic.ts';
 
 test('entryField returns the value of a matching field, or "" when absent', () => {
@@ -101,4 +105,66 @@ test('groupPathTo returns the path to a group, or null if it is not in the tree'
 test('fixtures are real XmlElement values', () => {
   const group: XmlElement = createGroup('Check');
   assert.equal(group.type, 'element');
+});
+
+test('filterEntriesByQuery matches case-insensitively against any String value', () => {
+  const root = createGroup('Root');
+  const github = createEntry({ title: 'GitHub', username: 'octocat' });
+  const gitlab = createEntry({ title: 'GitLab', username: 'tanuki' });
+  appendChild(root, github);
+  appendChild(root, gitlab);
+  const all = collectAllEntries(root);
+
+  assert.deepEqual(
+    filterEntriesByQuery(all, 'GIT').map(({ entry }) => entry),
+    [github, gitlab],
+  );
+  assert.deepEqual(
+    filterEntriesByQuery(all, 'octo').map(({ entry }) => entry),
+    [github],
+  );
+  assert.deepEqual(filterEntriesByQuery(all, 'nonexistent'), []);
+});
+
+test('filterEntriesByQuery skips String fields with no Value element', () => {
+  const entry = createElement('Entry');
+  const string = createElement('String');
+  appendChild(string, createElement('Key', 'Foo'));
+  appendChild(entry, string);
+  const root = createGroup('Root');
+  appendChild(root, entry);
+
+  assert.deepEqual(filterEntriesByQuery(collectAllEntries(root), 'anything'), []);
+});
+
+test('applyEntryEdits replaces all String fields with the given key/value/protect triples', () => {
+  const entry = createEntry({ title: 'Old', username: 'old-user' });
+  applyEntryEdits(entry, [
+    { key: 'Title', value: 'New', protect: false },
+    { key: 'Password', value: 'secret', protect: true },
+  ]);
+  assert.equal(entryField(entry, 'Title'), 'New');
+  assert.equal(entryField(entry, 'Password'), 'secret');
+  // The old UserName field is gone entirely, not just left empty.
+  assert.equal(entryField(entry, 'UserName'), '');
+});
+
+test('applyEntryEdits skips rows with a blank key', () => {
+  const entry = createElement('Entry');
+  applyEntryEdits(entry, [{ key: '', value: 'ignored', protect: false }]);
+  assert.deepEqual(entry.children, []);
+});
+
+test('isCustomField is false for the five standard fields and true otherwise', () => {
+  for (const key of ['Title', 'UserName', 'Password', 'URL', 'Notes']) {
+    assert.equal(isCustomField(key), false);
+  }
+  assert.equal(isCustomField('API Key'), true);
+});
+
+test('isValidClipboardTimeout requires a real number of at least 5 seconds', () => {
+  assert.equal(isValidClipboardTimeout(5), true);
+  assert.equal(isValidClipboardTimeout(30), true);
+  assert.equal(isValidClipboardTimeout(4), false);
+  assert.equal(isValidClipboardTimeout(Number.NaN), false);
 });

@@ -76,3 +76,14 @@ declare function groupPathTo(
   target: XmlElement,
   path?: string[],
 ): string[] | null;
+declare function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[];
+
+interface EditedField {
+  key: string;
+  value: string;
+  protect: boolean;
+}
+
+declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
+declare function isCustomField(key: string): boolean;
+declare function isValidClipboardTimeout(seconds: number): boolean;

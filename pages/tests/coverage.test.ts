@@ -11,17 +11,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * --test-coverage-* thresholds; it just silently doesn't count. See
  * docs/CONTRIBUTING.md.
  *
- * Importing every page module here closes that hole — including
- * 0x67/page.ts, which calls real DOM APIs (document, etc.) at module scope
- * (see its "Boot" section) because it's meant to run in a browser. Plain
- * Node has no DOM, so that import throws immediately. That's left to throw
- * on purpose: V8 still records coverage for whatever ran before the throw,
- * so 0x67/page.ts shows up in the report at its real, very low percentage
- * instead of being silently invisible. That low number is the honest
- * signal — 0x67/page.ts currently has no path to real test coverage at all,
- * and closing that gap needs a DOM implementation for tests (e.g.
- * jsdom/happy-dom), which is a real decision for the team, not something to
- * route around here.
+ * Importing every page module here closes that hole for any page module
+ * without its own dedicated test file. 0x67/page.ts calls real DOM APIs at
+ * module scope (see its "Boot" section), so importing it here under plain
+ * Node (no DOM) throws immediately — left to throw on purpose, since V8
+ * still records coverage for whatever ran before the throw. Its real
+ * coverage comes from tests/0x67-page.test.ts (jsdom-based); this file's
+ * import of it is a harmless, redundant repeat.
  */
 
 const pagesRoot = fileURLToPath(new URL('..', import.meta.url));
