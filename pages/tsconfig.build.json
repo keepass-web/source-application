@@ -6,9 +6,10 @@
     "strict": true,
     "rootDir": ".",
     "outDir": "../build/pages",
+    "rewriteRelativeImportExtensions": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "types": ["node"]
   },
-  "include": ["*/page.ts", "*/globals.d.ts"]
+  "include": ["*/page.ts", "*/logic.ts", "*/globals.d.ts"]
 }

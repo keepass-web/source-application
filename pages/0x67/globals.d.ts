@@ -1,12 +1,17 @@
 /**
  * Ambient declarations for the globals deps.js injects into the page.
  *
- * deps.js is the bundled kdbx library (see bundle-iife.json): it loads before
- * page.js in the same concatenated <script> tag and exposes these names as
- * globals via `globalThis.<name> = <name>` for each entry in bundle-iife.json's
- * "exports" list. This file exists only so page.ts can be type-checked against
- * that surface; it declares only the members page.ts actually calls, mirroring
- * the corresponding signatures in packages/kdbx/src.
+ * deps.js loads before page.js in the same concatenated <script> tag and
+ * exposes these names as globals via `globalThis.<name> = <name>`, one
+ * entry per name in bundle-iife.json's "exports" list. It bundles two
+ * things: the kdbx library itself, and this page's own pure logic
+ * (entryField, groupPathTo, etc.), extracted from page.ts into logic.ts so
+ * that logic can be unit tested without a DOM — see bundle-iife.json's
+ * "files" list, which concatenates both.
+ *
+ * This file exists only so page.ts can be type-checked against that surface;
+ * it declares only the members page.ts actually calls, mirroring the
+ * corresponding signatures in packages/kdbx/src and in logic.ts.
  */
 
 interface XmlElement {
@@ -53,3 +58,32 @@ interface EntryInput {
 
 declare function createEntry(input: EntryInput): XmlElement;
 declare function createGroup(name: string): XmlElement;
+
+// --- this page's own pure logic (see logic.ts) ---
+
+interface EntryWithGroup {
+  entry: XmlElement;
+  group: XmlElement;
+}
+
+declare function entryField(entry: XmlElement, key: string): string;
+declare function entryTitle(entry: XmlElement): string;
+declare function groupName(group: XmlElement): string;
+declare function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null;
+declare function collectAllEntries(group: XmlElement, results?: EntryWithGroup[]): EntryWithGroup[];
+declare function groupPathTo(
+  rootGroup: XmlElement,
+  target: XmlElement,
+  path?: string[],
+): string[] | null;
+declare function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[];
+
+interface EditedField {
+  key: string;
+  value: string;
+  protect: boolean;
+}
+
+declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
+declare function isCustomField(key: string): boolean;
+declare function isValidClipboardTimeout(seconds: number): boolean;

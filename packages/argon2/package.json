@@ -8,6 +8,6 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test 'tests/**/*.test.ts'"
+    "test": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-coverage-include='src/**/*.ts' --test 'tests/**/*.test.ts'"
   }
 }

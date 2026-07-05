@@ -4,7 +4,7 @@ This repo builds a password manager. Any code an agent writes here — a one-lin
 
 ## Philosophy
 
-The org-level [philosophy and rationale][philosophy] is the authoritative statement of intent; this section exists so an agent doesn't have to fetch it to get the gist. In short: minimalism (ship as a single, self-contained HTML file; no frameworks; only WebCrypto as a runtime dependency), impeccability (100% test coverage, enforced lint with no exceptions, no long-lived open issues), and trustworthiness (open source, auditable, independently verified).
+The org-level [philosophy and rationale][philosophy] is the authoritative statement of intent; this section exists so an agent doesn't have to fetch it to get the gist. In short: minimalism (ship as self-contained HTML distributables; no frameworks; only WebCrypto as a runtime dependency), impeccability (100% test coverage, enforced lint with no exceptions, no long-lived open issues), and trustworthiness (open source, auditable, independently verified).
 
 The concrete implication for an agent: don't reach for a framework, a general-purpose library, or a build step where hand-written, fully-owned code would do. If it isn't obvious why a piece of complexity exists, it probably shouldn't.
 

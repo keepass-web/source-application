@@ -159,6 +159,19 @@ test('Salsa20 streamed in chunks equals a single one-shot call', () => {
   assert.deepEqual(concat(chunks), salsa20(key, nonce, data, 0));
 });
 
+test('Salsa20 decrypt undoes a streamed encryption (mixed chunking)', () => {
+  const key = filler(32);
+  const nonce = filler(8);
+  const plaintext = filler(150);
+  const ciphertext = new Salsa20(key, nonce).encrypt(plaintext);
+  const decryptor = new Salsa20(key, nonce);
+  const recovered = concat([
+    decryptor.decrypt(ciphertext.subarray(0, 40)),
+    decryptor.decrypt(ciphertext.subarray(40, 150)),
+  ]);
+  assert.deepEqual(recovered, plaintext);
+});
+
 test('ChaCha20 decrypt undoes a streamed encryption (mixed chunking)', () => {
   const key = filler(32);
   const nonce = filler(12);

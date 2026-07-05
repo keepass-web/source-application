@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "KeePass Web — source monorepo. Builds a single-file, self-contained KDBX password manager for the browser.",
+  "description": "KeePass Web — source monorepo. Builds self-contained HTML distributables for a KDBX password manager that runs entirely in the browser.",
   "license": "MIT",
   "workspaces": [
     "packages/*",
@@ -17,8 +17,8 @@
   },
   "scripts": {
     "clean": "rm -rf build dist",
-    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20",
-    "build": "npm run build:deps && npm run build --workspace=kdbx && npm run build --workspace=pages",
+    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20 --workspace=kdbx",
+    "build": "npm run build:deps && npm run build --workspace=pages",
     "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "format": "biome format --write .",

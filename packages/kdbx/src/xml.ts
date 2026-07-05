@@ -98,7 +98,11 @@ class KX_XmlParser {
 
   #readName(): string {
     const start = this.#i;
-    while (this.#i < this.#s.length && !KX_NAME_END.has(this.#s[this.#i] ?? '')) {
+    // The `&&` short-circuits on `this.#i < this.#s.length`, so `this.#i` is
+    // always in range whenever the index is read; the cast (rather than
+    // `?? ''`) only satisfies noUncheckedIndexedAccess and doesn't change
+    // behavior.
+    while (this.#i < this.#s.length && !KX_NAME_END.has(this.#s[this.#i] as string)) {
       this.#i += 1;
     }
     return this.#s.slice(start, this.#i);

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+// Not part of the public barrel (only used internally, by hmac-block-stream.ts).
+import { bytesEqualConstantTime } from '../src/bytes.ts';
 import {
   ByteReader,
   ByteWriter,
@@ -77,4 +79,41 @@ test('concatBytes and bytesEqual', () => {
   );
   assert.ok(bytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2])));
   assert.ok(!bytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 3])));
+  assert.ok(!bytesEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3])));
+});
+
+test('bytesEqualConstantTime matches bytesEqual for equal-length inputs, and rejects length mismatches', () => {
+  assert.ok(bytesEqualConstantTime(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3])));
+  assert.ok(!bytesEqualConstantTime(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4])));
+  assert.ok(!bytesEqualConstantTime(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3])));
+});
+
+test('fromHex rejects malformed input', () => {
+  assert.throws(() => fromHex('abc'), /even number of digits/); // odd length
+  assert.throws(() => fromHex('zz'), /invalid hex digit/);
+});
+
+test('fromBase64 rejects an invalid character', () => {
+  assert.throws(() => fromBase64('not-valid-base64!'), /invalid base64 character/);
+  // A char code past the 256-entry lookup table (unlike '!', which is in
+  // range but simply isn't a base64 character) exercises the lookup's own
+  // out-of-range fallback rather than one of its explicit -1 fill entries.
+  assert.throws(() => fromBase64('abc❤'), /invalid base64 character/);
+});
+
+test('ByteWriter exposes its current length', () => {
+  const writer = new ByteWriter();
+  assert.equal(writer.length, 0);
+  writer.writeU32(1);
+  assert.equal(writer.length, 4);
+});
+
+test('ByteWriter grows its buffer past a single doubling for a large write', () => {
+  // Default initial capacity is 256 bytes; a single write past double that
+  // forces #ensure's capacity-doubling loop to run more than once.
+  const data = new Uint8Array(1000).map((_, i) => i & 0xff);
+  const writer = new ByteWriter();
+  writer.writeBytes(data);
+  assert.equal(writer.length, 1000);
+  assert.deepEqual(writer.toBytes(), data);
 });

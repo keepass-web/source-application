@@ -39,6 +39,18 @@ docs/                this document, plus the pipeline, release, and reproducibil
 
 Each package under `packages/` is a separate npm workspace with its own `build`/`typecheck`/`test` scripts; the root scripts above run across all of them.
 
+### Test coverage
+
+Every workspace's `test` script runs with `node:test`'s built-in coverage (`--experimental-test-coverage`) and fails the run if line, branch, or function coverage falls short of 100% (`--test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100`) — matching the 100%-coverage bar in [AGENTS.md][agents]. `npm test` failing on a coverage shortfall is expected, not a bug in the tooling.
+
+node:test only reports coverage for files it actually loads, so an untested file doesn't show up as 0% — it doesn't show up at all. Every workspace's `tests/coverage.test.ts` force-imports every source file to close that hole.
+
+Exceptions:
+
+- **CLI entry points** (`tools/build/inliner/src/index.ts`, `tools/build/bundle-iife/src/index.ts`) call `process.exit()` at module scope, so they're run as subprocesses instead (see each tool's `tests/*.test.ts`); coverage is picked up via `NODE_V8_COVERAGE`.
+- **`tools/build/ruleset/check.js`** is excluded from `tools/build`'s `--test-coverage-include` globs entirely; it has no automated tests.
+- **`pages/0x67/page.ts`** is DOM-dependent. `pages/tests/0x67-page.test.ts` covers it with `jsdom`; `pages/tests/coverage.test.ts` still force-imports it too (throws immediately under plain Node, harmless). Its DOM-free logic lives in `pages/0x67/logic.ts`, tested directly in `pages/tests/0x67-logic.test.ts`.
+
 ### Branch protection
 
 Pull requests are required on `main`; direct pushes are blocked. See [Branch protection rulesets][rulesets] for the exact requirements.
@@ -53,3 +65,4 @@ This project runs on an open-core model: the core app is MIT-licensed and always
 [rulesets]: RULESETS.md
 [sponsors]: https://github.com/sponsors/keepass-web
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
+[agents]: ../AGENTS.md

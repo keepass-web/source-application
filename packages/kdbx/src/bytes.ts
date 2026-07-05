@@ -59,7 +59,10 @@ export function bytesEqualConstantTime(a: Uint8Array, b: Uint8Array): boolean {
   }
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) {
-    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+    // Both arrays were just confirmed to be the same length as a.length, so
+    // index i is always in range for both; the cast only satisfies
+    // noUncheckedIndexedAccess and doesn't change behavior.
+    diff |= (a[i] as number) ^ (b[i] as number);
   }
   return diff === 0;
 }
@@ -107,16 +110,20 @@ export function toBase64(bytes: Uint8Array): string {
   const c = (index: number): string => KX_BASE64_CHARS.charAt(index);
   let out = '';
   let i = 0;
+  // Every index used below is guaranteed in range by the loop condition or
+  // the `remaining` check that selects it, so the casts (rather than `?? 0`)
+  // only satisfy noUncheckedIndexedAccess and don't change behavior.
   for (; i + 2 < bytes.length; i += 3) {
-    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const n =
+      ((bytes[i] as number) << 16) | ((bytes[i + 1] as number) << 8) | (bytes[i + 2] as number);
     out += c((n >> 18) & 63) + c((n >> 12) & 63) + c((n >> 6) & 63) + c(n & 63);
   }
   const remaining = bytes.length - i;
   if (remaining === 1) {
-    const n = (bytes[i] ?? 0) << 16;
+    const n = (bytes[i] as number) << 16;
     out += `${c((n >> 18) & 63)}${c((n >> 12) & 63)}==`;
   } else if (remaining === 2) {
-    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8);
+    const n = ((bytes[i] as number) << 16) | ((bytes[i + 1] as number) << 8);
     out += `${c((n >> 18) & 63)}${c((n >> 12) & 63)}${c((n >> 6) & 63)}=`;
   }
   return out;

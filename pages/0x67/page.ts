@@ -62,69 +62,14 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
 // ============================================================
 // kdbx XML model helpers
 // (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
-//  injected as globals by deps.js in the concatenated script — see that file.)
+//  injected as globals by deps.js in the concatenated script — see that file.
+//  entryField, entryTitle, groupName, findEntryParent, collectAllEntries,
+//  groupPathTo, filterEntriesByQuery, applyEntryEdits, isCustomField, and
+//  isValidClipboardTimeout are pure logic and live in logic.ts instead, so
+//  they can be unit tested without a DOM; they're likewise declared in
+//  globals.d.ts and injected as globals by that same deps.js bundle — see
+//  bundle-iife.json.)
 // ============================================================
-
-function entryField(entry: XmlElement, key: string): string {
-  for (const string of getChildren(entry, 'String')) {
-    const k = getChild(string, 'Key');
-    const v = getChild(string, 'Value');
-    if (k && getText(k) === key) return v ? getText(v) : '';
-  }
-  return '';
-}
-
-function entryTitle(entry: XmlElement): string {
-  return entryField(entry, 'Title') || '(no title)';
-}
-
-function groupName(group: XmlElement): string {
-  const n = getChild(group, 'Name');
-  return n ? getText(n) : '(unnamed)';
-}
-
-/** Find the group that directly contains the given entry. */
-function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null {
-  for (const e of getChildren(rootGroup, 'Entry')) {
-    if (e === entry) return rootGroup;
-  }
-  for (const sub of getChildren(rootGroup, 'Group')) {
-    const found = findEntryParent(sub, entry);
-    if (found) return found;
-  }
-  return null;
-}
-
-interface EntryWithGroup {
-  entry: XmlElement;
-  group: XmlElement;
-}
-
-/** Collect every entry in the tree, paired with its containing group. */
-function collectAllEntries(group: XmlElement, results: EntryWithGroup[] = []): EntryWithGroup[] {
-  for (const entry of getChildren(group, 'Entry')) {
-    results.push({ entry, group });
-  }
-  for (const sub of getChildren(group, 'Group')) {
-    collectAllEntries(sub, results);
-  }
-  return results;
-}
-
-/** Return the group path from rootGroup to target as an array of names. */
-function groupPathTo(
-  rootGroup: XmlElement,
-  target: XmlElement,
-  path: string[] = [],
-): string[] | null {
-  const thisPath = path.concat(groupName(rootGroup));
-  if (rootGroup === target) return thisPath;
-  for (const sub of getChildren(rootGroup, 'Group')) {
-    const found = groupPathTo(sub, target, thisPath);
-    if (found) return found;
-  }
-  return null;
-}
 
 // ============================================================
 // Clipboard
@@ -299,16 +244,9 @@ function renderEntryPanel(): void {
   let rows: EntryWithGroup[];
 
   if (app.searchQuery) {
-    const q = app.searchQuery.toLowerCase();
     panelTitle.textContent = `"${app.searchQuery}"`;
     const all = collectAllEntries(must(app.db).getRootGroup());
-    rows = all.filter(({ entry }) => {
-      for (const string of getChildren(entry, 'String')) {
-        const v = getChild(string, 'Value');
-        if (v && getText(v).toLowerCase().includes(q)) return true;
-      }
-      return false;
-    });
+    rows = filterEntriesByQuery(all, app.searchQuery);
   } else {
     const currentGroup = must(app.currentGroup);
     panelTitle.textContent = groupName(currentGroup);
@@ -514,7 +452,6 @@ function showEntryEdit(isNew: boolean): void {
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
 
   const fieldsEl = qs('#edit-fields');
-  const STANDARD = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
 
   for (const string of getChildren(entry, 'String')) {
     const keyEl = getChild(string, 'Key');
@@ -523,8 +460,7 @@ function showEntryEdit(isNew: boolean): void {
     const key = getText(keyEl);
     const value = getText(valueEl);
     const isProtected = getAttribute(valueEl, 'Protected') === 'True';
-    const custom = !STANDARD.includes(key);
-    fieldsEl.appendChild(buildEditField(key, value, isProtected, custom));
+    fieldsEl.appendChild(buildEditField(key, value, isProtected, isCustomField(key)));
   }
 
   qs('[data-action="add-field"]').addEventListener('click', () => {
@@ -600,23 +536,12 @@ function buildEditField(
 }
 
 function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
-  // Remove all existing String children
-  entry.children = entry.children.filter((c) => !(c.type === 'element' && c.name === 'String'));
-
-  // Write back from form
-  for (const row of fieldsEl.querySelectorAll<HTMLElement>('.edit-field')) {
-    const key = must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim();
-    const value = must(row.querySelector<HTMLInputElement>('.edit-value')).value;
-    const protect = row.dataset.protected === '1';
-    if (!key) continue;
-
-    const stringEl = createElement('String');
-    appendChild(stringEl, createElement('Key', key));
-    const valueEl = createElement('Value', value);
-    if (protect) setAttribute(valueEl, 'Protected', 'True');
-    appendChild(stringEl, valueEl);
-    appendChild(entry, stringEl);
-  }
+  const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
+    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
+    value: must(row.querySelector<HTMLInputElement>('.edit-value')).value,
+    protect: row.dataset.protected === '1',
+  }));
+  applyEntryEdits(entry, fields);
 
   app.dirty = true;
 
@@ -636,7 +561,7 @@ function openSettings(): void {
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
-    if (!Number.isNaN(v) && v >= 5) app.clipboardTimeout = v;
+    if (isValidClipboardTimeout(v)) app.clipboardTimeout = v;
     dlg.close();
   };
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
