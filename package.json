@@ -17,8 +17,8 @@
   },
   "scripts": {
     "clean": "rm -rf build dist",
-    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20",
-    "build": "npm run build:deps && npm run build --workspace=kdbx && npm run build --workspace=pages",
+    "build:deps": "npm run build --workspace=argon2 --workspace=chacha20 --workspace=kdbx",
+    "build": "npm run build:deps && npm run build --workspace=pages",
     "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "format": "biome format --write .",
