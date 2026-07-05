@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Build toolchain for keepass-web: the IIFE bundler and HTML inliner used to produce the single-file distributables.",
+  "description": "Build toolchain for keepass-web: the IIFE bundler and HTML inliner used to produce the distributables.",
   "scripts": {
     "typecheck": "tsc --noEmit -p inliner/tsconfig.json",
     "test": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-coverage-include='inliner/src/**/*.ts' --test-coverage-include='bundle-iife/src/**/*.ts' --test 'inliner/tests/**/*.test.ts' 'bundle-iife/tests/**/*.test.ts' 'tests/**/*.test.ts'"

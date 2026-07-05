@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "KeePass Web — source monorepo. Builds a single-file, self-contained KDBX password manager for the browser.",
+  "description": "KeePass Web — source monorepo. Builds self-contained HTML distributables for a KDBX password manager that runs entirely in the browser.",
   "license": "MIT",
   "workspaces": [
     "packages/*",

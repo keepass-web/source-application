@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "KeePass Web — a single-file, self-contained KDBX password manager for the browser.",
+  "description": "KeePass Web — the browser app itself, built into self-contained HTML distributables.",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-coverage-include='0x67/**/*.ts' --test-coverage-include='index/**/*.ts' --test-coverage-include='router/**/*.ts' --test-coverage-exclude='**/*.d.ts' --test 'tests/**/*.test.ts'",
