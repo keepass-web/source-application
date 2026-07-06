@@ -1,6 +1,6 @@
 {
   "packagesDir": "../../build/packages",
-  "output": "../../build/pages/0x67/deps.js",
+  "output": "../../build/pages/0x67/bundle.js",
   "files": [
     "chacha20/src/index.js",
 
@@ -24,7 +24,8 @@
     "kdbx/src/model.js",
     "kdbx/src/kdbx.js",
 
-    "../pages/0x67/logic.js"
+    "../pages/0x67/logic.js",
+    "../pages/0x67/page.js"
   ],
   "exports": [
     "Kdbx",
