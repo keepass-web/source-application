@@ -77,8 +77,11 @@ Runs on every push and pull request.
 flowchart TD
     E["Push or pull request"]
     E --> RULE["Ruleset check\nValidates branch protection rules\nagainst the required configuration.\nFails immediately if not met."]
+    E --> DEP["Dependency policy check\nRejects any dependency with an\ninstall-time script. No allow-list."]
     RULE -->|fail| STOP(["Pipeline blocked"])
+    DEP -->|fail| STOP
     RULE -->|pass| LINT["Biome lint and format"]
+    DEP -->|pass| LINT
     LINT --> TC["tsc --noEmit type check, every workspace"]
     TC --> TEST["node:test suite, every workspace"]
     TEST --> BUILD["npm run build\nargon2 + chacha20 -> kdbx -> pages\nbundle + inline x 3 pages"]

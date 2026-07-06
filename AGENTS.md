@@ -18,6 +18,8 @@ Every internal dependency is owned, not borrowed. `packages/argon2`, `packages/c
 
 Builds are reproducible and every build-time dependency is pinned to an exact, integrity-verified version — see [Reproducing a build][reproducing]. Don't introduce a floating version (`^`, `~`, `latest`) for anything that produces the shipped output.
 
+No runtime dependencies. devDependencies allowed case by case; none with an install script. Full policy: [Dependency policy][contributing-deps].
+
 ## User-mindfulness
 
 This app handles other people's passwords. Before making a change, ask: does this add a network call, telemetry, or any other way for data to leave the browser? The entire trust model rests on a user being able to watch the network tab and see nothing. Don't compromise that without it being an explicit, deliberate, documented decision — never as a side effect.
@@ -58,6 +60,7 @@ New logic needs tests; the project's standing bar is 100% coverage, not "we'll a
 [reproducing]: docs/REPRODUCING.md
 [gfm-reflinks]: https://github.github.com/gfm/#reference-link
 [contributing]: docs/CONTRIBUTING.md
+[contributing-deps]: docs/CONTRIBUTING.md#dependency-policy
 [releases]: docs/RELEASES.md
 [pipeline]: docs/PIPELINE.md
 [pages]: docs/PAGES.md

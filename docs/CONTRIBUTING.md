@@ -33,7 +33,7 @@ packages/argon2/     Argon2d/Argon2id KDF — see its README.md and SPEC.md
 packages/chacha20/   ChaCha20/Salsa20 stream ciphers — see its README.md and SPEC.md
 packages/kdbx/       KDBX 3.1/4.x parser and serializer — see its README.md and SPEC.md
 pages/               the browser app — index, router, and the KDBX 0x67 app itself
-tools/build/         the bundler and inliner that assemble pages/ into a single HTML file
+tools/build/         the bundler and inliner that assemble pages/ into a single HTML file, plus the ruleset and dependency policy CI checks
 docs/                this document, plus the pipeline, release, and reproducibility docs
 ```
 
@@ -50,6 +50,10 @@ Exceptions:
 - **CLI entry points** (`tools/build/inliner/src/index.ts`, `tools/build/bundle-iife/src/index.ts`) call `process.exit()` at module scope, so they're run as subprocesses instead (see each tool's `tests/*.test.ts`); coverage is picked up via `NODE_V8_COVERAGE`.
 - **`tools/build/ruleset/check.js`** is excluded from `tools/build`'s `--test-coverage-include` globs entirely; it has no automated tests.
 - **`pages/0x67/page.ts`** is DOM-dependent. `pages/tests/0x67-page.test.ts` covers it with `jsdom`; `pages/tests/coverage.test.ts` still force-imports it too (throws immediately under plain Node, harmless). Its DOM-free logic lives in `pages/0x67/logic.ts`, tested directly in `pages/tests/0x67-logic.test.ts`.
+
+### Dependency policy
+
+Runtime dependencies: never added. devDependencies: allowed, case by case. No devDependency may have an install script. `node tools/build/dependency-policy/check.js` checks `package-lock.json` for `hasInstallScript` and fails the build if any are found. No allow-list.
 
 ### Branch protection
 
