@@ -112,12 +112,12 @@ jobs:
         with:
           app-id: ${{ secrets.DEPLOY_BOT_APP_ID }}
           private-key: ${{ secrets.DEPLOY_BOT_APP_PRIVATE_KEY }}
-          repositories: keepass-web.github.io
+          repositories: keepass-web.app
 
       - name: Trigger deploy workflow
         env:
           GH_TOKEN: ${{ steps.deploy-token.outputs.token }}
         run: |
           gh workflow run deploy.yml \
-            --repo keepass-web/keepass-web.github.io \
+            --repo keepass-web/keepass-web.app \
             --field release-tag="$GITHUB_REF_NAME"
