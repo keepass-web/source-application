@@ -62,13 +62,12 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
 // ============================================================
 // kdbx XML model helpers
 // (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
-//  injected as globals by deps.js in the concatenated script — see that file.
-//  entryField, entryTitle, groupName, findEntryParent, collectAllEntries,
-//  groupPathTo, filterEntriesByQuery, applyEntryEdits, isCustomField, and
-//  isValidClipboardTimeout are pure logic and live in logic.ts instead, so
-//  they can be unit tested without a DOM; they're likewise declared in
-//  globals.d.ts and injected as globals by that same deps.js bundle — see
-//  bundle-iife.json.)
+//  in scope because bundle-iife concatenates this file with the kdbx library
+//  into one script — see bundle-iife.json. entryField, entryTitle, groupName,
+//  findEntryParent, collectAllEntries, groupPathTo, filterEntriesByQuery,
+//  applyEntryEdits, isCustomField, and isValidClipboardTimeout are pure logic
+//  and live in logic.ts instead, so they can be unit tested without a DOM;
+//  they're likewise declared in globals.d.ts and concatenated in the same way.)
 // ============================================================
 
 // ============================================================

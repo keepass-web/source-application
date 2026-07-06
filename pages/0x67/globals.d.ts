@@ -1,13 +1,13 @@
 /**
- * Ambient declarations for the globals deps.js injects into the page.
+ * Ambient declarations for the globals bundle.js injects into the page.
  *
- * deps.js loads before page.js in the same concatenated <script> tag and
- * exposes these names as globals via `globalThis.<name> = <name>`, one
- * entry per name in bundle-iife.json's "exports" list. It bundles two
- * things: the kdbx library itself, and this page's own pure logic
- * (entryField, groupPathTo, etc.), extracted from page.ts into logic.ts so
- * that logic can be unit tested without a DOM — see bundle-iife.json's
- * "files" list, which concatenates both.
+ * bundle.js concatenates the kdbx library, this page's own pure logic
+ * (entryField, groupPathTo, etc., extracted from page.ts into logic.ts so it
+ * can be unit tested without a DOM), and page.ts's own compiled output into
+ * one IIFE — see bundle-iife.json's "files" list. It also exposes these
+ * names as globals via `globalThis.<name> = <name>`, one entry per name in
+ * bundle-iife.json's "exports" list, matching what
+ * pages/tests/0x67-page.test.ts sets up by hand.
  *
  * This file exists only so page.ts can be type-checked against that surface;
  * it declares only the members page.ts actually calls, mirroring the

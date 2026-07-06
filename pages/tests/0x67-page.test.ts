@@ -105,7 +105,7 @@ let clipboardWritesShouldFail = false;
 };
 
 // --- Hoist the kdbx library and this page's own pure logic onto globalThis,
-// --- exactly like deps.js does in the real browser build (see
+// --- exactly like bundle.js does in the real browser build (see
 // --- bundle-iife.json's "exports" list, which this mirrors exactly). ---
 Object.assign(globalThis, {
   Kdbx,
