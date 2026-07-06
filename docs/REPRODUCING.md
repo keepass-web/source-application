@@ -49,6 +49,8 @@ To verify the base image digest independently:
 docker buildx imagetools inspect node:22.23.0-slim --format '{{.Manifest.Digest}}'
 ```
 
+No devDependency may have an install script. `node tools/build/dependency-policy/check.js` checks `package-lock.json` for `hasInstallScript` (root entry excepted) and fails the build if any are found. No allow-list. See [Dependency policy][contributing-deps].
+
 ## Updating a dependency
 
 Dependency updates require source-level review — the same rigour as source code changes.
@@ -67,3 +69,5 @@ Dependency updates require source-level review — the same rigour as source cod
 3. Open a pull request.
 
 No dependency update is merged without a verified, reviewed change to the relevant pinning file (`package-lock.json` or `Dockerfile`).
+
+[contributing-deps]: CONTRIBUTING.md#dependency-policy
