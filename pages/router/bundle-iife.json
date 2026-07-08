@@ -1,0 +1,6 @@
+{
+  "packagesDir": "../../build/pages/router",
+  "output": "../../build/pages/router/bundle.js",
+  "files": ["logic.js", "page.js"],
+  "exports": ["identifyFormat", "must"]
+}

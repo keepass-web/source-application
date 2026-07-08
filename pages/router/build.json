@@ -1,6 +1,6 @@
 {
   "template": "page.html",
   "styles": ["page.css"],
-  "scripts": [],
+  "scripts": ["../../build/pages/router/bundle.js"],
   "output": "../../dist/router.html"
 }

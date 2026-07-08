@@ -3,21 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KeePass Web</title>
+  <title>KeePass Web — Open a database</title>
   <!--STYLES-->
 </head>
 <body>
   <main>
     <div class="wordmark">KeePass Web</div>
-    <h1>Your passwords.<br>Your storage.<br>Your browser.</h1>
-    <p>
-      A KDBX password manager that runs entirely in your browser:
-      no installation, no servers, no secrets leaving your machine.
+    <h1>What kind of database is this?</h1>
+    <p class="description">
+      Drop a database file below. Only its first 8 bytes are read, right here
+      in your browser — nothing is uploaded, and no other part of the file is
+      touched.
     </p>
-    <div class="badge">Coming soon</div>
+
+    <div id="drop-zone" class="drop-zone">
+      <div class="drop-zone-icon">🔎</div>
+      <p class="drop-zone-label">Drop a database file here</p>
+      <label class="btn btn-primary">
+        Choose file
+        <input type="file" id="file-input" hidden>
+      </label>
+    </div>
+
+    <div id="result" class="result" hidden>
+      <p id="result-message"></p>
+      <a id="result-link" class="btn btn-primary" href="0x67.html" hidden>Open</a>
+      <button type="button" id="choose-another" class="btn btn-secondary">Choose another file</button>
+    </div>
+
     <div class="links">
-      <a href="https://github.com/keepass-web">Follow development on GitHub</a>
-      <a href="https://github.com/sponsors/keepass-web">Become a GitHub Sponsor</a>
+      <a href="index.html">← Back to the landing page</a>
     </div>
   </main>
   <footer>MIT licensed &middot; <a href="https://github.com/keepass-web">github.com/keepass-web</a></footer>
