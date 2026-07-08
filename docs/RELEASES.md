@@ -36,11 +36,13 @@ Deploy is the one step that lives in a separate repository (`keepass-web.app`) â
 From `main`:
 
 ```sh
-npm version patch   # or minor / major
+tag=$(npm version patch)   # or minor / major
 git push --follow-tags
+git push origin HEAD:refs/heads/release/${tag}
+gh pr create --base main --head "release/${tag}" --title "chore: bump version to ${tag#v}"
 ```
 
-`npm version` updates `package.json`, commits the change, and creates a tag. Pushing the tag triggers the Release workflow.
+`npm version` updates `package.json`, commits the change, creates a tag, and prints it as `$tag`. Pushing the tag triggers the Release workflow. The PR lands that same commit on `main`, which requires pull requests.
 
 ## The Release workflow
 
