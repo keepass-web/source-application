@@ -134,7 +134,7 @@ jobs:
 
       - name: Attest distributables
         if: steps.existing-release.outputs.exists != 'true' && steps.existing-attestation.outputs.exists != 'true'
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
         with:
           subject-path: |
             dist/0x67.html
@@ -167,7 +167,7 @@ jobs:
         id: deploy-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
-          app-id: ${{ secrets.DEPLOY_BOT_APP_ID }}
+          client-id: ${{ secrets.DEPLOY_BOT_APP_ID }}
           private-key: ${{ secrets.DEPLOY_BOT_APP_PRIVATE_KEY }}
           repositories: keepass-web.app
 
