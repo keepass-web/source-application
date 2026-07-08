@@ -26,25 +26,51 @@ jobs:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
 
+      # This job isn't safe to blindly re-run past this point: release
+      # creation fails outright on a second attempt against the same tag. If
+      # a re-run gets this far and the release already exists, the earlier
+      # run already built, tested, attested, and published it from this
+      # identical commit — so there's nothing left to redo. Every step below
+      # through "Create GitHub release" is skipped in that case, and the job
+      # goes straight to (re-)triggering the deploy, which is the one step
+      # actually worth retrying blindly.
+      - name: Check for an existing release
+        id: existing-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${GITHUB_REF_NAME} already exists — skipping build, attestation, and release creation."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Node
+        if: steps.existing-release.outputs.exists != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
         with:
           node-version: '22.23.0'
 
       - name: Install dependencies
+        if: steps.existing-release.outputs.exists != 'true'
         run: npm ci
 
       - name: Lint and format (Biome)
+        if: steps.existing-release.outputs.exists != 'true'
         run: npm run lint
 
       - name: Type check
+        if: steps.existing-release.outputs.exists != 'true'
         run: npm run typecheck
 
       - name: Test
+        if: steps.existing-release.outputs.exists != 'true'
         run: npm test
 
       # Guard: refuse to release if the tag and package.json disagree.
       - name: Verify tag matches package version
+        if: steps.existing-release.outputs.exists != 'true'
         run: |
           version=$(node -p "require('./package.json').version")
           tag="${GITHUB_REF_NAME#v}"
@@ -64,6 +90,7 @@ jobs:
       # copied verbatim; its checksum is computed separately since it isn't
       # inlined.
       - name: Build distributables
+        if: steps.existing-release.outputs.exists != 'true'
         run: |
           npm run build
           cp pages/CNAME dist/CNAME
@@ -77,7 +104,36 @@ jobs:
 
           printf '| `CNAME` | `sha256:%s` |\n' "$(sha256sum dist/CNAME | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
 
+      # Independent from the release check above: attestation and release
+      # creation are separate GitHub subsystems, not one atomic operation.
+      # They're ordered attest-then-release in this job, so a *successful*
+      # prior run guarantees both exist — but a prior run that attested
+      # successfully and then failed on "Create GitHub release" (for a
+      # reason unrelated to attestation) would leave an attestation with no
+      # release, which the check above wouldn't see. Unlike a duplicate
+      # release, a duplicate attestation isn't an error — GitHub attestation
+      # verification is monotonic, so re-attesting an already-attested
+      # digest just adds a second valid record rather than failing — but
+      # it's still redundant, so check for it explicitly rather than relying
+      # on that being harmless.
+      - name: Check for an existing attestation
+        id: existing-attestation
+        if: steps.existing-release.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh attestation verify dist/0x67.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/router.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/index.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/CNAME --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Distributables are already attested for this commit — skipping re-attestation."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Attest distributables
+        if: steps.existing-release.outputs.exists != 'true' && steps.existing-attestation.outputs.exists != 'true'
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
         with:
           subject-path: |
@@ -87,6 +143,7 @@ jobs:
             dist/CNAME
 
       - name: Create GitHub release
+        if: steps.existing-release.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
