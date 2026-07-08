@@ -37,12 +37,11 @@ From `main`:
 
 ```sh
 tag=$(npm version patch)   # or minor / major
-git push --follow-tags
+git push origin "$tag"
 git push origin HEAD:refs/heads/release/${tag}
-gh pr create --base main --head "release/${tag}" --title "chore: bump version to ${tag#v}"
+gh pr create --base main --head "release/${tag}" --title "chore: bump version to ${tag#v}" --body "Version bump for ${tag}."
+git reset --hard origin/main
 ```
-
-`npm version` updates `package.json`, commits the change, creates a tag, and prints it as `$tag`. Pushing the tag triggers the Release workflow. The PR lands that same commit on `main`, which requires pull requests.
 
 ## The Release workflow
 
