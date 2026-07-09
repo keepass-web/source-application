@@ -13,7 +13,7 @@ tools/build/  the bundler and inliner that produce the distributables
 ## Using it
 
 - **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go.
-- **Online:** visit [keepass-web.app][app], exactly the same code, but convenient for anyone who wants to access their KeePass files from cloud storage.
+- **Online:** visit [keepass-web.app][app], exactly the same code, but convenient for anyone who wants to open their KeePass files directly from their own cloud storage provider.
 
 Refer to [Reproducing a build][reproducing] to verify for yourself how these files are built.
 
@@ -25,7 +25,7 @@ The whole point of shipping as a single, un-minified HTML file is that you don't
 
 See [Contributing][contributing] for how to report a bug, propose a change, and build/test/lint locally. See each package's own `README.md`/`SPEC.md` (`packages/argon2`, `packages/chacha20`, `packages/kdbx`) for the algorithms implemented and why.
 
-This project is MIT-licensed and entirely free, including hosted cloud storage — it is open to everyone with no sponsorship gate. [GitHub Sponsors][sponsors] funds ongoing development and security audits; it is an invitation, never a paywall. See [Licensing][licensing] for how that works.
+This project is MIT-licensed and entirely free — including the connectors that open your database from your own cloud storage provider — and open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] funds ongoing development and security audits; it is an invitation, never a paywall. See [Licensing][licensing] for how that works.
 
 ## License
 
