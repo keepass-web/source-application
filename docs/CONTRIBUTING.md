@@ -33,7 +33,7 @@ packages/argon2/     Argon2d/Argon2id KDF — see its README.md and SPEC.md
 packages/chacha20/   ChaCha20/Salsa20 stream ciphers — see its README.md and SPEC.md
 packages/kdbx/       KDBX 3.1/4.x parser and serializer — see its README.md and SPEC.md
 pages/               the browser app — index, router, and the KDBX 0x67 app itself
-tools/build/         the bundler and inliner that assemble pages/ into a single HTML file, plus the ruleset and dependency policy CI checks
+tools/build/         the bundler and inliner that assemble each page into its own self-contained distributable, plus the ruleset and dependency policy CI checks
 docs/                this document, plus the pipeline, release, and reproducibility docs
 ```
 
@@ -61,7 +61,7 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 
 ## Sponsoring
 
-This project runs on an open-core model: the core app is MIT-licensed and always free, and [GitHub Sponsors][sponsors] funds development and security audits and unlocks the hosted cloud-storage features. See [Licensing][licensing] for how that works.
+This project is MIT-licensed and entirely free — every feature, including the connectors to your own cloud storage provider, is open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] funds development and security audits; it is a voluntary invitation, never a paywall. See [Licensing][licensing] for how that works.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
