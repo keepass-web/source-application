@@ -13,7 +13,7 @@ tools/build/  the bundler and inliner that produce the distributables
 ## Using it
 
 - **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go.
-- **Online:** visit [keepass-web.app][app] — the exact same code, served by GitHub Pages — convenient when you want to open your database from your own cloud storage on any machine. The cloud connectors ship in the download too; they are not exclusive to the online copy.
+- **Online:** visit [keepass-web.app][app] — the exact same file, served by GitHub Pages, so you can run it without downloading first (handy on a machine that isn't yours). Every feature is identical to the download, the cloud-storage connectors included.
 
 Refer to [Reproducing a build][reproducing] to verify for yourself how these files are built.
 
