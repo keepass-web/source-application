@@ -1,6 +1,6 @@
 # KeePass Web
 
-A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. Single-purpose HTML distributables, no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds them into distributable HTML files. No external dependencies are used.
+A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. A multi-page application of single-purpose HTML pages — no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds each page into its own distributable HTML file. No external dependencies are used.
 
 ## Contents
 
@@ -19,7 +19,7 @@ Refer to [Reproducing a build][reproducing] to verify for yourself how these fil
 
 ## Trust
 
-The whole point of shipping as single-page, un-minified HTML distributables is that you don't have to take our word for anything. Read the source, watch the network tab, verify the release checksum. The design philosophy behind that approach and the org's overall rationale is written up in the [org level][philosophy]. For how this repo's own pipeline enforces it, see [Pipeline][pipeline] and [Releases][releases].
+The whole point of shipping as a multi-page application of un-minified HTML pages is that you don't have to take our word for anything. Read the source, watch the network tab, verify the release checksum. The design philosophy behind that approach and the org's overall rationale is written up in the [org level][philosophy]. For how this repo's own pipeline enforces it, see [Pipeline][pipeline] and [Releases][releases].
 
 ## Contributing
 
