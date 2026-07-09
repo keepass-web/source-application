@@ -1,6 +1,6 @@
 # KeePass Web
 
-A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. A single purpose HTML files, no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds it into a distributable HTML files. No external dependencies are used.
+A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. Single-purpose HTML distributables, no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds them into distributable HTML files. No external dependencies are used.
 
 ## Contents
 
@@ -13,13 +13,13 @@ tools/build/  the bundler and inliner that produce the distributables
 ## Using it
 
 - **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go.
-- **Online:** visit [keepass-web.app][app] — the exact same file, served by GitHub Pages, so you can run it without downloading first (handy on a machine that isn't yours). Every feature is identical to the download, the cloud-storage connectors included.
+- **Online:** visit [keepass-web.app][app] — the exact same files, served by GitHub Pages, so you can use them without downloading first (handy on a machine that isn't yours). Every feature is identical to the download, the cloud-storage connectors included.
 
 Refer to [Reproducing a build][reproducing] to verify for yourself how these files are built.
 
 ## Trust
 
-The whole point of shipping as a single, un-minified HTML file is that you don't have to take our word for anything. Read the source, watch the network tab, verify the release checksum. The design philosophy behind that approach and the org's overall rationale is written up in the [org level][philosophy]. For how this repo's own pipeline enforces it, see [Pipeline][pipeline] and [Releases][releases].
+The whole point of shipping as single-page, un-minified HTML distributables is that you don't have to take our word for anything. Read the source, watch the network tab, verify the release checksum. The design philosophy behind that approach and the org's overall rationale is written up in the [org level][philosophy]. For how this repo's own pipeline enforces it, see [Pipeline][pipeline] and [Releases][releases].
 
 ## Contributing
 

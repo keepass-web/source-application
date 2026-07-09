@@ -33,7 +33,7 @@ packages/argon2/     Argon2d/Argon2id KDF — see its README.md and SPEC.md
 packages/chacha20/   ChaCha20/Salsa20 stream ciphers — see its README.md and SPEC.md
 packages/kdbx/       KDBX 3.1/4.x parser and serializer — see its README.md and SPEC.md
 pages/               the browser app — index, router, and the KDBX 0x67 app itself
-tools/build/         the bundler and inliner that assemble pages/ into a single HTML file, plus the ruleset and dependency policy CI checks
+tools/build/         the bundler and inliner that assemble each page into a self-contained single-page distributable, plus the ruleset and dependency policy CI checks
 docs/                this document, plus the pipeline, release, and reproducibility docs
 ```
 
