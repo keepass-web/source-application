@@ -48,7 +48,7 @@ node:test only reports coverage for files it actually loads, so an untested file
 Exceptions:
 
 - **CLI entry points** (`tools/build/inliner/src/index.ts`, `tools/build/bundle-iife/src/index.ts`) call `process.exit()` at module scope, so they're run as subprocesses instead (see each tool's `tests/*.test.ts`); coverage is picked up via `NODE_V8_COVERAGE`.
-- **`tools/build/ruleset/check.js`** is excluded from `tools/build`'s `--test-coverage-include` globs entirely; it has no automated tests.
+- **`tools/build/ruleset/check.js`** is excluded from `tools/build`'s `--test-coverage-include` globs entirely and has no automated tests: it is a thin wrapper over live `gh`/GitHub API calls with no DOM-free logic worth isolating, can't be exercised without mocking the whole API surface, and fails closed (any absent, disabled, or misconfigured rule exits non-zero and blocks the pipeline). It is validated by running against real repositories in CI, not by unit tests.
 - **`pages/0x67/page.ts`** is DOM-dependent. `pages/tests/0x67-page.test.ts` covers it with `jsdom`; `pages/tests/coverage.test.ts` still force-imports it too (throws immediately under plain Node, harmless). Its DOM-free logic lives in `pages/0x67/logic.ts`, tested directly in `pages/tests/0x67-logic.test.ts`.
 
 ### Dependency policy
