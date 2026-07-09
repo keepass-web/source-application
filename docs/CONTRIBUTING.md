@@ -61,7 +61,7 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 
 ## Sponsoring
 
-This project runs on an open-core model: the core app is MIT-licensed and always free, and [GitHub Sponsors][sponsors] funds development and security audits and unlocks the hosted cloud-storage features. See [Licensing][licensing] for how that works.
+This project is MIT-licensed and entirely free — every feature, including hosted cloud storage, is open to everyone with no sponsorship gate. [GitHub Sponsors][sponsors] funds development and security audits; it is a voluntary invitation, never a paywall. See [Licensing][licensing] for how that works.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
