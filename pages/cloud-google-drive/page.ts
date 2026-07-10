@@ -5,35 +5,49 @@
 // Opens and saves a KeePass database that lives in the user's own Google
 // Drive, without the bytes ever touching local disk. The connector itself
 // never parses or decrypts anything: it authenticates to Drive, lets the user
-// pick a `.kdbx` file, then embeds the real 0x67 app in an iframe and hands it
-// the bytes over a small same-origin postMessage protocol (see 0x67/page.ts's
-// "Host integration" section). Editing, unlocking, and saving are all the
-// unmodified 0x67 app; this page only fetches and writes back the file.
+// pick a file with the Google Picker, downloads its bytes, then embeds the
+// real 0x67 app in an iframe and hands it those bytes over a small same-origin
+// postMessage protocol (see 0x67/page.ts's "Host integration" section). All
+// unlocking, browsing, and editing is the unmodified 0x67 app.
+//
+// File selection uses the Google Picker, which requires loading Google's own
+// SDK (apis.google.com/js/api.js) at runtime. That is a deliberate, scoped
+// exception to the project's "no external libraries" rule: it holds absolutely
+// for 0x67 and every offline page, but a cloud connector is inherently online
+// and is loading the SAME provider the user just chose to sign in to — not an
+// unrelated third party. Crucially, the master password and all decryption
+// stay inside the 0x67 iframe, which loads no external code; Google's SDK,
+// here in the outer connector, only ever sees OAuth and encrypted `.kdbx`
+// bytes. Using the Picker also lets the connector request the non-sensitive
+// `drive.file` scope, which needs no restricted-scope security audit.
 //
 // Auth is OAuth 2.0 with PKCE (a public client — no secret). Sign-in runs in a
 // popup so the code_verifier stays in this window's live memory across the
-// redirect: nothing is written to localStorage, sessionStorage, or a cookie,
-// consistent with the project's no-persistence rule. The access token, too,
-// lives only in the variables below and is gone when the tab closes.
+// redirect: nothing is written to localStorage, sessionStorage, or a cookie.
+// The access token likewise lives only in the variables below.
 //
 // (must, and the build*/parse*/is* helpers, are declared in globals.d.ts and
-//  supplied at runtime by logic.ts — bundle-iife concatenates the two. See
-//  globals.d.ts.)
+//  supplied at runtime by logic.ts — bundle-iife concatenates the two. The
+//  gapi/google.picker globals are declared there too. See globals.d.ts.)
 
 // --- Configuration ---------------------------------------------------------
 
-// The OAuth client ID for the "Web application" client registered to
-// keepass-web.app. It is public by design (PKCE, no secret) and must list this
-// page's URL as an authorized redirect URI. Replace with the project's own
-// client ID before deploying; see docs/PAGES.md.
+// OAuth client ID for the "Web application" client registered to
+// keepass-web.app; public by design (PKCE, no secret). Its authorized redirect
+// URI must be this page's own URL.
 const CLIENT_ID = 'REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+// API key ("developer key") for the same Google Cloud project, used by the
+// Picker. Public, like the client ID. Replace both before deploying.
+const DEVELOPER_KEY = 'REPLACE_WITH_GOOGLE_API_KEY';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
-// Full Drive scope: needed to browse the user's existing databases (files.list
-// over files this app didn't create) and to write edits back to them in place.
-const SCOPE = 'https://www.googleapis.com/auth/drive';
+const GAPI_SRC = 'https://apis.google.com/js/api.js';
+// drive.file: per-file access limited to the databases the user selects in the
+// Picker (and files this app creates). A non-sensitive scope — no restricted-
+// scope CASA audit — which is what keeps the connector shippable today.
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 const APP_ORIGIN = window.location.origin;
 const REDIRECT_URI = `${window.location.origin}${window.location.pathname}`;
@@ -44,6 +58,7 @@ let accessToken: string | null = null;
 let pkce: { verifier: string; state: string } | null = null;
 let currentFile: DriveFile | null = null;
 let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
+let pickerApiLoaded = false;
 
 // ============================================================
 // DOM helpers
@@ -69,15 +84,6 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
 
 function authHeader(): Record<string, string> {
   return { Authorization: `Bearer ${must(accessToken)}` };
-}
-
-/** Replace a container's content with a single status line. */
-function renderMessage(container: HTMLElement, text: string): void {
-  container.innerHTML = '';
-  const p = document.createElement('p');
-  p.className = 'drive-message';
-  p.textContent = text;
-  container.appendChild(p);
 }
 
 // ============================================================
@@ -131,7 +137,7 @@ async function handleOAuthMessage(event: MessageEvent): Promise<void> {
   try {
     accessToken = await exchangeCode(code, session.verifier);
     pkce = null;
-    void showBrowser('');
+    showChooser();
   } catch (err) {
     showSignInError(err instanceof Error ? err.message : 'Sign-in failed.');
   }
@@ -155,84 +161,88 @@ async function exchangeCode(code: string, verifier: string): Promise<string> {
 }
 
 // ============================================================
-// Screen: Drive browser
+// Screen: Choose a file (Google Picker)
 // ============================================================
 
-async function showBrowser(search: string): Promise<void> {
-  setRoot(cloneTemplate('tpl-browser'));
-  const searchInput = qs<HTMLInputElement>('#drive-search');
-  searchInput.value = search;
-  searchInput.addEventListener('input', () => {
-    void loadFiles(searchInput.value);
+function showChooser(): void {
+  setRoot(cloneTemplate('tpl-picker'));
+  qs('[data-action="pick"]').addEventListener('click', () => {
+    void chooseFile();
   });
   qs('[data-action="signout"]').addEventListener('click', signOut);
-  await loadFiles(search);
 }
 
-async function loadFiles(search: string): Promise<void> {
-  const listEl = qs('#drive-files');
-  renderMessage(listEl, 'Loading…');
+function setPickStatus(text: string): void {
+  const status = qs('#pick-status');
+  status.textContent = text;
+  status.hidden = false;
+}
+
+async function chooseFile(): Promise<void> {
   try {
-    const response = await fetch(buildDriveListUrl(DRIVE_API, search), { headers: authHeader() });
-    if (!response.ok) {
-      renderMessage(listEl, `Couldn't list files (HTTP ${response.status}).`);
-      return;
-    }
-    renderFileList(listEl, parseDriveFileList(await response.json()));
+    await ensurePicker();
   } catch {
-    renderMessage(listEl, 'Network error while listing files.');
-  }
-}
-
-function renderFileList(container: HTMLElement, files: DriveFile[]): void {
-  if (files.length === 0) {
-    renderMessage(container, 'No .kdbx files found.');
+    setPickStatus('Could not load the Google Picker. Check your connection and try again.');
     return;
   }
-  container.innerHTML = '';
-  for (const file of files) {
-    container.appendChild(buildFileRow(file));
-  }
+  openPicker();
 }
 
-function buildFileRow(file: DriveFile): HTMLButtonElement {
-  const row = document.createElement('button');
-  row.type = 'button';
-  row.className = 'drive-file';
-
-  const name = document.createElement('span');
-  name.className = 'drive-file-name';
-  name.textContent = file.name;
-  row.appendChild(name);
-
-  const meta = describeFile(file);
-  if (meta !== '') {
-    const sub = document.createElement('span');
-    sub.className = 'drive-file-meta';
-    sub.textContent = meta;
-    row.appendChild(sub);
-  }
-
-  row.addEventListener('click', () => {
-    void openFile(file);
+/** Load Google's API script, then its Picker module. Idempotent. */
+async function ensurePicker(): Promise<void> {
+  if (pickerApiLoaded) return;
+  await loadScript(GAPI_SRC);
+  await new Promise<void>((resolve) => {
+    gapi.load('picker', () => resolve());
   });
-  return row;
+  pickerApiLoaded = true;
 }
 
-async function openFile(file: DriveFile): Promise<void> {
-  const listEl = qs('#drive-files');
-  renderMessage(listEl, `Opening ${file.name}…`);
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.addEventListener('load', () => resolve());
+    script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+    document.head.appendChild(script);
+  });
+}
+
+function openPicker(): void {
+  const picker = new google.picker.PickerBuilder()
+    .setOAuthToken(must(accessToken))
+    .setDeveloperKey(DEVELOPER_KEY)
+    .addView(google.picker.ViewId.DOCS)
+    .setCallback(handlePickerResult)
+    .build();
+  picker.setVisible(true);
+}
+
+function handlePickerResult(data: PickerResponse): void {
+  if (data[google.picker.Response.ACTION] !== google.picker.Action.PICKED) return;
+  const docs = data[google.picker.Response.DOCUMENTS] as PickerDocument[];
+  const doc = must(docs[0]);
+  const file: DriveFile = {
+    id: String(doc[google.picker.Document.ID]),
+    name: String(doc[google.picker.Document.NAME]),
+  };
+  void openPickedFile(file);
+}
+
+async function openPickedFile(file: DriveFile): Promise<void> {
+  setPickStatus(`Opening ${file.name}…`);
   try {
     const response = await fetch(buildDriveDownloadUrl(DRIVE_API, file.id), {
       headers: authHeader(),
     });
     if (!response.ok) {
-      renderMessage(listEl, `Couldn't open ${file.name} (HTTP ${response.status}).`);
+      setPickStatus(`Could not open ${file.name} (HTTP ${response.status}).`);
       return;
     }
     showHost(file, await response.arrayBuffer());
   } catch {
-    renderMessage(listEl, `Network error while opening ${file.name}.`);
+    setPickStatus(`Network error while opening ${file.name}.`);
   }
 }
 
@@ -249,7 +259,7 @@ function showHost(file: DriveFile, bytes: ArrayBuffer): void {
     window.removeEventListener('message', handleFrameMessage);
     currentFile = null;
     pendingOpen = null;
-    void showBrowser('');
+    showChooser();
   });
   window.addEventListener('message', handleFrameMessage);
   // Setting src last means the iframe's script (and its kw-ready handshake)

@@ -1,13 +1,15 @@
 /**
  * Pure logic for the Google Drive connector: PKCE/OAuth string building, Drive
- * REST URL construction, response parsing, and postMessage shape guards. None
- * of it touches the DOM, the network, or module-level browser state, so — like
+ * REST URL construction, token parsing, and postMessage shape guards. None of
+ * it touches the DOM, the network, or module-level browser state, so — like
  * router/logic.ts and 0x67/logic.ts — it is unit tested directly under plain
  * Node (see tests/cloud-google-drive-logic.test.ts).
  *
  * It uses only web-standard globals that Node also provides (crypto, btoa,
  * TextEncoder, URL/URLSearchParams), never any Node-only or DOM-only API, so
- * the same code runs unchanged in the browser bundle and in tests.
+ * the same code runs unchanged in the browser bundle and in tests. File
+ * browsing itself is delegated to the Google Picker (Google's own SDK, loaded
+ * at runtime by page.ts), so there is no file-listing logic here.
  *
  * This is a real ES module. For the browser build, bundle-iife strips the
  * `export` keywords and hoists these names onto globalThis alongside page.ts —
@@ -16,11 +18,11 @@
  * imports here at all: everything is a standard global.)
  */
 
-/** A Drive file, reduced to the fields the connector shows and acts on. */
+/** A Drive file, reduced to the fields the connector acts on. The Picker
+ * supplies both when the user selects a file. */
 export interface DriveFile {
   id: string;
   name: string;
-  modifiedTime?: string;
 }
 
 /** The message a popup posts back to its opener after the OAuth redirect. */
@@ -121,30 +123,6 @@ export function buildTokenRequestBody(config: {
   }).toString();
 }
 
-/** Escape a value for interpolation into a Drive `q` string literal, which is
- * single-quoted (see https://developers.google.com/drive/api/guides/search-files). */
-export function escapeDriveQueryValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-
-/** Build the `files.list` URL: non-trashed `.kdbx` files, newest first,
- * optionally narrowed by a name substring. */
-export function buildDriveListUrl(apiBase: string, search: string): string {
-  const clauses = ['trashed = false', "name contains '.kdbx'"];
-  const term = search.trim();
-  if (term !== '') {
-    clauses.push(`name contains '${escapeDriveQueryValue(term)}'`);
-  }
-  const params = new URLSearchParams({
-    q: clauses.join(' and '),
-    fields: 'files(id,name,modifiedTime)',
-    orderBy: 'modifiedTime desc',
-    pageSize: '50',
-    spaces: 'drive',
-  });
-  return `${apiBase}/files?${params.toString()}`;
-}
-
 /** Build the media-download URL for a file's bytes. */
 export function buildDriveDownloadUrl(apiBase: string, id: string): string {
   return `${apiBase}/files/${encodeURIComponent(id)}?alt=media`;
@@ -164,37 +142,6 @@ export function parseTokenResponse(json: unknown): { accessToken: string } {
     }
   }
   throw new Error('The token response contained no access token.');
-}
-
-/** Extract the usable file entries from a `files.list` response, skipping
- * anything without both an id and a name. */
-export function parseDriveFileList(json: unknown): DriveFile[] {
-  if (json === null || typeof json !== 'object') {
-    return [];
-  }
-  const files = (json as Record<string, unknown>).files;
-  if (!Array.isArray(files)) {
-    return [];
-  }
-  const result: DriveFile[] = [];
-  for (const entry of files) {
-    if (entry !== null && typeof entry === 'object') {
-      const rec = entry as Record<string, unknown>;
-      if (typeof rec.id === 'string' && typeof rec.name === 'string') {
-        const file: DriveFile = { id: rec.id, name: rec.name };
-        if (typeof rec.modifiedTime === 'string') {
-          file.modifiedTime = rec.modifiedTime;
-        }
-        result.push(file);
-      }
-    }
-  }
-  return result;
-}
-
-/** A one-line, human-readable subtitle for a file row. */
-export function describeFile(file: DriveFile): string {
-  return file.modifiedTime !== undefined ? `Modified ${file.modifiedTime.slice(0, 10)}` : '';
 }
 
 /** Whether this page load is an OAuth popup delivering a result back to its

@@ -7,13 +7,13 @@
  *
  * This file exists only so page.ts can be type-checked against that surface; it
  * declares just the members page.ts actually calls, mirroring the signatures in
- * logic.ts.
+ * logic.ts. The Google Picker/`gapi` globals that page.ts also uses are
+ * declared at the bottom.
  */
 
 interface DriveFile {
   id: string;
   name: string;
-  modifiedTime?: string;
 }
 
 interface OAuthMessage {
@@ -51,12 +51,9 @@ declare function buildTokenRequestBody(config: {
   redirectUri: string;
   codeVerifier: string;
 }): string;
-declare function buildDriveListUrl(apiBase: string, search: string): string;
 declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
 declare function parseTokenResponse(json: unknown): { accessToken: string };
-declare function parseDriveFileList(json: unknown): DriveFile[];
-declare function describeFile(file: DriveFile): string;
 declare function isPopupCallback(
   hasOpener: boolean,
   params: { code: string | null; error: string | null },
@@ -64,3 +61,43 @@ declare function isPopupCallback(
 declare function isOAuthMessage(data: unknown): data is OAuthMessage;
 declare function isReadyMessage(data: unknown): boolean;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
+
+// --- Google Picker / gapi (loaded at runtime from apis.google.com) ---
+// The connector loads Google's own SDK to show the Picker; these are the only
+// members page.ts touches. Declared loosely on purpose — this is a foreign,
+// remotely-loaded API, not code this project owns or type-checks in depth.
+
+interface GapiLoadable {
+  load(name: string, callback: () => void): void;
+}
+
+interface PickerDocument {
+  [key: string]: unknown;
+}
+
+interface PickerResponse {
+  [key: string]: unknown;
+}
+
+interface PickerInstance {
+  setVisible(visible: boolean): void;
+}
+
+interface PickerBuilderInstance {
+  setOAuthToken(token: string): PickerBuilderInstance;
+  setDeveloperKey(key: string): PickerBuilderInstance;
+  addView(viewId: string): PickerBuilderInstance;
+  setCallback(callback: (data: PickerResponse) => void): PickerBuilderInstance;
+  build(): PickerInstance;
+}
+
+interface GooglePicker {
+  ViewId: { DOCS: string };
+  Action: { PICKED: string };
+  Response: { ACTION: string; DOCUMENTS: string };
+  Document: { ID: string; NAME: string };
+  PickerBuilder: new () => PickerBuilderInstance;
+}
+
+declare const gapi: GapiLoadable;
+declare const google: { picker: GooglePicker };

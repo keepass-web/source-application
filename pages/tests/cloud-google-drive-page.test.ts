@@ -1,15 +1,13 @@
 /**
  * Behavioral tests for cloud-google-drive/page.ts, driven through the real
- * page.html markup in jsdom exactly like 0x67-page.test.ts drives the app. The
- * network (fetch), the sign-in popup (window.open), and the embedded 0x67
- * iframe are all mocked, so the whole connector flow — sign in, list, open,
- * save back — runs without leaving the process.
+ * page.html markup in jsdom. The network (fetch), the sign-in popup
+ * (window.open), Google's Picker SDK (gapi / google.picker), the api.js script
+ * load, and the embedded 0x67 iframe are all mocked, so the whole connector
+ * flow — sign in, pick, open, save back — runs without leaving the process.
  *
  * page.ts is a stateful singleton loaded once, so this is one ordered
- * walkthrough that builds on prior state, not independent tests. The
- * popup-callback boot branch is covered separately in
- * cloud-google-drive-callback.test.ts (it needs a different module-scope
- * environment).
+ * walkthrough that builds on prior state. The popup-callback boot branch is
+ * covered separately in cloud-google-drive-callback.test.ts.
  */
 
 import assert from 'node:assert/strict';
@@ -28,7 +26,7 @@ const html = readFileSync(htmlPath, 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/keepass/', pretendToBeVisual: true });
 const APP_ORIGIN = 'https://example.com';
 
-// --- window.open: capture the auth URL, return nothing ---
+// --- window.open: capture the auth URL ---
 let openCount = 0;
 let lastAuthUrl = '';
 Object.defineProperty(dom.window, 'open', {
@@ -60,9 +58,8 @@ interface MockResponse {
   arrayBuffer?: () => Promise<ArrayBuffer>;
 }
 type Handler = () => Promise<MockResponse>;
-const handlers: { token: Handler; list: Handler; download: Handler; save: Handler } = {
+const handlers: { token: Handler; download: Handler; save: Handler } = {
   token: async () => ({ ok: true, status: 200, json: async () => ({}) }),
-  list: async () => ({ ok: true, status: 200, json: async () => ({ files: [] }) }),
   download: async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(4) }),
   save: async () => ({ ok: true, status: 200 }),
 };
@@ -72,12 +69,57 @@ Object.defineProperty(globalThis, 'fetch', {
     if (url.startsWith('https://oauth2.googleapis.com/token')) return handlers.token();
     if (url.includes('/upload/')) return handlers.save();
     if (url.includes('alt=media')) return handlers.download();
-    if (url.includes('/files?')) return handlers.list();
     throw new Error(`unexpected fetch: ${url}`);
   }) as unknown as typeof fetch,
   configurable: true,
   writable: true,
 });
+
+// --- Google Picker SDK mock (gapi + google.picker) ---
+let lastPickerCallback: ((data: Record<string, unknown>) => void) | null = null;
+let pickerShownCount = 0;
+class PickerBuilderMock {
+  setOAuthToken(): this {
+    return this;
+  }
+  setDeveloperKey(): this {
+    return this;
+  }
+  addView(): this {
+    return this;
+  }
+  setCallback(cb: (data: Record<string, unknown>) => void): this {
+    lastPickerCallback = cb;
+    return this;
+  }
+  build(): { setVisible: (visible: boolean) => void } {
+    return {
+      setVisible: () => {
+        pickerShownCount += 1;
+      },
+    };
+  }
+}
+const googleMock = {
+  picker: {
+    ViewId: { DOCS: 'docs' },
+    Action: { PICKED: 'picked' },
+    Response: { ACTION: 'action', DOCUMENTS: 'documents' },
+    Document: { ID: 'id', NAME: 'name' },
+    PickerBuilder: PickerBuilderMock,
+  },
+};
+const gapiMock = {
+  load: (_name: string, cb: () => void): void => {
+    cb();
+  },
+};
+Object.defineProperty(globalThis, 'google', {
+  value: googleMock,
+  configurable: true,
+  writable: true,
+});
+Object.defineProperty(globalThis, 'gapi', { value: gapiMock, configurable: true, writable: true });
 
 Object.assign(globalThis, logic);
 
@@ -91,7 +133,6 @@ const doc = dom.window.document;
 const root = (): HTMLElement => doc.getElementById('root') as HTMLElement;
 const q = <T extends Element = Element>(selector: string): T =>
   root().querySelector<T>(selector) as T;
-const qa = (selector: string): Element[] => Array.from(root().querySelectorAll(selector));
 
 async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<void> {
   const start = Date.now();
@@ -115,13 +156,39 @@ function sendMessage(data: unknown, opts: { origin?: string; source?: unknown } 
   dom.window.dispatchEvent(evt);
 }
 
-/** Click "Sign in", wait for the popup to open, and return the state token the
- * connector put in the auth URL (so a matching callback can be faked). */
 async function beginSignIn(): Promise<string> {
   const before = openCount;
   click(q('[data-action="signin"]'));
   await waitFor(() => openCount > before);
   return new URL(lastAuthUrl).searchParams.get('state') ?? '';
+}
+
+/** The api.js <script> page.ts injects, if it's currently pending. */
+function pendingScript(): HTMLScriptElement | null {
+  return doc.head.querySelector<HTMLScriptElement>('script[src*="apis.google.com"]');
+}
+
+/** Resolve (or fail) the pending api.js load, then remove it so a later load
+ * injects a fresh, detectable one. */
+async function settleScript(kind: 'load' | 'error'): Promise<void> {
+  await waitFor(() => pendingScript() !== null);
+  const script = pendingScript() as HTMLScriptElement;
+  script.dispatchEvent(new dom.window.Event(kind));
+  script.remove();
+}
+
+/** Drive the Picker through to its callback for a given picked file, resolving
+ * the api.js load on the first call only. */
+async function pick(
+  file: { id: string; name: string } | null,
+  opts: { load?: boolean } = {},
+): Promise<void> {
+  const before = pickerShownCount;
+  click(q('[data-action="pick"]'));
+  if (opts.load) await settleScript('load');
+  await waitFor(() => pickerShownCount > before);
+  const cb = lastPickerCallback as (data: Record<string, unknown>) => void;
+  cb(file === null ? { action: 'cancel' } : { action: 'picked', documents: [file] });
 }
 
 const okJson =
@@ -148,7 +215,7 @@ test('Google Drive connector', async (t) => {
     const url = new URL(lastAuthUrl);
     assert.equal(url.origin + url.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-    assert.equal(url.searchParams.get('redirect_uri'), 'https://example.com/keepass/');
+    assert.equal(url.searchParams.get('scope'), 'https://www.googleapis.com/auth/drive.file');
     assert.ok(url.searchParams.get('code_challenge'));
     assert.ok(state.length > 0);
 
@@ -196,94 +263,54 @@ test('Google Drive connector', async (t) => {
     await waitFor(() => q<HTMLElement>('#signin-error').textContent === 'Sign-in failed.');
   });
 
-  await t.test('a successful sign-in lands on the Drive browser and lists files', async () => {
+  await t.test('a successful sign-in lands on the file chooser', async () => {
     handlers.token = okJson({ access_token: 'tok' });
-    handlers.list = okJson({
-      files: [
-        { id: 'f1', name: 'personal.kdbx', modifiedTime: '2026-07-01T00:00:00Z' },
-        { id: 'f2', name: 'work.kdbx' }, // no modifiedTime → no meta line
-      ],
-    });
     const state = await beginSignIn();
     sendMessage({ type: 'kw-oauth', code: 'auth-code', state, error: null });
-
-    await waitFor(() => q('#drive-search') !== null);
-    await waitFor(() => qa('.drive-file').length === 2);
-    assert.equal(qa('.drive-file-name')[0]?.textContent, 'personal.kdbx');
-    assert.equal(qa('.drive-file-meta').length, 1, 'only the file with a modifiedTime shows meta');
+    await waitFor(() => q('[data-action="pick"]') !== null);
   });
 
-  await t.test(
-    'search reloads the list; empty, HTTP, and network outcomes each show a message',
-    async () => {
-      const search = q<HTMLInputElement>('#drive-search');
+  await t.test('a Picker that fails to load is reported', async () => {
+    click(q('[data-action="pick"]'));
+    await settleScript('error');
+    await waitFor(() =>
+      /Could not load the Google Picker/.test(q('#pick-status').textContent ?? ''),
+    );
+  });
 
-      handlers.list = okJson({ files: [] });
-      search.value = 'nothing';
-      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-      await waitFor(() => /No .kdbx files found/.test(q('#drive-files').textContent ?? ''));
+  await t.test('loading the Picker, then cancelling, changes nothing', async () => {
+    await pick(null, { load: true }); // first successful load happens here
+    assert.ok(q('[data-action="pick"]'), 'still on the chooser');
+  });
 
-      handlers.list = errStatus(500);
-      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-      await waitFor(() =>
-        /Couldn't list files \(HTTP 500\)/.test(q('#drive-files').textContent ?? ''),
-      );
+  await t.test('picking a file whose download fails by HTTP is reported', async () => {
+    handlers.download = errStatus(404);
+    await pick({ id: 'f1', name: 'vault.kdbx' }); // Picker already loaded → no script
+    await waitFor(() =>
+      /Could not open vault.kdbx \(HTTP 404\)/.test(q('#pick-status').textContent ?? ''),
+    );
+  });
 
-      handlers.list = rejects;
-      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-      await waitFor(() => /Network error while listing/.test(q('#drive-files').textContent ?? ''));
-    },
-  );
+  await t.test('picking a file whose download fails by network is reported', async () => {
+    handlers.download = rejects;
+    await pick({ id: 'f1', name: 'vault.kdbx' });
+    await waitFor(() =>
+      /Network error while opening vault.kdbx/.test(q('#pick-status').textContent ?? ''),
+    );
+  });
 
-  await t.test(
-    'opening a file: HTTP and network failures are reported, then success embeds the app',
-    async () => {
-      const reload = okJson({ files: [{ id: 'f1', name: 'personal.kdbx' }] });
-
-      handlers.list = reload;
-      q<HTMLInputElement>('#drive-search').dispatchEvent(
-        new dom.window.Event('input', { bubbles: true }),
-      );
-      await waitFor(() => qa('.drive-file').length === 1);
-
-      handlers.download = errStatus(404);
-      click(q('.drive-file'));
-      await waitFor(() =>
-        /Couldn't open personal.kdbx \(HTTP 404\)/.test(q('#drive-files').textContent ?? ''),
-      );
-
-      handlers.list = reload;
-      q<HTMLInputElement>('#drive-search').dispatchEvent(
-        new dom.window.Event('input', { bubbles: true }),
-      );
-      await waitFor(() => qa('.drive-file').length === 1);
-
-      handlers.download = rejects;
-      click(q('.drive-file'));
-      await waitFor(() =>
-        /Network error while opening personal.kdbx/.test(q('#drive-files').textContent ?? ''),
-      );
-
-      handlers.list = reload;
-      q<HTMLInputElement>('#drive-search').dispatchEvent(
-        new dom.window.Event('input', { bubbles: true }),
-      );
-      await waitFor(() => qa('.drive-file').length === 1);
-
-      handlers.download = async () => ({
-        ok: true,
-        status: 200,
-        arrayBuffer: async () => new ArrayBuffer(16),
-      });
-      click(q('.drive-file'));
-      await waitFor(() => q('#app-frame') !== null);
-      assert.equal(q<HTMLElement>('#host-filename').textContent, 'personal.kdbx');
-    },
-  );
+  await t.test('picking a file successfully embeds the app', async () => {
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(16),
+    });
+    await pick({ id: 'f1', name: 'vault.kdbx' });
+    await waitFor(() => q('#app-frame') !== null);
+    assert.equal(q<HTMLElement>('#host-filename').textContent, 'vault.kdbx');
+  });
 
   // --- Embedded-app message protocol -------------------------------------
-  // Replace the iframe's contentWindow with a spy so we can both satisfy the
-  // source check and capture what the connector posts into the app.
 
   const frameInbox: Array<{ message: Record<string, unknown>; origin: string }> = [];
   const frameWin = {
@@ -307,14 +334,14 @@ test('Google Drive connector', async (t) => {
     assert.equal(frameInbox.length, 1);
     const msg = frameInbox[0]?.message;
     assert.equal(msg?.type, 'kw-open');
-    assert.equal(msg?.filename, 'personal.kdbx');
+    assert.equal(msg?.filename, 'vault.kdbx');
     assert.ok(msg?.bytes instanceof ArrayBuffer);
   });
 
   await t.test('kw-save writes back to Drive and reports success', async () => {
     handlers.save = async () => ({ ok: true, status: 200 });
     sendMessage(
-      { type: 'kw-save', filename: 'personal.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 2);
@@ -324,7 +351,7 @@ test('Google Drive connector', async (t) => {
   await t.test('a Drive write-back HTTP error is reported to the app', async () => {
     handlers.save = errStatus(403);
     sendMessage(
-      { type: 'kw-save', filename: 'personal.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 3);
@@ -334,7 +361,7 @@ test('Google Drive connector', async (t) => {
   await t.test('a Drive write-back network error is reported to the app', async () => {
     handlers.save = rejects;
     sendMessage(
-      { type: 'kw-save', filename: 'personal.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 4);
@@ -351,15 +378,11 @@ test('Google Drive connector', async (t) => {
     assert.equal(frameInbox.length, 4, 'nothing more posted');
   });
 
-  await t.test(
-    'back to Drive returns to the browser, and sign-out returns to sign-in',
-    async () => {
-      handlers.list = okJson({ files: [{ id: 'f1', name: 'personal.kdbx' }] });
-      click(q('[data-action="back-to-drive"]'));
-      await waitFor(() => q('#drive-search') !== null);
+  await t.test('back to Drive returns to the chooser, and sign-out returns to sign-in', () => {
+    click(q('[data-action="back-to-drive"]'));
+    assert.ok(q('[data-action="pick"]'));
 
-      click(q('[data-action="signout"]'));
-      assert.ok(q('[data-action="signin"]'));
-    },
-  );
+    click(q('[data-action="signout"]'));
+    assert.ok(q('[data-action="signin"]'));
+  });
 });

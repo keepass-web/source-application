@@ -29,16 +29,19 @@
   </template>
 
   <!-- ============================================================
-       Screen: Drive browser
+       Screen: Choose a file (Google Picker)
        ============================================================ -->
-  <template id="tpl-browser">
-    <div class="screen screen-browser">
-      <header class="browser-header">
+  <template id="tpl-picker">
+    <div class="screen screen-picker">
+      <header class="picker-header">
         <span class="wordmark">Google Drive</span>
-        <input type="search" id="drive-search" class="search-input" placeholder="Search your .kdbx files…" autocomplete="off">
         <button type="button" class="btn btn-secondary" data-action="signout">Sign out</button>
       </header>
-      <div id="drive-files" class="drive-files"></div>
+      <div class="picker-body">
+        <p class="description">Choose a KeePass database from your Google Drive to open.</p>
+        <button type="button" class="btn btn-primary" data-action="pick">Choose a database…</button>
+        <p id="pick-status" class="pick-status" hidden></p>
+      </div>
     </div>
   </template>
 

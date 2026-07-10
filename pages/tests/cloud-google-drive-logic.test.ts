@@ -1,6 +1,6 @@
 /**
  * Unit tests for cloud-google-drive/logic.ts — the connector's pure OAuth/PKCE,
- * Drive-URL, response-parsing, and message-guard helpers. All DOM-free, so
+ * Drive-URL, token-parsing, and message-guard helpers. All DOM-free, so
  * exercised directly here (contrast cloud-google-drive-page.test.ts, which
  * drives page.ts through jsdom).
  */
@@ -12,18 +12,14 @@ import {
   base64UrlEncode,
   buildAuthUrl,
   buildDriveDownloadUrl,
-  buildDriveListUrl,
   buildDriveUpdateUrl,
   buildTokenRequestBody,
-  describeFile,
-  escapeDriveQueryValue,
   isOAuthMessage,
   isPopupCallback,
   isReadyMessage,
   isSaveMessage,
   must,
   parseCallbackParams,
-  parseDriveFileList,
   parseTokenResponse,
   sha256Base64Url,
 } from '../cloud-google-drive/logic.ts';
@@ -74,7 +70,7 @@ test('buildAuthUrl assembles the PKCE authorization request', () => {
       authEndpoint: 'https://auth.example/authorize',
       clientId: 'cid',
       redirectUri: 'https://app.example/cb',
-      scope: 'drive',
+      scope: 'drive.file',
       state: 'st',
       codeChallenge: 'chal',
     }),
@@ -83,7 +79,7 @@ test('buildAuthUrl assembles the PKCE authorization request', () => {
   assert.equal(url.searchParams.get('client_id'), 'cid');
   assert.equal(url.searchParams.get('redirect_uri'), 'https://app.example/cb');
   assert.equal(url.searchParams.get('response_type'), 'code');
-  assert.equal(url.searchParams.get('scope'), 'drive');
+  assert.equal(url.searchParams.get('scope'), 'drive.file');
   assert.equal(url.searchParams.get('state'), 'st');
   assert.equal(url.searchParams.get('code_challenge'), 'chal');
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
@@ -105,24 +101,6 @@ test('buildTokenRequestBody assembles the code-exchange form body', () => {
   assert.equal(params.get('code_verifier'), 'ver');
 });
 
-test('escapeDriveQueryValue escapes backslash and single quote', () => {
-  assert.equal(escapeDriveQueryValue("a'b"), "a\\'b");
-  assert.equal(escapeDriveQueryValue('a\\b'), 'a\\\\b');
-});
-
-test('buildDriveListUrl filters kdbx files, adding an escaped search clause', () => {
-  const noSearch = new URL(buildDriveListUrl('https://drive.example/v3', '  '));
-  assert.equal(noSearch.searchParams.get('q'), "trashed = false and name contains '.kdbx'");
-  assert.equal(noSearch.searchParams.get('fields'), 'files(id,name,modifiedTime)');
-  assert.equal(noSearch.searchParams.get('orderBy'), 'modifiedTime desc');
-
-  const withSearch = new URL(buildDriveListUrl('https://drive.example/v3', "o'brien"));
-  assert.equal(
-    withSearch.searchParams.get('q'),
-    "trashed = false and name contains '.kdbx' and name contains 'o\\'brien'",
-  );
-});
-
 test('buildDriveDownloadUrl / buildDriveUpdateUrl encode the id', () => {
   assert.equal(
     buildDriveDownloadUrl('https://drive.example/v3', 'a/b c'),
@@ -140,37 +118,6 @@ test('parseTokenResponse extracts a string access token, else throws', () => {
   assert.throws(() => parseTokenResponse('nope'), /no access token/);
   assert.throws(() => parseTokenResponse({}), /no access token/);
   assert.throws(() => parseTokenResponse({ access_token: 42 }), /no access token/);
-});
-
-test('parseDriveFileList keeps only well-formed entries', () => {
-  assert.deepEqual(parseDriveFileList(null), []);
-  assert.deepEqual(parseDriveFileList('x'), []);
-  assert.deepEqual(parseDriveFileList({}), []);
-  assert.deepEqual(parseDriveFileList({ files: 'not-array' }), []);
-
-  const parsed = parseDriveFileList({
-    files: [
-      { id: '1', name: 'a.kdbx', modifiedTime: '2026-07-01T00:00:00Z' },
-      { id: '2', name: 'b.kdbx' },
-      null,
-      'string-entry',
-      { name: 'no-id.kdbx' },
-      { id: '3' },
-      { id: 4, name: 'non-string-id.kdbx' },
-    ],
-  });
-  assert.deepEqual(parsed, [
-    { id: '1', name: 'a.kdbx', modifiedTime: '2026-07-01T00:00:00Z' },
-    { id: '2', name: 'b.kdbx' },
-  ]);
-});
-
-test('describeFile summarises the modified date when present', () => {
-  assert.equal(
-    describeFile({ id: '1', name: 'a', modifiedTime: '2026-07-01T12:34:56Z' }),
-    'Modified 2026-07-01',
-  );
-  assert.equal(describeFile({ id: '1', name: 'a' }), '');
 });
 
 test('isPopupCallback is true only with an opener and a code or error', () => {
