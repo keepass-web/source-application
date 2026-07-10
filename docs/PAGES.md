@@ -23,14 +23,22 @@ flowchart TD
     INDEX -->|"Link to upload a local KDBX 3.1/4.x database"| APP["0x67.html<br/>Parses and decrypts"]
     ROUTER -->|"Identified as KDBX 3.1/4.x,<br/>link to upload KDBX 3.1/4.x database"| APP
 
-    INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in<br/>② fetch bytes, detect format"]
-    INDEX -->|"Link to open from OneDrive"| ONEDRIVE["cloud-microsoft-onedrive.html<br/>① Microsoft sign-in<br/>② fetch bytes, detect format"]
-    INDEX -->|"Link to open from Dropbox"| DROPBOX["cloud-dropbox-storage.html<br/>① Dropbox sign-in<br/>② fetch bytes, detect format"]
+    INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in (popup PKCE)<br/>② pick a file, fetch bytes"]
+    INDEX -->|"Link to open from OneDrive"| ONEDRIVE["cloud-microsoft-onedrive.html<br/>① Microsoft sign-in<br/>② pick a file, fetch bytes"]
+    INDEX -->|"Link to open from Dropbox"| DROPBOX["cloud-dropbox-storage.html<br/>① Dropbox sign-in<br/>② pick a file, fetch bytes"]
 
-    DRIVE -->|"Identified as KDBX 3.1/4.x,<br/>hand off bytes in memory"| APP
-    ONEDRIVE -->|"Identified as KDBX 3.1/4.x,<br/>hand off bytes in memory"| APP
-    DROPBOX -->|"Identified as KDBX 3.1/4.x,<br/>hand off bytes in memory"| APP
+    DRIVE -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
+    ONEDRIVE -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
+    DROPBOX -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
 ```
+
+## How the Google Drive connector works
+
+`cloud-google-drive.html` never parses or decrypts anything itself. It signs in to Google, lets the user pick a `.kdbx` file, downloads its bytes, then embeds the real `0x67.html` app in an iframe and hands it those bytes. All the unlocking, browsing, and editing is the ordinary, unmodified app; the connector only fetches the file and writes it back.
+
+**Sign-in.** OAuth 2.0 with PKCE as a public client — no client secret. Sign-in opens in a popup so the `code_verifier` stays in this page's live memory across the redirect: nothing is written to `localStorage`, `sessionStorage`, or a cookie, consistent with the project's no-persistence rule. The access token likewise lives only in memory and is gone when the tab closes. Deploying the connector requires a Google "Web application" OAuth client whose authorized redirect URI is the connector's own URL; the client ID is public by design and set at the top of `pages/cloud-google-drive/page.ts`.
+
+**Handoff and save.** The connector and the embedded app talk over a small same-origin `postMessage` protocol (see the "Host integration" section of `pages/0x67/page.ts`): the app announces `kw-ready`, the connector replies with `kw-open` carrying the file's bytes, and when the user saves, the app posts `kw-save` and the connector writes the bytes back to the same Drive file, replying `kw-saved`. Because a Drive session writes back to Drive, the app's local-download option is hidden while it is embedded. The app is unaffected when opened on its own: with no host frame there is no handshake, so `0x67.html` behaves exactly as it does standalone.
 
 ## Local storage
 

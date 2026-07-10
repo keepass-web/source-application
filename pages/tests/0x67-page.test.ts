@@ -66,6 +66,16 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   writable: true,
 });
+// page.ts reads window.location / window.parent at module scope for its
+// optional host integration. A top-level jsdom window is its own parent, so
+// isEmbedded() is false here and the host path stays dormant — exactly the
+// standalone behavior this file exercises. The embedded path is covered
+// separately in 0x67-host.test.ts.
+Object.defineProperty(globalThis, 'window', {
+  value: dom.window as unknown as Window & typeof globalThis,
+  configurable: true,
+  writable: true,
+});
 
 // downloadDatabase() clicks a real <a href="blob:..."> to trigger a browser
 // download. jsdom doesn't implement navigation and reports an async

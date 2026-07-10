@@ -1,0 +1,23 @@
+{
+  "packagesDir": "../../build/pages/cloud-google-drive",
+  "output": "../../build/pages/cloud-google-drive/bundle.js",
+  "files": ["logic.js", "page.js"],
+  "exports": [
+    "must",
+    "base64UrlEncode",
+    "sha256Base64Url",
+    "parseCallbackParams",
+    "buildAuthUrl",
+    "buildTokenRequestBody",
+    "buildDriveListUrl",
+    "buildDriveDownloadUrl",
+    "buildDriveUpdateUrl",
+    "parseTokenResponse",
+    "parseDriveFileList",
+    "describeFile",
+    "isPopupCallback",
+    "isOAuthMessage",
+    "isReadyMessage",
+    "isSaveMessage"
+  ]
+}

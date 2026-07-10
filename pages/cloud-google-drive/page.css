@@ -1,0 +1,208 @@
+/* ============================================================
+   Reset and design tokens (shared palette with the 0x67 app)
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f3358;
+  --danger: #f85149;
+  --success: #3fb950;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.wordmark {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* ============================================================
+   Buttons and shared bits
+   ============================================================ */
+
+.btn {
+  display: inline-block;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04101f;
+  font-weight: 600;
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.back-link {
+  display: inline-block;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--text);
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+/* ============================================================
+   Screen: Sign in
+   ============================================================ */
+
+.screen-signin {
+  max-width: 460px;
+  margin: 12vh auto 0;
+  padding: 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  text-align: left;
+}
+
+.screen-signin h1 {
+  font-size: 1.6rem;
+}
+
+.description {
+  color: var(--muted);
+}
+
+/* ============================================================
+   Screen: Drive browser
+   ============================================================ */
+
+.screen-browser {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.browser-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.drive-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.drive-file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drive-file:hover {
+  border-color: var(--accent);
+}
+
+.drive-file-name {
+  font-weight: 600;
+}
+
+.drive-file-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.drive-message {
+  color: var(--muted);
+  padding: 0.75rem 0.25rem;
+}
+
+/* ============================================================
+   Screen: Embedded app
+   ============================================================ */
+
+.screen-host {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.host-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.host-filename {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.app-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+}

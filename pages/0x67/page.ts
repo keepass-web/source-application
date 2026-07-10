@@ -24,6 +24,11 @@ const app: AppState = {
   dirty: false,
 };
 
+/** True once a trusted same-origin parent frame has handed this app a vault to
+ * open (see the "Host integration" section). Stays false in standalone use, so
+ * every screen behaves exactly as it does without a host. */
+let hostSession = false;
+
 // ============================================================
 // DOM helpers
 // ============================================================
@@ -574,9 +579,30 @@ function openSettings(): void {
 function openSaveDialog(): void {
   const dlg = byId<HTMLDialogElement>('dlg-save');
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]')).onclick = async () => {
+  // In a host session (opened from the cloud connector), saving writes back to
+  // the provider rather than downloading; the two destinations are mutually
+  // exclusive so the flow stays unambiguous. Standalone, only Download shows.
+  const localMsg = must(dlg.querySelector<HTMLElement>('[data-role="save-local"]'));
+  const hostMsg = must(dlg.querySelector<HTMLElement>('[data-role="save-host"]'));
+  const status = must(dlg.querySelector<HTMLElement>('[data-role="save-status"]'));
+  const downloadBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]'));
+  const hostBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="save-host"]'));
+
+  status.hidden = true;
+  status.textContent = '';
+  status.className = 'save-status';
+  localMsg.hidden = hostSession;
+  hostMsg.hidden = !hostSession;
+  downloadBtn.hidden = hostSession;
+  hostBtn.hidden = !hostSession;
+
+  downloadBtn.onclick = async () => {
     await downloadDatabase();
     dlg.close();
+  };
+
+  hostBtn.onclick = async () => {
+    await saveToHost(status, hostBtn);
   };
 
   // Both close buttons (Later + ✕) dismiss
@@ -657,7 +683,93 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
 }
 
 // ============================================================
+// Host integration (optional)
+// ============================================================
+//
+// This app is self-contained: opened directly, it never talks to another
+// window, and everything below is dormant. When it is embedded in a
+// same-origin parent frame — the cloud connector page — that parent can hand
+// it a vault to open and receive the edited vault back, without the app
+// reimplementing any of its own file handling.
+//
+// The protocol is four same-origin postMessage types:
+//   app  → host : { type: 'kw-ready' }                     app booted, send a vault
+//   host → app  : { type: 'kw-open', filename, bytes }     open this vault (bytes: ArrayBuffer)
+//   app  → host : { type: 'kw-save', filename, bytes }     user saved; please persist (bytes: ArrayBuffer)
+//   host → app  : { type: 'kw-saved', ok, error? }         result of that persist
+//
+// Every inbound message is checked to come from the parent frame at this
+// page's own origin; anything else is ignored. Nothing here runs unless the
+// app is actually framed, so standalone use is entirely unaffected.
+
+const HOST_ORIGIN = window.location.origin;
+
+/** The status element + button awaiting a `kw-saved` reply, or null. */
+let pendingHostSave: { status: HTMLElement; button: HTMLButtonElement } | null = null;
+
+function isEmbedded(): boolean {
+  return window.parent !== window;
+}
+
+function postToHost(message: object): void {
+  window.parent.postMessage(message, HOST_ORIGIN);
+}
+
+function handleHostMessage(event: MessageEvent): void {
+  if (event.origin !== HOST_ORIGIN || event.source !== window.parent) return;
+  const data = event.data as Record<string, unknown> | null;
+  if (data === null || typeof data !== 'object') return;
+
+  if (
+    data.type === 'kw-open' &&
+    typeof data.filename === 'string' &&
+    data.bytes instanceof ArrayBuffer
+  ) {
+    hostSession = true;
+    app.filename = data.filename;
+    app.file = data.bytes;
+    showUnlock();
+  } else if (data.type === 'kw-saved') {
+    notifyHostSaveResult(data.ok === true, typeof data.error === 'string' ? data.error : undefined);
+  }
+}
+
+async function saveToHost(status: HTMLElement, button: HTMLButtonElement): Promise<void> {
+  const bytes = await must(app.db).save();
+  status.hidden = false;
+  status.className = 'save-status';
+  status.textContent = 'Saving to Google Drive…';
+  button.disabled = true;
+  pendingHostSave = { status, button };
+  // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
+  postToHost({ type: 'kw-save', filename: app.filename, bytes: new Uint8Array(bytes).buffer });
+}
+
+function notifyHostSaveResult(ok: boolean, error?: string): void {
+  if (!pendingHostSave) return;
+  const { status, button } = pendingHostSave;
+  pendingHostSave = null;
+  button.disabled = false;
+  if (ok) {
+    app.dirty = false;
+    status.textContent = 'Saved to Google Drive.';
+    status.classList.add('ok');
+  } else {
+    status.textContent = error ? `Save failed: ${error}` : 'Save failed.';
+    status.classList.add('error');
+  }
+}
+
+// ============================================================
 // Boot
 // ============================================================
+
+if (isEmbedded()) {
+  window.addEventListener('message', handleHostMessage);
+  // Announce readiness so the host knows it can send the vault. Handshaking
+  // this way (rather than the host racing the iframe's load event) means the
+  // host only sends once the listener above is definitely attached.
+  postToHost({ type: 'kw-ready' });
+}
 
 showUpload();

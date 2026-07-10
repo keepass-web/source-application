@@ -97,7 +97,7 @@ jobs:
 
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
 
-          for page in index router 0x67; do
+          for page in index router 0x67 cloud-google-drive; do
             checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
             printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done
@@ -125,6 +125,7 @@ jobs:
           if gh attestation verify dist/0x67.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/router.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/index.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/cloud-google-drive.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/CNAME --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Distributables are already attested for this commit — skipping re-attestation."
@@ -140,6 +141,7 @@ jobs:
             dist/0x67.html
             dist/router.html
             dist/index.html
+            dist/cloud-google-drive.html
             dist/CNAME
 
       - name: Create GitHub release
@@ -150,7 +152,7 @@ jobs:
           notes="### Distributable checksums"$'\n'
           notes+="| File | SHA-256 |"$'\n'
           notes+="|------|---------|"$'\n'
-          for file in dist/index.html dist/router.html dist/0x67.html dist/CNAME; do
+          for file in dist/index.html dist/router.html dist/0x67.html dist/cloud-google-drive.html dist/CNAME; do
             notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
           done
           gh release create "$GITHUB_REF_NAME" \
@@ -159,6 +161,7 @@ jobs:
             dist/0x67.html \
             dist/router.html \
             dist/index.html \
+            dist/cloud-google-drive.html \
             dist/CNAME
 
       # repositories: and --repo below must match the deploy repo's current

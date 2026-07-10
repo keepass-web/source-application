@@ -151,11 +151,14 @@
       <button type="button" class="close-btn" data-action="close">✕</button>
     </div>
     <div class="dialog-body">
-      <p>Download the updated database file to your computer.</p>
+      <p data-role="save-local">Download the updated database file to your computer.</p>
+      <p data-role="save-host" hidden>Save the updated database back to Google Drive.</p>
+      <p class="save-status" data-role="save-status" hidden></p>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="close">Later</button>
       <button type="button" class="btn btn-primary" data-action="download">Download</button>
+      <button type="button" class="btn btn-primary" data-action="save-host" hidden>Save to Drive</button>
     </div>
   </dialog>
 

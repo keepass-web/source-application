@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeePass Web — Google Drive</title>
+  <!--STYLES-->
+</head>
+<body>
+  <!-- Live screen container -->
+  <div id="root"></div>
+
+  <!-- ============================================================
+       Screen: Sign in
+       ============================================================ -->
+  <template id="tpl-signin">
+    <div class="screen screen-signin">
+      <div class="wordmark">KeePass Web</div>
+      <h1>Open from Google Drive</h1>
+      <p class="description">
+        Open and save a KeePass database that lives in your own Google Drive —
+        the file's bytes go straight into this browser tab, never onto disk.
+        You sign in with Google; KeePass Web stores nothing.
+      </p>
+      <button type="button" class="btn btn-primary" data-action="signin">Sign in with Google</button>
+      <p id="signin-error" class="error-msg" hidden></p>
+      <a class="back-link" href="index.html">← Back to KeePass Web</a>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Drive browser
+       ============================================================ -->
+  <template id="tpl-browser">
+    <div class="screen screen-browser">
+      <header class="browser-header">
+        <span class="wordmark">Google Drive</span>
+        <input type="search" id="drive-search" class="search-input" placeholder="Search your .kdbx files…" autocomplete="off">
+        <button type="button" class="btn btn-secondary" data-action="signout">Sign out</button>
+      </header>
+      <div id="drive-files" class="drive-files"></div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Embedded 0x67 app
+       ============================================================ -->
+  <template id="tpl-host">
+    <div class="screen screen-host">
+      <header class="host-header">
+        <button type="button" class="back-link" data-action="back-to-drive">← Drive</button>
+        <span id="host-filename" class="host-filename"></span>
+      </header>
+      <iframe id="app-frame" class="app-frame" title="KeePass Web app"></iframe>
+    </div>
+  </template>
+
+  <!--SCRIPTS-->
+</body>
+</html>

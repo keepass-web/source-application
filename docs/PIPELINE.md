@@ -84,7 +84,7 @@ flowchart TD
     DEP -->|pass| LINT
     LINT --> TC["tsc --noEmit type check, every workspace"]
     TC --> TEST["node:test suite, every workspace"]
-    TEST --> BUILD["npm run build\nargon2 + chacha20 -> kdbx -> pages\nbundle + inline x 3 pages"]
+    TEST --> BUILD["npm run build\nargon2 + chacha20 -> kdbx -> pages\nbundle + inline x 4 pages"]
     BUILD --> SUM["Publish checksums\nto step summary"]
 ```
 
@@ -98,9 +98,9 @@ flowchart TD
     TAG --> AREL["release.yml"]
     AREL --> CI3["Lint · type check · test"]
     CI3 --> VER2["Verify tag = package.json version"]
-    VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html\nrouter.html\nindex.html · CNAME"]
-    BUILD --> ATTEST["Attest all four files\nactions/attest-build-provenance\nSigns to Sigstore transparency log"]
-    ATTEST --> GHREL["Create GitHub release\nUpload all four files\nPublish checksums in release notes"]
+    VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html · router.html\nindex.html · cloud-google-drive.html\nCNAME"]
+    BUILD --> ATTEST["Attest all five files\nactions/attest-build-provenance\nSigns to Sigstore transparency log"]
+    ATTEST --> GHREL["Create GitHub release\nUpload all five files\nPublish checksums in release notes"]
     GHREL --> TOKEN["Generate short-lived App token\nscoped to the deploy repo"]
     TOKEN --> TRIG["Trigger deploy workflow\nvia workflow_dispatch"]
     TRIG --> DEPLOY(["Deploy pipeline begins"])
@@ -116,14 +116,15 @@ Every file committed to `gh-pages` is a verbatim copy of a release artifact. Not
 flowchart TD
     TRIG["Triggered by release\nor manual dispatch"]
     TRIG --> CKO2["Checkout gh-pages branch"]
-    CKO2 --> DL["Download all four release assets\nfrom public GitHub release URL\nNo token required"]
+    CKO2 --> DL["Download all five release assets\nfrom public GitHub release URL\nNo token required"]
     DL --> V1["gh attestation verify 0x67.html"]
     V1 --> V2["gh attestation verify router.html"]
     V2 --> V3["gh attestation verify index.html"]
-    V3 --> V4["gh attestation verify CNAME"]
+    V3 --> V3b["gh attestation verify cloud-google-drive.html"]
+    V3b --> V4["gh attestation verify CNAME"]
     V4 --> OK{"All verified against\nkeepass-web/source-application?"}
     OK -->|no| FAIL(["Fail — workflow stops\nNothing is deployed"])
-    OK -->|yes| PUSH["Push deploy/vX.Y.Z branch\ngit add all four files\nNo other files touched"]
+    OK -->|yes| PUSH["Push deploy/vX.Y.Z branch\ngit add all five files\nNo other files touched"]
     PUSH --> PR["Open PR against gh-pages\nvia GitHub App token"]
     PR --> HUMAN["Human review"]
     HUMAN --> MERGE["Squash merge\n(only merge strategy permitted)"]

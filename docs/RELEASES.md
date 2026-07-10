@@ -7,6 +7,7 @@
 | `index.html` | Landing page |
 | `router.html` | Identifies a database's KDBX format and links to the right app version |
 | `0x67.html` | The app itself, for KDBX 3.1 and 4.x database support |
+| `cloud-google-drive.html` | Connector that opens and saves a database in the user's Google Drive, embedding `0x67.html` in an iframe |
 | `CNAME` | The custom domain GitHub Pages serves the deploy from |
 
 Every file served from [keepass-web.app][app] is a verbatim copy of a file published in a GitHub release — nothing is created, modified, or synthesized during deployment. A copy downloaded from Releases and a copy served from the hosted site are the same bytes; see [Reproducing a build][reproducing] to verify that yourself.
