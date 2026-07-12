@@ -35,10 +35,10 @@
 // OAuth client ID for the "Web application" client registered to
 // keepass-web.app; public by design (PKCE, no secret). Its authorized redirect
 // URI must be this page's own URL.
-const CLIENT_ID = 'REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+const CLIENT_ID = '14808408917-6cecfggtk8npdabf40h66h7gh16e7bon.apps.googleusercontent.com';
 // API key ("developer key") for the same Google Cloud project, used by the
-// Picker. Public, like the client ID. Replace both before deploying.
-const DEVELOPER_KEY = 'REPLACE_WITH_GOOGLE_API_KEY';
+// Picker. Public, like the client ID.
+const DEVELOPER_KEY = 'AIzaSyB4TpJlDKYOSY_hrq1DOXkFJRFCaZ_92QA';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
