@@ -37,7 +37,18 @@
 // URI must be this page's own URL.
 const CLIENT_ID = '14808408917-6cecfggtk8npdabf40h66h7gh16e7bon.apps.googleusercontent.com';
 // API key ("developer key") for the same Google Cloud project, used by the
-// Picker. Public, like the client ID.
+// Picker. This is NOT a secret: the Picker requires the key in client-side JS,
+// so it is exposed by design and can't be hidden (unlike an OAuth client
+// secret). Google's guidance is to secure such keys by restriction, not
+// concealment — this key is locked to this project's HTTP referrers and
+// restricted to the Picker API only, and the project has no billable/abusable
+// API (e.g. Generative Language) enabled. A secret-scanner that flags the
+// literal below (e.g. CodeQL) is a known false positive; dismiss it with a
+// reference to this note. See:
+//   https://firebase.google.com/docs/projects/api-keys ("do not generally
+//     need to be treated as secret ... take extra precautions with API keys
+//     used with other Google Cloud APIs")
+//   https://docs.cloud.google.com/api-keys/docs/add-restrictions-api-keys
 const DEVELOPER_KEY = 'AIzaSyB4TpJlDKYOSY_hrq1DOXkFJRFCaZ_92QA';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
