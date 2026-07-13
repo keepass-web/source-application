@@ -10,32 +10,40 @@
 // postMessage protocol (see 0x67/page.ts's "Host integration" section). All
 // unlocking, browsing, and editing is the unmodified 0x67 app.
 //
-// File selection uses the Google Picker, which requires loading Google's own
-// SDK (apis.google.com/js/api.js) at runtime. That is a deliberate, scoped
+// This connector loads two of Google's own SDKs at runtime — Google Identity
+// Services (accounts.google.com/gsi/client) for sign-in and the Picker
+// (apis.google.com/js/api.js) for file selection. That is a deliberate, scoped
 // exception to the project's "no external libraries" rule: it holds absolutely
 // for 0x67 and every offline page, but a cloud connector is inherently online
 // and is loading the SAME provider the user just chose to sign in to — not an
-// unrelated third party. Crucially, the master password and all decryption
-// stay inside the 0x67 iframe, which loads no external code; Google's SDK,
-// here in the outer connector, only ever sees OAuth and encrypted `.kdbx`
-// bytes. Using the Picker also lets the connector request the non-sensitive
-// `drive.file` scope, which needs no restricted-scope security audit.
+// unrelated third party. The master password and all decryption stay inside the
+// 0x67 iframe, which loads no external code; Google's SDKs here in the outer
+// connector only ever see OAuth and encrypted `.kdbx` bytes.
 //
-// Auth is OAuth 2.0 with PKCE (a public client — no secret). Sign-in runs in a
-// popup so the code_verifier stays in this window's live memory across the
-// redirect: nothing is written to localStorage, sessionStorage, or a cookie.
-// The access token likewise lives only in the variables below.
+// Sign-in uses the GIS token model (`initTokenClient`), which returns a
+// short-lived access token straight to this page via a Google-run popup — no
+// client secret, no authorization-code exchange, and (unlike a redirect flow)
+// nothing to persist across a navigation: no localStorage, sessionStorage, or
+// cookie. The access token lives only in the variable below. The cost of the
+// token model is that it is popup-only; on a browser that blocks the popup
+// (e.g. a locked-down kiosk) the user must allow popups for this site. That
+// trade-off is deliberate: a redirect flow would require storing a CSRF `state`
+// nonce across the navigation, which the no-persistence rule forbids.
 //
-// (must, and the build*/parse*/is* helpers, are declared in globals.d.ts and
-//  supplied at runtime by logic.ts — bundle-iife concatenates the two. The
-//  gapi/google.picker globals are declared there too. See globals.d.ts.)
+// (must, and the build*/is* helpers, are declared in globals.d.ts and supplied
+//  at runtime by logic.ts — bundle-iife concatenates the two. The gapi/google
+//  SDK globals are declared there too. See globals.d.ts.)
 
 // --- Configuration ---------------------------------------------------------
 
 // OAuth client ID for the "Web application" client registered to
-// keepass-web.app; public by design (PKCE, no secret). Its authorized redirect
-// URI must be this page's own URL.
+// keepass-web.app; public by design. GIS requires this page's origin to be an
+// authorized JavaScript origin on the client (no redirect URI is used).
 const CLIENT_ID = '14808408917-6cecfggtk8npdabf40h66h7gh16e7bon.apps.googleusercontent.com';
+// Google Cloud project number (the numeric prefix of CLIENT_ID). The Picker
+// needs it via setAppId so that a file the user selects is granted to this app
+// under the drive.file scope; without it, the later files.get returns 404.
+const APP_ID = '14808408917';
 // API key ("developer key") for the same Google Cloud project, used by the
 // Picker. This is NOT a secret: the Picker requires the key in client-side JS,
 // so it is exposed by design and can't be hidden (unlike an OAuth client
@@ -50,10 +58,9 @@ const CLIENT_ID = '14808408917-6cecfggtk8npdabf40h66h7gh16e7bon.apps.googleuserc
 //     used with other Google Cloud APIs")
 //   https://docs.cloud.google.com/api-keys/docs/add-restrictions-api-keys
 const DEVELOPER_KEY = 'AIzaSyB4TpJlDKYOSY_hrq1DOXkFJRFCaZ_92QA';
-const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
-const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
+const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const GAPI_SRC = 'https://apis.google.com/js/api.js';
 // drive.file: per-file access limited to the databases the user selects in the
 // Picker (and files this app creates). A non-sensitive scope — no restricted-
@@ -61,15 +68,16 @@ const GAPI_SRC = 'https://apis.google.com/js/api.js';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 const APP_ORIGIN = window.location.origin;
-const REDIRECT_URI = `${window.location.origin}${window.location.pathname}`;
 
 // --- In-memory state (never persisted) -------------------------------------
 
 let accessToken: string | null = null;
-let pkce: { verifier: string; state: string } | null = null;
 let currentFile: DriveFile | null = null;
 let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
 let pickerApiLoaded = false;
+let tokenClient: TokenClient | null = null;
+// Cached so the GIS script loads at most once, and concurrent callers share it.
+let gisReady: Promise<void> | null = null;
 
 // ============================================================
 // DOM helpers
@@ -97,14 +105,25 @@ function authHeader(): Record<string, string> {
   return { Authorization: `Bearer ${must(accessToken)}` };
 }
 
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.addEventListener('load', () => resolve());
+    script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+    document.head.appendChild(script);
+  });
+}
+
 // ============================================================
-// Screen: Sign in
+// Screen: Sign in (GIS token model)
 // ============================================================
 
 function showSignIn(): void {
   setRoot(cloneTemplate('tpl-signin'));
   qs('[data-action="signin"]').addEventListener('click', () => {
-    void startAuth();
+    void onSignIn();
   });
 }
 
@@ -114,61 +133,49 @@ function showSignInError(message: string): void {
   error.hidden = false;
 }
 
-async function startAuth(): Promise<void> {
-  const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
-  const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
-  pkce = { verifier, state };
-  const codeChallenge = await sha256Base64Url(verifier);
-  window.addEventListener('message', handleOAuthMessage);
-  const url = buildAuthUrl({
-    authEndpoint: AUTH_ENDPOINT,
-    clientId: CLIENT_ID,
-    redirectUri: REDIRECT_URI,
-    scope: SCOPE,
-    state,
-    codeChallenge,
-  });
-  window.open(url, 'kw-google-oauth', 'width=480,height=640');
+/** Load GIS (once) and initialise the token client, wiring the token and error
+ * callbacks. */
+function ensureGis(): Promise<void> {
+  if (gisReady === null) {
+    gisReady = loadScript(GIS_SRC).then(() => {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPE,
+        callback: handleTokenResponse,
+        error_callback: handleTokenError,
+      });
+    });
+  }
+  return gisReady;
 }
 
-async function handleOAuthMessage(event: MessageEvent): Promise<void> {
-  if (event.origin !== APP_ORIGIN || !isOAuthMessage(event.data)) return;
-  window.removeEventListener('message', handleOAuthMessage);
-
-  const { code, state, error } = event.data;
-  const session = must(pkce);
-  if (state !== session.state) {
-    showSignInError('Sign-in could not be verified. Please try again.');
-    return;
-  }
-  if (error !== null || code === null) {
-    showSignInError('Google sign-in was cancelled or denied.');
-    return;
-  }
+async function onSignIn(): Promise<void> {
   try {
-    accessToken = await exchangeCode(code, session.verifier);
-    pkce = null;
-    showChooser();
-  } catch (err) {
-    showSignInError(err instanceof Error ? err.message : 'Sign-in failed.');
+    await ensureGis();
+  } catch {
+    gisReady = null; // let a retry re-load the script
+    showSignInError('Could not load Google sign-in. Check your connection and try again.');
+    return;
   }
+  // Opens Google's own sign-in popup; the result arrives at the callbacks below.
+  must(tokenClient).requestAccessToken();
 }
 
-async function exchangeCode(code: string, verifier: string): Promise<string> {
-  const response = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: buildTokenRequestBody({
-      clientId: CLIENT_ID,
-      code,
-      redirectUri: REDIRECT_URI,
-      codeVerifier: verifier,
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`Token exchange failed (HTTP ${response.status}).`);
+function handleTokenResponse(response: TokenResponse): void {
+  if (typeof response.access_token === 'string' && response.access_token !== '') {
+    accessToken = response.access_token;
+    showChooser();
+    return;
   }
-  return parseTokenResponse(await response.json()).accessToken;
+  showSignInError('Google sign-in did not complete. Please try again.');
+}
+
+function handleTokenError(error: TokenErrorResponse): void {
+  showSignInError(
+    error.type === 'popup_failed_to_open'
+      ? 'The sign-in popup was blocked. Allow popups for this site, then try again.'
+      : 'Google sign-in was cancelled.',
+  );
 }
 
 // ============================================================
@@ -209,19 +216,9 @@ async function ensurePicker(): Promise<void> {
   pickerApiLoaded = true;
 }
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.addEventListener('load', () => resolve());
-    script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
-    document.head.appendChild(script);
-  });
-}
-
 function openPicker(): void {
   const picker = new google.picker.PickerBuilder()
+    .setAppId(APP_ID)
     .setOAuthToken(must(accessToken))
     .setDeveloperKey(DEVELOPER_KEY)
     .addView(google.picker.ViewId.DOCS)
@@ -324,17 +321,4 @@ function signOut(): void {
 // Boot
 // ============================================================
 
-// Two roles for this one page. Loaded as the OAuth popup (Google redirected it
-// back here with a code/error and it has an opener), it forwards the result to
-// the opener and closes. Loaded normally, it runs the connector UI.
-const callback = parseCallbackParams(window.location.search);
-if (isPopupCallback(window.opener !== null, callback)) {
-  const opener = must(window.opener);
-  opener.postMessage(
-    { type: 'kw-oauth', code: callback.code, state: callback.state, error: callback.error },
-    APP_ORIGIN,
-  );
-  window.close();
-} else {
-  showSignIn();
-}
+showSignIn();

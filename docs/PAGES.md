@@ -23,7 +23,7 @@ flowchart TD
     INDEX -->|"Link to upload a local KDBX 3.1/4.x database"| APP["0x67.html<br/>Parses and decrypts"]
     ROUTER -->|"Identified as KDBX 3.1/4.x,<br/>link to upload KDBX 3.1/4.x database"| APP
 
-    INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in (popup PKCE)<br/>② pick a file, fetch bytes"]
+    INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in (GIS token popup)<br/>② pick a file, fetch bytes"]
     INDEX -->|"Link to open from OneDrive"| ONEDRIVE["cloud-microsoft-onedrive.html<br/>① Microsoft sign-in<br/>② pick a file, fetch bytes"]
     INDEX -->|"Link to open from Dropbox"| DROPBOX["cloud-dropbox-storage.html<br/>① Dropbox sign-in<br/>② pick a file, fetch bytes"]
 
@@ -36,9 +36,9 @@ flowchart TD
 
 `cloud-google-drive.html` never parses or decrypts anything itself. It signs in to Google, lets the user pick a `.kdbx` file with the Google Picker, downloads its bytes, then embeds the real `0x67.html` app in an iframe and hands it those bytes. All the unlocking, browsing, and editing is the ordinary, unmodified app; the connector only fetches the file and writes it back.
 
-**Sign-in.** OAuth 2.0 with PKCE as a public client — no client secret. Sign-in opens in a popup so the `code_verifier` stays in this page's live memory across the redirect: nothing is written to `localStorage`, `sessionStorage`, or a cookie, consistent with the project's no-persistence rule. The access token likewise lives only in memory and is gone when the tab closes. File selection uses the [Google Picker][picker], with the non-sensitive `drive.file` scope, so the app only ever gets access to the specific files the user picks. The Picker requires loading Google's own SDK at runtime — the project's one sanctioned external-script exception (see [Trust][trust] / `AGENTS.md`): a connector may load the SDK of the provider the user just chose, never unrelated third-party code, and even then the master password and all decryption stay in the sandboxed `0x67.html` iframe, which loads nothing external.
+**Sign-in.** The connector loads Google's own [Identity Services][gis-token] library to obtain an access token in the browser via a popup. A popup is used rather than a redirect because a redirect would require keeping state across the navigation, which the no-persistence rule forbids; the cost is that a browser blocking the popup (e.g. a locked-down kiosk) needs popups allowed for this site. File selection then uses the [Google Picker][picker] with the non-sensitive `drive.file` scope, so the app only reaches the files the user picks. These two Google libraries are the connector's only external code, and no state is stored anywhere (see [Trust][trust] / `AGENTS.md`): the master password and all decryption stay in the sandboxed `0x67.html` iframe, which loads nothing external.
 
-**Handoff and save.** The connector and the embedded app talk over a small same-origin `postMessage` protocol (see the "Host integration" section of `pages/0x67/page.ts`): the app announces `kw-ready`, the connector replies with `kw-open` carrying the file's bytes, and when the user saves, the app posts `kw-save` and the connector writes the bytes back to the same Drive file, replying `kw-saved`. Because a Drive session writes back to Drive, the app's local-download option is hidden while it is embedded. The app is unaffected when opened on its own: with no host frame there is no handshake, so `0x67.html` behaves exactly as it does standalone.
+**Handoff and save.** The connector and the embedded app exchange same-origin messages: the connector hands the app the file's bytes, and on save the app hands the edited bytes back for the connector to write to Drive. The local-download option is hidden while embedded. Opened on its own, `0x67.html` receives no such messages and behaves exactly as it does standalone.
 
 ## Local storage
 
@@ -52,4 +52,5 @@ The cloud connectors are open to every visitor: there is no sponsorship gate, an
 
 [sponsors]: https://github.com/sponsors/keepass-web
 [picker]: https://developers.google.com/workspace/drive/picker/guides/overview
+[gis-token]: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 [trust]: ../README.md#trust

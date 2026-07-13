@@ -7,20 +7,13 @@
  *
  * This file exists only so page.ts can be type-checked against that surface; it
  * declares just the members page.ts actually calls, mirroring the signatures in
- * logic.ts. The Google Picker/`gapi` globals that page.ts also uses are
- * declared at the bottom.
+ * logic.ts. The Google SDK globals that page.ts also uses (GIS token client and
+ * the Picker, both loaded at runtime from Google) are declared at the bottom.
  */
 
 interface DriveFile {
   id: string;
   name: string;
-}
-
-interface OAuthMessage {
-  type: 'kw-oauth';
-  code: string | null;
-  state: string | null;
-  error: string | null;
 }
 
 interface SaveMessage {
@@ -30,43 +23,41 @@ interface SaveMessage {
 }
 
 declare function must<T>(value: T | null | undefined): T;
-declare function base64UrlEncode(bytes: Uint8Array): string;
-declare function sha256Base64Url(input: string): Promise<string>;
-declare function parseCallbackParams(search: string): {
-  code: string | null;
-  state: string | null;
-  error: string | null;
-};
-declare function buildAuthUrl(config: {
-  authEndpoint: string;
-  clientId: string;
-  redirectUri: string;
-  scope: string;
-  state: string;
-  codeChallenge: string;
-}): string;
-declare function buildTokenRequestBody(config: {
-  clientId: string;
-  code: string;
-  redirectUri: string;
-  codeVerifier: string;
-}): string;
 declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
-declare function parseTokenResponse(json: unknown): { accessToken: string };
-declare function isPopupCallback(
-  hasOpener: boolean,
-  params: { code: string | null; error: string | null },
-): boolean;
-declare function isOAuthMessage(data: unknown): data is OAuthMessage;
 declare function isReadyMessage(data: unknown): boolean;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 
-// --- Google Picker / gapi (loaded at runtime from apis.google.com) ---
-// The connector loads Google's own SDK to show the Picker; these are the only
-// members page.ts touches. Declared loosely on purpose — this is a foreign,
-// remotely-loaded API, not code this project owns or type-checks in depth.
+// --- Google SDKs (loaded at runtime from Google) ---
+// Declared loosely on purpose — these are foreign, remotely-loaded APIs, not
+// code this project owns or type-checks in depth. Only the members page.ts
+// touches are declared.
 
+// Google Identity Services token model.
+interface TokenResponse {
+  access_token?: string;
+  error?: string;
+}
+
+interface TokenErrorResponse {
+  type?: string;
+  message?: string;
+}
+
+interface TokenClient {
+  requestAccessToken(): void;
+}
+
+interface GoogleOAuth2 {
+  initTokenClient(config: {
+    client_id: string;
+    scope: string;
+    callback: (response: TokenResponse) => void;
+    error_callback: (error: TokenErrorResponse) => void;
+  }): TokenClient;
+}
+
+// Google Picker.
 interface GapiLoadable {
   load(name: string, callback: () => void): void;
 }
@@ -84,6 +75,7 @@ interface PickerInstance {
 }
 
 interface PickerBuilderInstance {
+  setAppId(appId: string): PickerBuilderInstance;
   setOAuthToken(token: string): PickerBuilderInstance;
   setDeveloperKey(key: string): PickerBuilderInstance;
   addView(viewId: string): PickerBuilderInstance;
@@ -100,4 +92,7 @@ interface GooglePicker {
 }
 
 declare const gapi: GapiLoadable;
-declare const google: { picker: GooglePicker };
+declare const google: {
+  picker: GooglePicker;
+  accounts: { oauth2: GoogleOAuth2 };
+};

@@ -4,16 +4,8 @@
   "files": ["logic.js", "page.js"],
   "exports": [
     "must",
-    "base64UrlEncode",
-    "sha256Base64Url",
-    "parseCallbackParams",
-    "buildAuthUrl",
-    "buildTokenRequestBody",
     "buildDriveDownloadUrl",
     "buildDriveUpdateUrl",
-    "parseTokenResponse",
-    "isPopupCallback",
-    "isOAuthMessage",
     "isReadyMessage",
     "isSaveMessage"
   ]
