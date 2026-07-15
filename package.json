@@ -1,6 +1,6 @@
 {
   "name": "source-application",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "KeePass Web — source monorepo. Builds self-contained HTML distributables for a KDBX password manager that runs entirely in the browser.",
