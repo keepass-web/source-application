@@ -291,7 +291,7 @@ function buildGroupNode(group: XmlElement): HTMLLIElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `group-btn${group === app.currentGroup ? ' active' : ''}`;
-  btn.textContent = groupName(group);
+  btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
   btn.addEventListener('click', () => {
     app.currentGroup = group;
     app.searchQuery = '';
@@ -353,7 +353,7 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 
   const titleEl = document.createElement('div');
   titleEl.className = 'entry-row-title';
-  titleEl.textContent = entryTitle(entry);
+  titleEl.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
 
   const metaEl = document.createElement('div');
   metaEl.className = 'entry-row-meta';
@@ -439,7 +439,7 @@ function showEntryDetail(): void {
   setRoot(cloneTemplate('tpl-entry-detail'));
 
   const entry = must(app.currentEntry);
-  qs('#detail-title').textContent = entryTitle(entry);
+  qs('#detail-title').textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
 
   const fieldsEl = qs('#detail-fields');
 
@@ -578,6 +578,19 @@ function showEntryEdit(isNew: boolean): void {
 
   const entry = must(app.currentEntry);
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
+
+  const iconBtn = qs<HTMLButtonElement>('#edit-icon-btn');
+  const refreshIconBtn = (): void => {
+    iconBtn.textContent = iconEmoji(elementIconId(entry));
+  };
+  refreshIconBtn();
+  iconBtn.addEventListener('click', () => {
+    openIconPicker((iconId) => {
+      // createEntry() always appends an IconID child, so this is always present.
+      setText(getChild(entry, 'IconID') as XmlElement, String(iconId));
+      refreshIconBtn();
+    });
+  });
 
   const fieldsEl = qs('#edit-fields');
 
@@ -852,6 +865,32 @@ function openConfirmDelete(callback: () => void): void {
 }
 
 // ============================================================
+// Dialog: Icon Picker
+// ============================================================
+
+function openIconPicker(onPick: (iconId: number) => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-icon-picker');
+  const grid = byId<HTMLElement>('icon-grid');
+  grid.innerHTML = '';
+
+  for (const icon of ICON_PALETTE) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-grid-btn';
+    btn.title = icon.label;
+    btn.textContent = icon.emoji;
+    btn.addEventListener('click', () => {
+      onPick(icon.id);
+      dlg.close();
+    });
+    grid.appendChild(btn);
+  }
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// ============================================================
 // Dialog: New Group
 // ============================================================
 
@@ -860,6 +899,17 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
   const nameInput = byId<HTMLInputElement>('new-group-name');
   nameInput.value = '';
 
+  // 49 matches createGroup()'s own default group icon.
+  let selectedIconId = 49;
+  const iconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
+  iconBtn.textContent = iconEmoji(String(selectedIconId));
+  iconBtn.onclick = () => {
+    openIconPicker((iconId) => {
+      selectedIconId = iconId;
+      iconBtn.textContent = iconEmoji(String(selectedIconId));
+    });
+  };
+
   must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).onclick = () => {
     const name = nameInput.value.trim();
     if (!name) {
@@ -867,6 +917,8 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
       return;
     }
     const newGroup = createGroup(name);
+    // createGroup() always appends an IconID child, so this is always present.
+    setText(getChild(newGroup, 'IconID') as XmlElement, String(selectedIconId));
     appendChild(parentGroup, newGroup);
     app.currentGroup = newGroup;
     app.dirty = true;

@@ -10,6 +10,7 @@ import {
 import {
   applyEntryEdits,
   collectAllEntries,
+  elementIconId,
   entryField,
   entryTitle,
   filterEntriesByQuery,
@@ -17,6 +18,7 @@ import {
   generatePassword,
   groupName,
   groupPathTo,
+  iconEmoji,
   isCustomField,
   isValidClipboardTimeout,
 } from '../0x67/logic.ts';
@@ -234,4 +236,18 @@ test('generatePassword throws for a non-positive or non-integer length', () => {
   assert.throws(() => generatePassword({ length: 0, upper: true }), /positive whole number/i);
   assert.throws(() => generatePassword({ length: -5, upper: true }), /positive whole number/i);
   assert.throws(() => generatePassword({ length: 3.5, upper: true }), /positive whole number/i);
+});
+
+test('elementIconId reads the IconID child, or falls back to "0" when absent', () => {
+  const entry = createEntry({ title: 'Has an icon' });
+  assert.equal(elementIconId(entry), '0');
+
+  const bare = createElement('Entry');
+  assert.equal(elementIconId(bare), '0');
+});
+
+test('iconEmoji maps known IDs and falls back to a generic icon for unknown ones', () => {
+  assert.equal(iconEmoji('0'), '🔑');
+  assert.equal(iconEmoji('49'), '📁');
+  assert.equal(iconEmoji('9999'), '❔');
 });

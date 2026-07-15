@@ -158,6 +158,7 @@
         <button type="button" class="btn btn-primary" data-action="save">Save</button>
       </header>
       <div class="edit-body">
+        <button type="button" class="icon-picker-btn" id="edit-icon-btn" title="Choose icon"></button>
         <div id="edit-fields" class="edit-fields"></div>
         <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
       </div>
@@ -272,6 +273,7 @@
       <button type="button" class="close-btn" data-action="close">✕</button>
     </div>
     <div class="dialog-body">
+      <button type="button" class="icon-picker-btn" id="new-group-icon-btn" title="Choose icon"></button>
       <div class="field">
         <label for="new-group-name">Group name</label>
         <input type="text" id="new-group-name" autocomplete="off">
@@ -280,6 +282,19 @@
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-group">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="create-group">Create</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Icon Picker
+       ============================================================ -->
+  <dialog id="dlg-icon-picker" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Choose an icon</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="icon-grid" class="icon-grid"></div>
     </div>
   </dialog>
 

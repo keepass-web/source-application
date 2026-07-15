@@ -57,6 +57,7 @@ declare function getAttribute(element: XmlElement, name: string): string | undef
 declare function setAttribute(element: XmlElement, name: string, value: string): void;
 declare function createElement(name: string, text?: string): XmlElement;
 declare function appendChild(parent: XmlElement, child: XmlNode): XmlElement;
+declare function setText(element: XmlElement, text: string): void;
 
 interface EntryInput {
   title?: string;
@@ -105,3 +106,7 @@ interface PasswordGeneratorOptions {
 }
 
 declare function generatePassword(options: PasswordGeneratorOptions): string;
+
+declare function elementIconId(element: XmlElement): string;
+declare function iconEmoji(iconId: string): string;
+declare const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }>;

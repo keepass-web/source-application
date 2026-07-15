@@ -54,6 +54,51 @@ export function groupName(group: XmlElement): string {
   return n ? getText(n) : '(unnamed)';
 }
 
+/** An entry or group's IconID, as text — direct children, not String fields. */
+export function elementIconId(element: XmlElement): string {
+  const iconEl = getChild(element, 'IconID');
+  return iconEl ? getText(iconEl) : '0';
+}
+
+/**
+ * A small curated set of icons for entries and groups — an internal palette,
+ * not KeePass's own bitmap icon spritesheet, which this text-only app has no
+ * reason to vendor. IDs 0 and 49 match createEntry/createGroup's defaults.
+ * A file whose IconID isn't in this palette (e.g. one edited by real
+ * KeePass) still round-trips fine — it just falls back to a generic icon.
+ */
+export const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }> = [
+  { id: 0, emoji: '🔑', label: 'Key' },
+  { id: 1, emoji: '🌐', label: 'Web' },
+  { id: 2, emoji: '📧', label: 'Email' },
+  { id: 3, emoji: '💻', label: 'Computer' },
+  { id: 4, emoji: '🏦', label: 'Bank' },
+  { id: 5, emoji: '💳', label: 'Card' },
+  { id: 6, emoji: '🛒', label: 'Shopping' },
+  { id: 7, emoji: '🎮', label: 'Gaming' },
+  { id: 8, emoji: '📱', label: 'Phone' },
+  { id: 9, emoji: '☁️', label: 'Cloud' },
+  { id: 10, emoji: '🔒', label: 'Security' },
+  { id: 11, emoji: '🗂️', label: 'Documents' },
+  { id: 12, emoji: '⭐', label: 'Starred' },
+  { id: 13, emoji: '🏠', label: 'Home' },
+  { id: 14, emoji: '💼', label: 'Work' },
+  { id: 15, emoji: '🎓', label: 'Education' },
+  { id: 16, emoji: '✈️', label: 'Travel' },
+  { id: 17, emoji: '🎵', label: 'Media' },
+  { id: 18, emoji: '🛡️', label: 'Shield' },
+  { id: 19, emoji: '🧩', label: 'Other' },
+  { id: 49, emoji: '📁', label: 'Folder' },
+];
+
+const ICON_FALLBACK = '❔';
+
+/** The emoji for a given IconID text value, or a generic fallback. */
+export function iconEmoji(iconId: string): string {
+  const id = Number.parseInt(iconId, 10);
+  return ICON_PALETTE.find((icon) => icon.id === id)?.emoji ?? ICON_FALLBACK;
+}
+
 /** Find the group that directly contains the given entry. */
 export function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null {
   for (const e of getChildren(rootGroup, 'Entry')) {

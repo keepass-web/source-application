@@ -39,6 +39,7 @@ import {
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setText,
 } from '../../packages/kdbx/src/index.ts';
 import type { generatePassword } from '../0x67/logic.ts';
 import * as logic from '../0x67/logic.ts';
@@ -130,6 +131,7 @@ Object.assign(globalThis, {
   setAttribute,
   createElement,
   appendChild,
+  setText,
   createEntry,
   createGroup,
   findOrCreateRecycleBin,
@@ -396,9 +398,10 @@ test('0x67 app', async (t) => {
   await t.test(
     'entry rows fall back through username/URL/blank meta text, and malformed fields are skipped',
     () => {
+      // Row titles are icon-prefixed ("🔑 GitHub"), so match by substring.
       const rowFor = (title: string): HTMLElement =>
-        Array.from(root().querySelectorAll('.entry-row')).find(
-          (r) => r.querySelector('.entry-row-title')?.textContent === title,
+        Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+          r.querySelector('.entry-row-title')?.textContent?.includes(title),
         ) as HTMLElement;
 
       // Has a username: meta shows it (already covered by every other row
@@ -446,7 +449,7 @@ test('0x67 app', async (t) => {
       );
       assert.ok(rootBtn, 'root group button should be marked active by default');
 
-      const workBtn = buttons.find((b) => b.textContent === 'Work');
+      const workBtn = buttons.find((b) => b.textContent?.includes('Work'));
       assert.ok(workBtn, 'Work subgroup button should be rendered under the root');
       workBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
@@ -498,6 +501,18 @@ test('0x67 app', async (t) => {
     );
     assert.equal(dlg.open, true, 'an empty name must not close the dialog');
 
+    // Pick a non-default icon before naming and creating the group.
+    const groupIconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
+    assert.equal(groupIconBtn.textContent, '📁', 'defaults to the Folder icon');
+    groupIconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, true);
+    const webIconOption = Array.from(
+      byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
+    ).find((b) => b.title === 'Web') as HTMLButtonElement;
+    webIconOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, false);
+    assert.equal(groupIconBtn.textContent, '🌐');
+
     const nameInput = byId<HTMLInputElement>('new-group-name');
     nameInput.value = 'Personal';
     // Exercise the Enter-to-submit path specifically (distinct from clicking
@@ -508,6 +523,10 @@ test('0x67 app', async (t) => {
     assert.equal(dlg.open, false);
     assert.equal(q<HTMLElement>('#panel-title').textContent, 'Personal');
     assert.equal(root().querySelector('.entry-empty')?.textContent, 'No entries in this group.');
+    assert.ok(
+      q('#group-tree').querySelector('.group-btn.active')?.textContent?.startsWith('🌐'),
+      'the chosen icon carries through to the group tree',
+    );
   });
 
   await t.test(
@@ -549,6 +568,32 @@ test('0x67 app', async (t) => {
       assert.equal(row.querySelector('[title="Remove field"]'), null);
     }
   });
+
+  await t.test(
+    'the entry icon picker defaults to Key, can be closed without picking, and updates the entry when a choice is made',
+    () => {
+      const iconBtn = q<HTMLButtonElement>('#edit-icon-btn');
+      assert.equal(iconBtn.textContent, '🔑', 'new entries default to the Key icon');
+
+      // Closing (✕) without picking anything leaves the icon unchanged.
+      iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-icon-picker');
+      assert.equal(dlg.open, true);
+      dq('#dlg-icon-picker [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(iconBtn.textContent, '🔑');
+
+      iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const bankOption = Array.from(
+        byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
+      ).find((b) => b.title === 'Bank') as HTMLButtonElement;
+      bankOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(dlg.open, false);
+      assert.equal(iconBtn.textContent, '🏦');
+    },
+  );
 
   await t.test('add-field adds a removable custom field row', () => {
     const before = root().querySelectorAll('.edit-field').length;
@@ -667,7 +712,7 @@ test('0x67 app', async (t) => {
 
     q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
-    assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+    assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
     assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
   });
 
@@ -727,7 +772,7 @@ test('0x67 app', async (t) => {
     assert.equal(valueInput?.type, 'password');
 
     q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+    assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
   });
 
   await t.test('a protected field can be revealed and hidden again', () => {
@@ -818,10 +863,11 @@ test('0x67 app', async (t) => {
   await t.test(
     'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
     () => {
+      // Group/entry labels are icon-prefixed ("📁 Recycle Bin"), so match by substring.
       const clickGroupNamed = (name: string): void => {
         const btn = Array.from(
           q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
-        ).find((b) => b.textContent === name);
+        ).find((b) => b.textContent?.includes(name));
         assert.ok(btn, `expected a "${name}" group button`);
         btn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       };
@@ -845,7 +891,7 @@ test('0x67 app', async (t) => {
       (q('.entry-row') as HTMLElement).dispatchEvent(
         new dom.window.Event('click', { bubbles: true }),
       );
-      assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
       assert.equal(q('[data-action="trash"]').hasAttribute('hidden'), true);
       assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), false);
       assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), false);
@@ -853,8 +899,8 @@ test('0x67 app', async (t) => {
       // Restoring puts it back at the vault root, not its original group.
       q('[data-action="restore"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       clickGroupNamed('Personal Vault');
-      const restoredRow = Array.from(root().querySelectorAll('.entry-row')).find(
-        (r) => r.querySelector('.entry-row-title')?.textContent === 'Custom Title',
+      const restoredRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
       );
       assert.ok(restoredRow, 'restoring returns the entry to the root group');
 
@@ -952,7 +998,7 @@ test('0x67 app', async (t) => {
       const groupNames = Array.from(
         q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
       ).map((b) => b.textContent);
-      assert.ok(groupNames.includes('Personal'));
+      assert.ok(groupNames.some((name) => name?.includes('Personal')));
     },
   );
 

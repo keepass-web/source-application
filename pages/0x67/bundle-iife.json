@@ -38,6 +38,7 @@
     "setAttribute",
     "createElement",
     "appendChild",
+    "setText",
     "createEntry",
     "createGroup",
     "findOrCreateRecycleBin",
@@ -53,6 +54,9 @@
     "applyEntryEdits",
     "isCustomField",
     "isValidClipboardTimeout",
-    "generatePassword"
+    "generatePassword",
+    "elementIconId",
+    "iconEmoji",
+    "ICON_PALETTE"
   ]
 }

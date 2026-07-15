@@ -32,6 +32,7 @@ import {
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setText,
 } from '../../packages/kdbx/src/index.ts';
 import * as logic from '../0x67/logic.ts';
 
@@ -89,6 +90,7 @@ Object.assign(globalThis, {
   setAttribute,
   createElement,
   appendChild,
+  setText,
   createEntry,
   createGroup,
   findOrCreateRecycleBin,
