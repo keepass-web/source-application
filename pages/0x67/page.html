@@ -23,6 +23,7 @@
           Choose file
           <input type="file" id="file-input" accept=".kdbx,.kdb" hidden>
         </label>
+        <button type="button" class="back-link" data-action="create-database">Create a new database</button>
       </div>
     </div>
   </template>
@@ -38,7 +39,10 @@
       <form id="unlock-form" class="unlock-form" novalidate>
         <div class="field">
           <label for="master-password">Master password</label>
-          <input type="password" id="master-password" autocomplete="current-password">
+          <div class="password-field-wrap">
+            <input type="password" id="master-password" autocomplete="current-password">
+            <button type="button" class="icon-btn" data-action="toggle-password" title="Show / hide">👁</button>
+          </div>
         </div>
         <div class="field">
           <span class="field-label">Key file <span class="optional">(optional)</span></span>
@@ -54,6 +58,40 @@
   </template>
 
   <!-- ============================================================
+       Screen: Create Database
+       ============================================================ -->
+  <template id="tpl-create-database">
+    <div class="screen screen-unlock">
+      <button type="button" class="back-link" data-action="back">← Back</button>
+      <div class="wordmark">KeePass Web</div>
+      <h1 class="db-filename">New database</h1>
+      <form id="create-form" class="unlock-form" novalidate>
+        <div class="field">
+          <label for="create-name">Database name</label>
+          <input type="text" id="create-name" autocomplete="off" value="Database">
+        </div>
+        <div class="field">
+          <label for="create-password">Master password</label>
+          <input type="password" id="create-password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="create-password-confirm">Confirm master password</label>
+          <input type="password" id="create-password-confirm" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <span class="field-label">Key file <span class="optional">(optional)</span></span>
+          <label class="file-pick">
+            <span id="create-keyfile-label">No file chosen</span>
+            <input type="file" id="create-keyfile-input" hidden>
+          </label>
+        </div>
+        <div id="create-error" class="error-msg" hidden></div>
+        <button type="submit" id="create-btn" class="btn btn-primary btn-block">Create</button>
+      </form>
+    </div>
+  </template>
+
+  <!-- ============================================================
        Screen: Entry List (main app)
        ============================================================ -->
   <template id="tpl-entry-list">
@@ -64,8 +102,10 @@
           <input type="search" id="search-input" class="search-input" placeholder="Search all entries…" autocomplete="off">
         </div>
         <div class="header-actions">
+          <button type="button" class="icon-btn" data-action="export" title="Export">⬆</button>
           <button type="button" class="icon-btn" data-action="settings" title="Settings">⚙</button>
           <button type="button" class="icon-btn" data-action="lock" title="Lock">🔒</button>
+          <button type="button" class="icon-btn" data-action="close" title="Close">✕</button>
         </div>
       </header>
       <div class="app-body">
@@ -79,7 +119,17 @@
         <main class="entry-panel">
           <div class="panel-header">
             <span id="panel-title" class="panel-title"></span>
-            <button type="button" class="icon-btn" data-action="add-entry" title="New entry">+</button>
+            <div class="panel-header-actions">
+              <select id="sort-select" class="sort-select" title="Sort entries">
+                <option value="title:asc">Title (A–Z)</option>
+                <option value="title:desc">Title (Z–A)</option>
+                <option value="username:asc">Username (A–Z)</option>
+                <option value="username:desc">Username (Z–A)</option>
+                <option value="modified:desc">Modified (newest)</option>
+                <option value="modified:asc">Modified (oldest)</option>
+              </select>
+              <button type="button" class="icon-btn" data-action="add-entry" title="New entry">+</button>
+            </div>
           </div>
           <div id="entry-list" class="entry-list"></div>
         </main>
@@ -96,12 +146,20 @@
         <button type="button" class="back-link" data-action="back">← Entries</button>
         <div class="detail-header-actions">
           <button type="button" class="btn btn-secondary" data-action="edit">Edit</button>
-          <button type="button" class="btn btn-danger" data-action="delete">Delete</button>
+          <button type="button" class="btn btn-secondary" data-action="move-entry">Move to…</button>
+          <button type="button" class="btn btn-secondary" data-action="print">Print</button>
+          <button type="button" class="btn btn-secondary" data-action="restore" hidden>Restore</button>
+          <button type="button" class="btn btn-danger" data-action="trash">Trash</button>
+          <button type="button" class="btn btn-danger" data-action="delete" hidden>Delete</button>
         </div>
       </header>
       <div class="detail-body">
         <h1 id="detail-title" class="detail-title">Entry</h1>
+        <div id="detail-meta" class="detail-meta"></div>
+        <div id="detail-tags" class="tag-chips"></div>
         <div id="detail-fields" class="detail-fields"></div>
+        <div id="detail-attachments" class="attachment-list"></div>
+        <div id="detail-history" class="history-list"></div>
       </div>
     </div>
   </template>
@@ -117,8 +175,34 @@
         <button type="button" class="btn btn-primary" data-action="save">Save</button>
       </header>
       <div class="edit-body">
+        <button type="button" class="icon-picker-btn" id="edit-icon-btn" title="Choose icon"></button>
+        <div class="field">
+          <label for="edit-tags">Tags <span class="optional">(comma or semicolon separated)</span></label>
+          <input type="text" id="edit-tags" autocomplete="off" placeholder="Work, Personal">
+        </div>
+        <div class="field expiry-field">
+          <label class="expiry-toggle">
+            <input type="checkbox" id="edit-expires">
+            Expires
+          </label>
+          <input type="datetime-local" id="edit-expiry-time" disabled>
+        </div>
         <div id="edit-fields" class="edit-fields"></div>
         <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
+
+        <div id="edit-attachments-section" class="attachments-section">
+          <div class="attachments-header">
+            <span class="field-label">Attachments</span>
+            <label class="btn btn-secondary">
+              + Add attachment
+              <input type="file" id="edit-attachment-input" hidden>
+            </label>
+          </div>
+          <div id="edit-attachments" class="attachment-list"></div>
+        </div>
+        <p id="edit-attachments-unsupported" class="optional" hidden>
+          Attachments aren't supported for KDBX 3.1 files.
+        </p>
       </div>
     </div>
   </template>
@@ -136,9 +220,45 @@
         <label for="clipboard-timeout">Clipboard clear timeout (seconds)</label>
         <input type="number" id="clipboard-timeout" min="5" max="300" value="30">
       </div>
+      <hr class="dialog-divider">
+      <div class="field">
+        <label for="settings-new-password">New master password <span class="optional">(leave blank to keep the current one)</span></label>
+        <input type="password" id="settings-new-password" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label for="settings-new-password-confirm">Confirm new master password</label>
+        <input type="password" id="settings-new-password-confirm" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <span class="field-label">Key file <span class="optional">(optional)</span></span>
+        <label class="file-pick">
+          <span id="settings-keyfile-label">No file chosen</span>
+          <input type="file" id="settings-keyfile-input" hidden>
+        </label>
+      </div>
+      <div id="settings-security-error" class="error-msg" hidden></div>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-primary" data-action="save-settings">Save</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Export
+       ============================================================ -->
+  <dialog id="dlg-export" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Export</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="warning-text">
+        This creates an unencrypted file with every entry's title, username, password, URL, notes, and tags. Anyone who can read the downloaded file can read your passwords in plain text.
+      </p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="export-csv">Export as CSV</button>
+      <button type="button" class="btn btn-secondary" data-action="export-xml">Export as XML</button>
     </div>
   </dialog>
 
@@ -167,10 +287,10 @@
        ============================================================ -->
   <dialog id="dlg-confirm-delete" class="kw-dialog">
     <div class="dialog-header">
-      <h2>Delete entry?</h2>
+      <h2 id="confirm-delete-title">Delete entry?</h2>
     </div>
     <div class="dialog-body">
-      <p>This cannot be undone.</p>
+      <p id="confirm-delete-message">This cannot be undone.</p>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-delete">Cancel</button>
@@ -179,14 +299,59 @@
   </dialog>
 
   <!-- ============================================================
+       Dialog: Generate Password
+       ============================================================ -->
+  <dialog id="dlg-generate-password" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Generate password</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="generator-preview" id="generator-preview"></div>
+      <div class="field">
+        <label for="generator-length">Length</label>
+        <input type="number" id="generator-length" min="4" max="128" value="20">
+      </div>
+      <div class="generator-checkboxes">
+        <label><input type="checkbox" id="generator-upper" checked> Uppercase (A-Z)</label>
+        <label><input type="checkbox" id="generator-lower" checked> Lowercase (a-z)</label>
+        <label><input type="checkbox" id="generator-digits" checked> Digits (0-9)</label>
+        <label><input type="checkbox" id="generator-symbols"> Symbols (!@#$%…)</label>
+      </div>
+      <div id="generator-error" class="error-msg" hidden></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="regenerate">Regenerate</button>
+      <button type="button" class="btn btn-primary" data-action="use-password">Use this password</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Confirm Discard
+       ============================================================ -->
+  <dialog id="dlg-confirm-discard" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Discard unsaved changes?</h2>
+    </div>
+    <div class="dialog-body">
+      <p>You have unsaved changes that will be lost.</p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="cancel-discard">Cancel</button>
+      <button type="button" class="btn btn-danger" data-action="confirm-discard">Discard</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
        Dialog: New Group
        ============================================================ -->
   <dialog id="dlg-new-group" class="kw-dialog">
     <div class="dialog-header">
-      <h2>New group</h2>
+      <h2 id="new-group-title">New group</h2>
       <button type="button" class="close-btn" data-action="close">✕</button>
     </div>
     <div class="dialog-body">
+      <button type="button" class="icon-picker-btn" id="new-group-icon-btn" title="Choose icon"></button>
       <div class="field">
         <label for="new-group-name">Group name</label>
         <input type="text" id="new-group-name" autocomplete="off">
@@ -195,6 +360,35 @@
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-group">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="create-group">Create</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Move To
+       ============================================================ -->
+  <dialog id="dlg-move-to" class="kw-dialog">
+    <div class="dialog-header">
+      <h2 id="move-to-title">Move to…</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="move-to-tree" class="move-to-tree"></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="cancel-move">Cancel</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Icon Picker
+       ============================================================ -->
+  <dialog id="dlg-icon-picker" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Choose an icon</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="icon-grid" class="icon-grid"></div>
     </div>
   </dialog>
 

@@ -26,18 +26,36 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import {
+  addEntryAttachment,
   appendChild,
   Credentials,
   createElement,
   createEntry,
   createGroup,
+  deleteHistoryEntry,
+  findOrCreateRecycleBin,
   getAttribute,
   getChild,
   getChildren,
+  getEntryAttachments,
+  getEntryHistory,
+  getEntryTags,
+  getEntryTimes,
   getText,
+  isInRecycleBin,
   Kdbx,
+  pushHistorySnapshot,
+  removeEntryAttachment,
+  renameEntryAttachment,
+  restoreHistoryEntry,
   setAttribute,
+  setEntryExpiry,
+  setEntryTags,
+  setText,
+  touchLastModified,
+  type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
+import type { generatePassword } from '../0x67/logic.ts';
 import * as logic from '../0x67/logic.ts';
 
 // ============================================================
@@ -127,8 +145,24 @@ Object.assign(globalThis, {
   setAttribute,
   createElement,
   appendChild,
+  setText,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
+  isInRecycleBin,
+  getEntryTags,
+  setEntryTags,
+  getEntryTimes,
+  setEntryExpiry,
+  touchLastModified,
+  getEntryAttachments,
+  addEntryAttachment,
+  renameEntryAttachment,
+  removeEntryAttachment,
+  getEntryHistory,
+  pushHistorySnapshot,
+  restoreHistoryEntry,
+  deleteHistoryEntry,
   ...logic,
 });
 
@@ -278,6 +312,60 @@ test('0x67 app', async (t) => {
     assert.ok(q('#drop-zone'));
   });
 
+  await t.test(
+    'creating a new database: validation, then landing in an empty entry list',
+    async () => {
+      q('[data-action="create-database"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.ok(q('#create-form'));
+
+      // Back returns to upload without creating anything.
+      q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#drop-zone'));
+      q('[data-action="create-database"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // No password at all.
+      dispatch(q('#create-form'), 'submit');
+      assert.equal(q<HTMLElement>('#create-error').hidden, false);
+      assert.match(q<HTMLElement>('#create-error').textContent ?? '', /master password/i);
+
+      // Passwords that don't match each other.
+      q<HTMLInputElement>('#create-password').value = 'new-db-password';
+      q<HTMLInputElement>('#create-password-confirm').value = 'does-not-match';
+      dispatch(q('#create-form'), 'submit');
+      assert.equal(q<HTMLElement>('#create-error').hidden, false);
+      assert.match(q<HTMLElement>('#create-error').textContent ?? '', /do not match/i);
+
+      q<HTMLInputElement>('#create-name').value = 'Fresh Vault';
+      q<HTMLInputElement>('#create-password-confirm').value = 'new-db-password';
+
+      const createKeyfileInput = q<HTMLInputElement>('#create-keyfile-input');
+      setFiles(createKeyfileInput, [makeFile('create-keyfile.bin', KEYFILE)]);
+      dispatch(createKeyfileInput, 'change');
+      await waitFor(
+        () => q<HTMLElement>('#create-keyfile-label').textContent === 'create-keyfile.bin',
+      );
+
+      dispatch(q('#create-form'), 'submit');
+
+      await waitFor(() => dom.window.document.body.classList.contains('app-mode'), 15000);
+      assert.equal(q<HTMLElement>('#panel-title').textContent, 'Fresh Vault');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0);
+      assert.equal(q('#group-tree').querySelectorAll('.group-btn').length, 1);
+
+      // Reset back to the upload screen for the rest of the walkthrough.
+      // Closing a freshly-created (unsaved) database needs confirmation.
+      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.ok(q('#drop-zone'));
+    },
+  );
+
   await t.test('choosing a file via the file input also reaches the unlock screen', async () => {
     const fileInput = q<HTMLInputElement>('#file-input');
     setFiles(fileInput, [makeFile('real.kdbx', dbBytes)]);
@@ -311,6 +399,19 @@ test('0x67 app', async (t) => {
     await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
   });
 
+  await t.test('the master password field can be revealed and hidden again', () => {
+    const passwordInput = q<HTMLInputElement>('#master-password');
+    assert.equal(passwordInput.type, 'password');
+    q('[data-action="toggle-password"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(passwordInput.type, 'text');
+    q('[data-action="toggle-password"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(passwordInput.type, 'password');
+  });
+
   await t.test('the correct password and key file unlock into the entry list', async () => {
     q<HTMLInputElement>('#master-password').value = PASSWORD;
     dispatch(q('#unlock-form'), 'submit');
@@ -324,9 +425,10 @@ test('0x67 app', async (t) => {
   await t.test(
     'entry rows fall back through username/URL/blank meta text, and malformed fields are skipped',
     () => {
+      // Row titles are icon-prefixed ("🔑 GitHub"), so match by substring.
       const rowFor = (title: string): HTMLElement =>
-        Array.from(root().querySelectorAll('.entry-row')).find(
-          (r) => r.querySelector('.entry-row-title')?.textContent === title,
+        Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+          r.querySelector('.entry-row-title')?.textContent?.includes(title),
         ) as HTMLElement;
 
       // Has a username: meta shows it (already covered by every other row
@@ -374,7 +476,7 @@ test('0x67 app', async (t) => {
       );
       assert.ok(rootBtn, 'root group button should be marked active by default');
 
-      const workBtn = buttons.find((b) => b.textContent === 'Work');
+      const workBtn = buttons.find((b) => b.textContent?.includes('Work'));
       assert.ok(workBtn, 'Work subgroup button should be rendered under the root');
       workBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
@@ -426,6 +528,18 @@ test('0x67 app', async (t) => {
     );
     assert.equal(dlg.open, true, 'an empty name must not close the dialog');
 
+    // Pick a non-default icon before naming and creating the group.
+    const groupIconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
+    assert.equal(groupIconBtn.textContent, '📁', 'defaults to the Folder icon');
+    groupIconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, true);
+    const webIconOption = Array.from(
+      byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
+    ).find((b) => b.title === 'Web') as HTMLButtonElement;
+    webIconOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, false);
+    assert.equal(groupIconBtn.textContent, '🌐');
+
     const nameInput = byId<HTMLInputElement>('new-group-name');
     nameInput.value = 'Personal';
     // Exercise the Enter-to-submit path specifically (distinct from clicking
@@ -436,6 +550,10 @@ test('0x67 app', async (t) => {
     assert.equal(dlg.open, false);
     assert.equal(q<HTMLElement>('#panel-title').textContent, 'Personal');
     assert.equal(root().querySelector('.entry-empty')?.textContent, 'No entries in this group.');
+    assert.ok(
+      q('#group-tree').querySelector('.group-btn.active')?.textContent?.startsWith('🌐'),
+      'the chosen icon carries through to the group tree',
+    );
   });
 
   await t.test(
@@ -464,6 +582,131 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'group tree: rename, move (with own-subtree blocked), and delete/permanently-delete',
+    () => {
+      // Root has no rename/move/delete actions of its own.
+      const rootBtn = (): HTMLButtonElement =>
+        q('#group-tree').querySelector<HTMLButtonElement>('.group-btn') as HTMLButtonElement;
+      assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-actions'), null);
+
+      // Group rows are icon-prefixed ("🌐 Personal"), and the root's own
+      // label ("📁 Personal Vault") would falsely match a plain substring
+      // check against "Personal" — match on the trailing name instead.
+      const groupBtnFor = (name: string): HTMLButtonElement =>
+        Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+          b.textContent?.endsWith(name),
+        ) as HTMLButtonElement;
+      const rowFor = (name: string): HTMLElement =>
+        groupBtnFor(name).closest('.group-row') as HTMLElement;
+      const actionBtn = (name: string, title: string): HTMLButtonElement =>
+        rowFor(name).querySelector<HTMLButtonElement>(`[title="${title}"]`) as HTMLButtonElement;
+      // The tree is always fully expanded, so a trashed/moved group's button
+      // never disappears from #group-tree — it just relocates. Check its new
+      // position (is it inside this parent's own subtree?) rather than mere
+      // presence/absence.
+      const isInSubtreeOf = (parentName: string, childName: string): boolean =>
+        Array.from(
+          rowFor(parentName).nextElementSibling?.querySelectorAll<HTMLButtonElement>(
+            '.group-btn',
+          ) ?? [],
+        ).some((b) => b.textContent?.endsWith(childName));
+      const click = (el: EventTarget): void => {
+        el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+      const addRootGroup = (name: string): void => {
+        click(rootBtn());
+        click(q('[data-action="add-group"]'));
+        byId<HTMLInputElement>('new-group-name').value = name;
+        click(dq('#dlg-new-group [data-action="create-group"]'));
+      };
+
+      // Two new, root-level groups (not touching "Personal"/"Work", which
+      // later steps in this walkthrough depend on).
+      addRootGroup('Rename Target');
+      addRootGroup('Move Target');
+
+      // --- rename: reuses dlg-new-group, retitled and prefilled ---
+      click(actionBtn('Rename Target', 'Rename group'));
+      const groupDlg = byId<HTMLDialogElement>('dlg-new-group');
+      assert.equal(byId<HTMLElement>('new-group-title').textContent, 'Rename group');
+      assert.equal(byId<HTMLInputElement>('new-group-name').value, 'Rename Target');
+      byId<HTMLInputElement>('new-group-name').value = 'Renamed Group';
+      click(dq('#dlg-new-group [data-action="create-group"]'));
+      assert.equal(groupDlg.open, false);
+      assert.ok(groupBtnFor('Renamed Group'));
+      assert.equal(groupBtnFor('Rename Target'), undefined);
+
+      // --- move: a group cannot be moved into itself ---
+      click(actionBtn('Move Target', 'Move group'));
+      const moveDlg = byId<HTMLDialogElement>('dlg-move-to');
+      assert.equal(moveDlg.open, true);
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group to…');
+      const destBtn = (name: string): HTMLButtonElement =>
+        Array.from(
+          byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
+        ).find((b) => b.textContent?.endsWith(name)) as HTMLButtonElement;
+      assert.equal(destBtn('Move Target').disabled, true);
+      click(destBtn('Renamed Group'));
+      assert.equal(moveDlg.open, false);
+      assert.ok(
+        isInSubtreeOf('Renamed Group', 'Move Target'),
+        '"Move Target" is now nested under "Renamed Group"',
+      );
+
+      // One entry in the moved subtree, so the eventual permanent-delete
+      // confirmation exercises its singular "1 entry" wording too (the
+      // Recycle Bin test elsewhere covers the plural "0 entries" case).
+      click(groupBtnFor('Move Target'));
+      click(q('[data-action="add-entry"]'));
+      click(q('[data-action="save"]'));
+      click(dq('#dlg-save [data-action="close"]'));
+      click(q('[data-action="back"]'));
+
+      // --- move: a descendant is also an invalid target, and cancel/close both leave it in place ---
+      click(actionBtn('Renamed Group', 'Move group'));
+      assert.equal(destBtn('Renamed Group').disabled, true, 'self is not a valid target');
+      assert.equal(destBtn('Move Target').disabled, true, 'own descendant is not a valid target');
+      click(dq('#dlg-move-to [data-action="close"]'));
+      assert.equal(moveDlg.open, false);
+
+      click(actionBtn('Renamed Group', 'Move group'));
+      click(dq('#dlg-move-to [data-action="cancel-move"]'));
+      assert.equal(moveDlg.open, false);
+
+      // --- delete outside the bin: no confirmation, moves into Recycle Bin ---
+      click(actionBtn('Renamed Group', 'Delete group'));
+      assert.equal(byId<HTMLDialogElement>('dlg-confirm-delete').open, false);
+      assert.ok(groupBtnFor('Recycle Bin'), 'the recycle bin group is created on first trash');
+      assert.ok(
+        isInSubtreeOf('Recycle Bin', 'Renamed Group'),
+        'trashing moves the group into the bin',
+      );
+      assert.ok(
+        isInSubtreeOf('Renamed Group', 'Move Target'),
+        'its own subtree moved along with it',
+      );
+
+      // --- delete inside the bin: confirmed, permanent, whole subtree ---
+      click(actionBtn('Renamed Group', 'Delete group'));
+      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(confirmDlg.open, true);
+      assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
+      // The 1 entry saved into "Move Target" earlier exercises the singular
+      // wording; the Recycle Bin test elsewhere covers the plural case.
+      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /\b1 entry\b/);
+      click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      assert.equal(confirmDlg.open, false);
+      assert.equal(groupBtnFor('Renamed Group'), undefined, 'permanently gone');
+      assert.equal(groupBtnFor('Move Target'), undefined, 'its subtree went with it');
+
+      // Back to "Personal", empty, for the rest of the walkthrough.
+      click(groupBtnFor('Personal'));
+      assert.equal(q<HTMLElement>('#panel-title').textContent, 'Personal');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0);
+    },
+  );
+
   await t.test('adding a new entry opens the edit screen, prefilled with standard fields', () => {
     q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'New Entry');
@@ -478,6 +721,32 @@ test('0x67 app', async (t) => {
     }
   });
 
+  await t.test(
+    'the entry icon picker defaults to Key, can be closed without picking, and updates the entry when a choice is made',
+    () => {
+      const iconBtn = q<HTMLButtonElement>('#edit-icon-btn');
+      assert.equal(iconBtn.textContent, '🔑', 'new entries default to the Key icon');
+
+      // Closing (✕) without picking anything leaves the icon unchanged.
+      iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-icon-picker');
+      assert.equal(dlg.open, true);
+      dq('#dlg-icon-picker [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(iconBtn.textContent, '🔑');
+
+      iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const bankOption = Array.from(
+        byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
+      ).find((b) => b.title === 'Bank') as HTMLButtonElement;
+      bankOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(dlg.open, false);
+      assert.equal(iconBtn.textContent, '🏦');
+    },
+  );
+
   await t.test('add-field adds a removable custom field row', () => {
     const before = root().querySelectorAll('.edit-field').length;
     q('[data-action="add-field"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
@@ -490,6 +759,93 @@ test('0x67 app', async (t) => {
     newRow.querySelector<HTMLButtonElement>('[title="Remove field"]')?.click();
     assert.equal(root().querySelectorAll('.edit-field').length, before);
   });
+
+  await t.test(
+    'the password generator fills the Password field, and an empty selection blocks "use"',
+    () => {
+      const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+        (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+      ) as HTMLElement;
+      const valueInput = passwordRow.querySelector<HTMLInputElement>(
+        '.edit-value',
+      ) as HTMLInputElement;
+      const generateBtn = passwordRow.querySelector<HTMLButtonElement>(
+        '[title="Generate password"]',
+      );
+      assert.ok(generateBtn);
+
+      generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-generate-password');
+      assert.equal(dlg.open, true);
+      const preview = byId<HTMLElement>('generator-preview');
+      assert.equal(preview.textContent?.length, 20);
+
+      const firstPreview = preview.textContent;
+      dq('#dlg-generate-password [data-action="regenerate"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.notEqual(preview.textContent, firstPreview);
+
+      // Unchecking every character class shows an error and clears the
+      // preview; "Use this password" is then a no-op.
+      for (const id of ['generator-upper', 'generator-lower', 'generator-digits']) {
+        const checkbox = byId<HTMLInputElement>(id);
+        checkbox.checked = false;
+        dispatch(checkbox, 'input');
+      }
+      assert.equal(byId<HTMLElement>('generator-error').hidden, false);
+      assert.equal(preview.textContent, '');
+      dq('#dlg-generate-password [data-action="use-password"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, true, 'nothing generated yet, so the dialog stays open');
+
+      // Re-enabling a class regenerates a usable password again.
+      const lowerCheckbox = byId<HTMLInputElement>('generator-lower');
+      lowerCheckbox.checked = true;
+      dispatch(lowerCheckbox, 'input');
+      assert.equal(byId<HTMLElement>('generator-error').hidden, true);
+      const finalPreview = preview.textContent;
+      assert.ok(finalPreview);
+
+      dq('#dlg-generate-password [data-action="use-password"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(valueInput.value, finalPreview);
+
+      // The close (✕) button dismisses without applying anything.
+      generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dq('#dlg-generate-password [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(valueInput.value, finalPreview, 'closing must not touch the field');
+
+      // A non-Error throw (generatePassword itself never does this; the
+      // guard exists for whatever might) still shows a fallback message.
+      const globalGenerator = globalThis as unknown as {
+        generatePassword: typeof generatePassword;
+      };
+      const realGenerate = globalGenerator.generatePassword;
+      globalGenerator.generatePassword = () => {
+        throw 'not an Error instance';
+      };
+      try {
+        generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      } finally {
+        globalGenerator.generatePassword = realGenerate;
+      }
+      assert.equal(byId<HTMLElement>('generator-error').hidden, false);
+      assert.equal(
+        byId<HTMLElement>('generator-error').textContent,
+        'Could not generate a password.',
+      );
+      dq('#dlg-generate-password [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
 
   await t.test('cancelling a brand-new entry deletes it and returns to the entry list', () => {
     // Currently on the entry-edit screen for the entry just added to the
@@ -508,7 +864,7 @@ test('0x67 app', async (t) => {
 
     q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
-    assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+    assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
     assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
   });
 
@@ -550,6 +906,140 @@ test('0x67 app', async (t) => {
     assert.deepEqual(revoked, created);
   });
 
+  await t.test(
+    'tags entered on the edit screen show as chips on the detail screen, and round-trip back into the tags input on re-edit',
+    () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-tags').value, '', 'no tags set yet');
+      q<HTMLInputElement>('#edit-tags').value = 'Work, Urgent ;; Personal';
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+      const chips = Array.from(q('#detail-tags').querySelectorAll('.tag-chip')).map(
+        (el) => el.textContent,
+      );
+      assert.deepEqual(chips, ['Work', 'Urgent', 'Personal']);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-tags').value, 'Work, Urgent, Personal');
+      q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
+    },
+  );
+
+  await t.test(
+    'setting an expiration shows on the detail screen, and unchecking disables the datetime input again',
+    () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const expiresCheckbox = q<HTMLInputElement>('#edit-expires');
+      const expiryInput = q<HTMLInputElement>('#edit-expiry-time');
+      assert.equal(expiresCheckbox.checked, false);
+      assert.equal(expiryInput.disabled, true);
+
+      expiresCheckbox.checked = true;
+      dispatch(expiresCheckbox, 'change');
+      assert.equal(expiryInput.disabled, false);
+      assert.ok(expiryInput.value, 'checking Expires with no prior date fills in a default');
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.match(q<HTMLElement>('#detail-meta').textContent ?? '', /Expires/);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // Re-entering edit reflects the saved state; unchecking disables the input again.
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-expires').checked, true);
+      assert.equal(q<HTMLInputElement>('#edit-expiry-time').disabled, false);
+      const expiryInputAgain = q<HTMLInputElement>('#edit-expiry-time');
+      const savedValue = expiryInputAgain.value;
+      q<HTMLInputElement>('#edit-expires').checked = false;
+      dispatch(q<HTMLInputElement>('#edit-expires'), 'change');
+      assert.equal(expiryInputAgain.disabled, true);
+
+      // Re-checking with a date already present (retained from before, just
+      // disabled) must not clobber it with a fresh default.
+      q<HTMLInputElement>('#edit-expires').checked = true;
+      dispatch(q<HTMLInputElement>('#edit-expires'), 'change');
+      assert.equal(expiryInputAgain.value, savedValue);
+
+      q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
+    },
+  );
+
+  await t.test(
+    'attachments can be added, shown on both edit and detail screens, renamed, downloaded, and removed',
+    async () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), false);
+      assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), true);
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+      // A change event with the picker cancelled (no file chosen) is a no-op.
+      setFiles(attachmentInput, []);
+      dispatch(attachmentInput, 'change');
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      setFiles(attachmentInput, [makeFile('notes.txt', new TextEncoder().encode('hello'))]);
+      dispatch(attachmentInput, 'change');
+      await waitFor(() => q('#edit-attachments').children.length === 1);
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'notes.txt');
+
+      // Rename it; a blank rename is a no-op that keeps the old name.
+      q<HTMLInputElement>('.attachment-name').value = 'renamed.txt';
+      dispatch(q<HTMLInputElement>('.attachment-name'), 'change');
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'renamed.txt');
+      q<HTMLInputElement>('.attachment-name').value = '   ';
+      dispatch(q<HTMLInputElement>('.attachment-name'), 'change');
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'renamed.txt');
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const detailRow = q('#detail-attachments .attachment-row');
+      assert.ok(detailRow, 'the attachment shows on the detail screen too');
+      assert.equal(detailRow.querySelector('.attachment-name')?.textContent, 'renamed.txt');
+
+      const created: string[] = [];
+      const revoked: string[] = [];
+      const realCreate = URL.createObjectURL.bind(URL);
+      const realRevoke = URL.revokeObjectURL.bind(URL);
+      URL.createObjectURL = (obj: Blob | MediaSource) => {
+        const u = realCreate(obj);
+        created.push(u);
+        return u;
+      };
+      URL.revokeObjectURL = (u: string) => {
+        revoked.push(u);
+        realRevoke(u);
+      };
+      try {
+        q<HTMLButtonElement>('[title="Download"]').click();
+      } finally {
+        URL.createObjectURL = realCreate;
+        URL.revokeObjectURL = realRevoke;
+      }
+      assert.equal(created.length, 1);
+      assert.deepEqual(revoked, created);
+
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q<HTMLButtonElement>('[title="Remove attachment"]').click();
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q('#detail-attachments').children.length, 0);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
+
   await t.test('editing an existing entry (not new) cancels back to the detail screen', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'Edit Entry');
@@ -568,7 +1058,7 @@ test('0x67 app', async (t) => {
     assert.equal(valueInput?.type, 'password');
 
     q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+    assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
   });
 
   await t.test('a protected field can be revealed and hidden again', () => {
@@ -583,6 +1073,20 @@ test('0x67 app', async (t) => {
     assert.notEqual(valueSpan.textContent, '••••••••');
     revealBtn?.click();
     assert.equal(valueSpan.textContent, '••••••••');
+  });
+
+  await t.test('the print button calls window.print()', () => {
+    let printCalls = 0;
+    const realPrint = dom.window.print;
+    dom.window.print = () => {
+      printCalls++;
+    };
+    try {
+      q('[data-action="print"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    } finally {
+      dom.window.print = realPrint;
+    }
+    assert.equal(printCalls, 1);
   });
 
   await t.test(
@@ -630,6 +1134,36 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test('the edit screen has copy buttons too, copying the currently typed value', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+    ) as HTMLElement;
+    const valueInput = passwordRow.querySelector<HTMLInputElement>(
+      '.edit-value',
+    ) as HTMLInputElement;
+    const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
+    assert.ok(copyBtn, 'edit fields have a copy button, same as detail fields');
+
+    // Not yet saved — proves the button copies the live input, not the
+    // value the field was opened with.
+    valueInput.value = 'not-yet-saved-password';
+    clipboardWritesShouldFail = false;
+    copyBtn?.click();
+
+    return Promise.resolve()
+      .then(() => Promise.resolve())
+      .then(() => {
+        assert.equal(clipboardText, 'not-yet-saved-password');
+        assert.equal(copyBtn?.textContent, '✓');
+        t.mock.timers.tick(1500);
+        assert.equal(copyBtn?.textContent, '📋');
+        q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      });
+  });
+
   await t.test('a clipboard write failure is caught and logged, not thrown', async () => {
     const passwordRow = Array.from(root().querySelectorAll('.detail-field')).find(
       (row) => row.querySelector('.detail-label')?.textContent === 'Password',
@@ -656,33 +1190,133 @@ test('0x67 app', async (t) => {
     assert.ok(calls.some((args) => args[0] === 'Clipboard write failed'));
   });
 
-  await t.test('deleting an entry: cancel keeps it, confirm removes it', () => {
-    const entryCountBefore = () => {
+  await t.test(
+    'moving an entry to another group reparents it, leaving the source group empty',
+    () => {
+      // Currently on the detail screen for "Custom Title", the sole entry in
+      // "Personal". Move it into "Work", then back again, so the next
+      // (trashing) test finds things exactly as it expects.
+      const destBtn = (name: string): HTMLButtonElement =>
+        Array.from(
+          byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
+        ).find((b) => b.textContent?.endsWith(name)) as HTMLButtonElement;
+      const clickGroupNamed = (name: string): void => {
+        const btn = Array.from(
+          q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+        ).find((b) => b.textContent?.endsWith(name));
+        assert.ok(btn, `expected a "${name}" group button`);
+        btn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+
+      q('[data-action="move-entry"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      const dlg = byId<HTMLDialogElement>('dlg-move-to');
+      assert.equal(dlg.open, true);
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move entry to…');
+      destBtn('Work').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(dlg.open, false);
+
+      assert.ok(q('#group-tree'), 'back on the entry list');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0, 'Personal is now empty');
+
+      clickGroupNamed('Work');
+      const movedRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
+      );
+      assert.ok(movedRow, 'the entry is now in "Work"');
+      assert.equal(root().querySelectorAll('.entry-row').length, 2, 'alongside the existing entry');
+
+      // Move it back to "Personal" for the rest of the walkthrough.
+      movedRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q('[data-action="move-entry"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      destBtn('Personal').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Personal');
+      const backRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
+      );
+      assert.ok(backRow, 'moved back to "Personal"');
+      backRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    },
+  );
+
+  await t.test(
+    'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
+    () => {
+      // Group/entry labels are icon-prefixed ("📁 Recycle Bin"), so match by substring.
+      const clickGroupNamed = (name: string): void => {
+        const btn = Array.from(
+          q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+        ).find((b) => b.textContent?.includes(name));
+        assert.ok(btn, `expected a "${name}" group button`);
+        btn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+
+      // Currently viewing "Custom Title", the sole entry in the "Personal"
+      // group. Outside the bin, Trash is the only destructive action shown.
       q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      const count = root().querySelectorAll('.entry-row').length;
-      const row = root().querySelector('.entry-row') as HTMLElement;
-      row.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      return count;
-    };
-    const before = entryCountBefore();
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(q('[data-action="trash"]').hasAttribute('hidden'), false);
+      assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), true);
+      assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), true);
 
-    q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    let dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
-    assert.equal(dlg.open, true);
-    dq('#dlg-confirm-delete [data-action="cancel-delete"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
-    assert.equal(dlg.open, false);
-    assert.equal(q<HTMLElement>('#detail-title') !== null, true, 'still on the detail screen');
+      q('[data-action="trash"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#group-tree'), 'back on the entry list');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0, 'Personal is empty again');
 
-    q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
-    dq('#dlg-confirm-delete [data-action="confirm-delete"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
-    assert.equal(dlg.open, false);
-    assert.equal(root().querySelectorAll('.entry-row').length, before - 1);
-  });
+      clickGroupNamed('Recycle Bin');
+      assert.equal(root().querySelectorAll('.entry-row').length, 1);
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
+      assert.equal(q('[data-action="trash"]').hasAttribute('hidden'), true);
+      assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), false);
+      assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), false);
+
+      // Restoring puts it back at the vault root, not its original group.
+      q('[data-action="restore"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Personal Vault');
+      const restoredRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
+      );
+      assert.ok(restoredRow, 'restoring returns the entry to the root group');
+
+      // Trash it again, then permanently delete it from the bin.
+      restoredRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q('[data-action="trash"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Recycle Bin');
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      let dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(dlg.open, true);
+      dq('#dlg-confirm-delete [data-action="cancel-delete"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(q<HTMLElement>('#detail-title') !== null, true, 'still on the detail screen');
+
+      q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      dq('#dlg-confirm-delete [data-action="confirm-delete"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      clickGroupNamed('Recycle Bin');
+      assert.equal(
+        root().querySelectorAll('.entry-row').length,
+        0,
+        'permanently deleted from the bin',
+      );
+    },
+  );
 
   await t.test('settings: a valid timeout is saved, an invalid one is silently ignored', () => {
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
@@ -715,11 +1349,139 @@ test('0x67 app', async (t) => {
     assert.equal(dlg.open, false);
   });
 
-  await t.test('locking resets app state and returns to the upload screen', () => {
-    q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    assert.ok(q('#drop-zone'));
+  await t.test(
+    'settings: changing the master password updates the database credentials',
+    async () => {
+      q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-settings');
+      assert.equal(byId<HTMLInputElement>('settings-new-password').value, '');
+      assert.equal(byId<HTMLElement>('settings-keyfile-label').textContent, 'No file chosen');
+
+      // Mismatched passwords: rejected, dialog stays open.
+      byId<HTMLInputElement>('settings-new-password').value = 'new-pass';
+      byId<HTMLInputElement>('settings-new-password-confirm').value = 'does-not-match';
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, true);
+      assert.equal(byId<HTMLElement>('settings-security-error').hidden, false);
+
+      // Matching passwords: applied, dialog closes.
+      byId<HTMLInputElement>('settings-new-password-confirm').value = 'new-pass';
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+
+      // The change is a real, unsaved edit — closing now needs confirmation.
+      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(byId<HTMLDialogElement>('dlg-confirm-discard').open, true);
+      dq('#dlg-confirm-discard [data-action="cancel-discard"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // Restore the original credentials (including the key file), so later
+      // steps in this walkthrough — which unlock with PASSWORD/KEYFILE —
+      // keep working.
+      q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      byId<HTMLInputElement>('settings-new-password').value = PASSWORD;
+      byId<HTMLInputElement>('settings-new-password-confirm').value = PASSWORD;
+      const settingsKeyfileInput = byId<HTMLInputElement>('settings-keyfile-input');
+      setFiles(settingsKeyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+      dispatch(settingsKeyfileInput, 'change');
+      await waitFor(
+        () => byId<HTMLElement>('settings-keyfile-label').textContent === 'keyfile.bin',
+      );
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+    },
+  );
+
+  await t.test(
+    'locking re-encrypts the current state (including unsaved edits) and returns to the unlock screen',
+    async () => {
+      q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      await waitFor(() => q('#master-password') !== null);
+      assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
+
+      // A wrong password on the relocked (freshly re-encrypted) state is
+      // still rejected — locking doesn't weaken the credential check.
+      q<HTMLInputElement>('#master-password').value = 'not the right password';
+      dispatch(q('#unlock-form'), 'submit');
+      await waitFor(() => q<HTMLButtonElement>('#unlock-btn').disabled === false);
+      assert.equal(q<HTMLElement>('#unlock-error').hidden, false);
+
+      // The same password and key file the database was originally opened
+      // with unlocks it again.
+      q<HTMLInputElement>('#master-password').value = PASSWORD;
+      const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+      setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+      dispatch(keyfileInput, 'change');
+      await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+      dispatch(q('#unlock-form'), 'submit');
+      await waitFor(() => dom.window.document.body.classList.contains('app-mode'), 15000);
+
+      // The "Personal" group created earlier in this walkthrough only
+      // exists in the edited, never-downloaded state — finding it here
+      // proves locking preserved the in-memory edits instead of reverting
+      // to the originally-uploaded bytes.
+      const groupNames = Array.from(
+        q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+      ).map((b) => b.textContent);
+      assert.ok(groupNames.some((name) => name?.includes('Personal')));
+    },
+  );
+
+  await t.test('closing with nothing changed since the lock skips the confirm dialog', () => {
+    // showUnlock() clears the dirty flag on every successful unlock
+    // (including this relock), so there's nothing to confirm yet.
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
     assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
   });
+});
+
+test('closing with unsaved changes prompts to discard, and confirming discards them', async () => {
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('close-test.kdbx', dbBytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  // Make an unsaved edit, then return to the entry list (the close button
+  // lives in its header, not the detail screen the save dialog leaves us on).
+  q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  let dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  assert.equal(dlg.open, true);
+  dq('#dlg-confirm-discard [data-action="cancel-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.ok(q('#group-tree'), 'cancelling keeps the database open');
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.ok(q('#drop-zone'), 'confirming discard returns to the upload screen');
 });
 
 // ============================================================
@@ -755,6 +1517,434 @@ test('a rejection that is not an Error instance still shows a fallback message',
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
+test('create-database: an Error thrown by Kdbx.create is shown as-is', async () => {
+  q('[data-action="create-database"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const realCreate = Kdbx.create;
+  Kdbx.create = () => Promise.reject(new Error('simulated creation failure'));
+  try {
+    q<HTMLInputElement>('#create-password').value = 'x';
+    q<HTMLInputElement>('#create-password-confirm').value = 'x';
+    dispatch(q('#create-form'), 'submit');
+    await waitFor(() => q<HTMLElement>('#create-error').hidden === false);
+  } finally {
+    Kdbx.create = realCreate;
+  }
+  assert.equal(q<HTMLElement>('#create-error').textContent, 'simulated creation failure');
+  assert.equal(q<HTMLButtonElement>('#create-btn').disabled, false);
+  assert.equal(q<HTMLButtonElement>('#create-btn').textContent, 'Create');
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('create-database: a non-Error rejection shows a fallback message, and a blank name falls back to "Database"', async () => {
+  q('[data-action="create-database"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const realCreate = Kdbx.create;
+  let receivedName: string | undefined;
+  Kdbx.create = (_credentials: Credentials, options?: { databaseName?: string }) => {
+    receivedName = options?.databaseName;
+    return Promise.reject('a plain string rejection, not an Error');
+  };
+  try {
+    q<HTMLInputElement>('#create-name').value = '   ';
+    q<HTMLInputElement>('#create-password').value = 'x';
+    q<HTMLInputElement>('#create-password-confirm').value = 'x';
+    dispatch(q('#create-form'), 'submit');
+    await waitFor(() => q<HTMLElement>('#create-error').hidden === false);
+  } finally {
+    Kdbx.create = realCreate;
+  }
+  assert.equal(q<HTMLElement>('#create-error').textContent, 'Could not create database.');
+  assert.equal(receivedName, 'Database');
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('an entry with Expires=True but no ExpiryTime, and no CreationTime either (a malformed/external file), shows no Expires line, a dash for Created, and an empty enabled datetime input', async () => {
+  // Real KeePass always writes these Times fields, but this app must not
+  // choke on a file where that's not true — same rationale as the "URL
+  // Only" malformed-<String> fixture in buildTestDatabase() above.
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  const entry = createEntry({ title: 'Expires No Time' });
+  const times = getChild(entry, 'Times') as XmlElement;
+  setText(getChild(times, 'Expires') as XmlElement, 'True');
+  times.children = times.children.filter(
+    (c) => !(c.type === 'element' && (c.name === 'ExpiryTime' || c.name === 'CreationTime')),
+  );
+  appendChild(rootGroup, entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('expiry-edge-case.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const meta = q<HTMLElement>('#detail-meta').textContent ?? '';
+  assert.doesNotMatch(meta, /Expires/);
+  assert.match(meta, /Created —/);
+
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q<HTMLInputElement>('#edit-expires').checked, true);
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').value, '');
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').disabled, false);
+
+  // Leave the app back on the upload screen, which the next test assumes.
+  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('attachments are hidden with a note on KDBX 3.1 files', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, { version: 3, aesKdfRounds: 1000n });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'V3 Entry' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('v3.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q('#detail-attachments').children.length, 0);
+
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), true);
+  assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), false);
+
+  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Stale Attachment' });
+  addEntryAttachment(entry, 'ghost.txt', 999);
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('stale-ref.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const row = q('#detail-attachments .attachment-row');
+  assert.ok(row, 'the attachment still shows even though its data is missing');
+  q<HTMLButtonElement>('[title="Download"]').click(); // must not throw
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('entry history: edits are snapshotted, and a past version can be restored or deleted', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'v1' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('history.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const historyRows = (): HTMLElement[] =>
+    Array.from(q('#detail-history').querySelectorAll<HTMLElement>('.history-row'));
+  const editTitleTo = (title: string): void => {
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    q<HTMLInputElement>('.edit-value').value = title; // first .edit-value is Title
+    q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-save [data-action="close"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+  };
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(historyRows().length, 0, 'no history on an untouched entry');
+
+  editTitleTo('v2');
+  assert.equal(historyRows().length, 1, 'editing an existing entry snapshots its pre-edit state');
+  assert.ok(
+    (historyRows()[0] as HTMLElement).querySelector('.history-label')?.textContent?.includes('v1'),
+  );
+
+  editTitleTo('v3');
+  // Just asserted length 2/3 above each time, so these indices are always present.
+  const rowsAfterTwoEdits = historyRows();
+  assert.equal(rowsAfterTwoEdits.length, 2);
+  const [newer, older] = rowsAfterTwoEdits as [HTMLElement, HTMLElement];
+  // Newest snapshot first.
+  assert.ok(newer.querySelector('.history-label')?.textContent?.includes('v2'));
+  assert.ok(older.querySelector('.history-label')?.textContent?.includes('v1'));
+
+  // Restore the older ("v1") snapshot.
+  older
+    .querySelector<HTMLButtonElement>('[title="Restore this version"]')
+    ?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.ok(
+    q<HTMLElement>('#detail-title').textContent?.includes('v1'),
+    'adopts the restored title',
+  );
+  const rowsAfterRestore = historyRows();
+  assert.equal(
+    rowsAfterRestore.length,
+    3,
+    'restoring itself snapshots the pre-restore ("v3") state',
+  );
+  const [newest] = rowsAfterRestore as [HTMLElement];
+  assert.ok(newest.querySelector('.history-label')?.textContent?.includes('v3'));
+
+  // Delete one snapshot.
+  newest
+    .querySelector<HTMLButtonElement>('[title="Delete this version"]')
+    ?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(historyRows().length, 2);
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  // The edits above left the database dirty, so closing needs confirmation.
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+});
+
+test('entry list sorting: by title, username, or modified time, in either direction', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  const bob = createEntry({ title: 'Bob', username: 'zeta' });
+  const alice = createEntry({ title: 'Alice', username: 'alpha' });
+  appendChild(rootGroup, bob);
+  appendChild(rootGroup, alice);
+  // createEntry() stamps both with "now" — set distinguishable modified times directly.
+  const modifiedOf = (entry: XmlElement): XmlElement =>
+    getChild(getChild(entry, 'Times') as XmlElement, 'LastModificationTime') as XmlElement;
+  setText(modifiedOf(bob), '2020-01-01T00:00:00Z');
+  setText(modifiedOf(alice), '2024-01-01T00:00:00Z');
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('sorting.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const titles = (): (string | null)[] =>
+    Array.from(root().querySelectorAll<HTMLElement>('.entry-row-title')).map(
+      (el) => el.textContent,
+    );
+  const sortSelect = q<HTMLSelectElement>('#sort-select');
+
+  // Default: title ascending.
+  assert.equal(sortSelect.value, 'title:asc');
+  assert.ok(titles()[0]?.includes('Alice'));
+  assert.ok(titles()[1]?.includes('Bob'));
+
+  sortSelect.value = 'title:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+  assert.ok(titles()[1]?.includes('Alice'));
+
+  sortSelect.value = 'username:asc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Alice'), '"alpha" sorts before "zeta"');
+
+  sortSelect.value = 'username:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+
+  sortSelect.value = 'modified:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Alice'), 'Alice (2024) is newer than Bob (2020)');
+
+  sortSelect.value = 'modified:asc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('exporting entries as CSV or XML downloads an unencrypted plaintext file', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Exported Entry', username: 'exp-user' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('vault.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const dlg = byId<HTMLDialogElement>('dlg-export');
+  assert.equal(dlg.open, true);
+  assert.match(dq('.warning-text').textContent ?? '', /unencrypted/i);
+
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  const realRevoke = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    const u = realCreate(obj);
+    created.push(u);
+    return u;
+  };
+  URL.revokeObjectURL = (u: string) => {
+    revoked.push(u);
+    realRevoke(u);
+  };
+  try {
+    dq('#dlg-export [data-action="export-csv"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(dlg.open, false, 'exporting closes the dialog');
+
+    q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-export [data-action="export-xml"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(dlg.open, false);
+  } finally {
+    URL.createObjectURL = realCreate;
+    URL.revokeObjectURL = realRevoke;
+  }
+  assert.equal(created.length, 2, 'one object URL per export');
+  assert.deepEqual(revoked, created, 'every created URL is revoked');
+
+  // The close (✕) button dismisses without exporting anything.
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-export [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.equal(created.length, 2, 'closing must not trigger another export');
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('exporting falls back to "entries" as the base filename when none is set', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  // A filename that's just the extension strips to '' — exercises the
+  // "|| 'entries'" fallback in openExportDialog's base filename.
+  setFiles(fileInput, [makeFile('.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  const downloadNames: string[] = [];
+  const realClick = dom.window.HTMLAnchorElement.prototype.click;
+  dom.window.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    downloadNames.push(this.download);
+  };
+  try {
+    dq('#dlg-export [data-action="export-csv"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+  } finally {
+    dom.window.HTMLAnchorElement.prototype.click = realClick;
+  }
+  assert.deepEqual(downloadNames, ['entries.csv']);
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
 test('must() throws when a screen template is missing an element it depends on', async () => {
   // Re-upload and unlock again so there's a live app state to work with,
   // independent of the walkthrough above.
@@ -777,15 +1967,18 @@ test('must() throws when a screen template is missing an element it depends on',
   // path rather than a contrived direct call (page.ts exports nothing to
   // call directly). Per spec, DOM event listener exceptions are reported to
   // the console, not rethrown to dispatchEvent's caller — jsdom's virtual
-  // console surfaces them as a 'jsdomError' event instead.
-  const lockBtn = q('[data-action="lock"]');
+  // console surfaces them as a 'jsdomError' event instead. Close (not lock)
+  // is used here specifically because it stays synchronous when nothing is
+  // dirty — lock always awaits Kdbx#save() first, which would make the
+  // throw happen after this test's synchronous assertion already ran.
+  const closeBtn = q('[data-action="close"]');
   root().remove();
 
   let captured: Error | undefined;
   dom.virtualConsole.on('jsdomError', (err: Error) => {
     captured = err;
   });
-  lockBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  closeBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
   assert.ok(captured, 'removing #root should make the next screen render throw');
   assert.match(String(captured?.message ?? captured), /expected element not found/);

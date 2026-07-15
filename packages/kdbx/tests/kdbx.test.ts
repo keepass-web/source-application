@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addEntryAttachment,
   appendChild,
   Credentials,
+  createElement,
   createEntry,
+  createGroup,
   getAttribute,
   getChild,
   getChildren,
+  getEntryAttachments,
   getText,
   Kdbx,
   type KdbxCreateOptions,
+  removeEntryAttachment,
+  renameEntryAttachment,
+  setAttribute,
   type XmlElement,
 } from '../src/index.ts';
 
@@ -143,4 +150,165 @@ test('a password-and-keyfile credential round-trips', async () => {
   assert.equal(fieldsOf(firstEntry(reloaded)).Password, 'secret');
   // The same database must not open with the password alone.
   await assert.rejects(() => Kdbx.load(saved, Credentials.fromPassword('pw')));
+});
+
+test('addBinary dedupes identical content and returns a stable pool index', async () => {
+  const kdbx = await Kdbx.create(Credentials.fromPassword('pw'), options({ version: 4 }));
+  const dataA = new Uint8Array([1, 2, 3]);
+  const dataB = new Uint8Array([1, 2, 3]); // same content, different array instance
+  const dataC = new Uint8Array([4, 5, 6]);
+
+  const refA = kdbx.addBinary(dataA);
+  const refB = kdbx.addBinary(dataB);
+  const refC = kdbx.addBinary(dataC);
+
+  assert.equal(refB, refA);
+  assert.notEqual(refC, refA);
+  assert.deepEqual(kdbx.getBinaryData(refA), dataA);
+  assert.deepEqual(kdbx.getBinaryData(refC), dataC);
+  assert.equal(kdbx.getBinaryData(999), undefined);
+});
+
+test('an attachment added, saved, and reloaded round-trips its name and bytes', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const entry = createEntry({ title: 'Has an attachment' });
+  appendChild(kdbx.getRootGroup(), entry);
+
+  const data = new TextEncoder().encode('hello attachment');
+  const ref = kdbx.addBinary(data);
+  addEntryAttachment(entry, 'notes.txt', ref);
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  const attachments = getEntryAttachments(firstEntry(reloaded));
+  assert.equal(attachments.length, 1);
+  assert.equal(attachments[0]?.name, 'notes.txt');
+  assert.deepEqual(reloaded.getBinaryData(attachments[0]?.ref as number), data);
+});
+
+test('renameEntryAttachment renames the matching attachment and leaves others alone; a missing name is a no-op', () => {
+  const entry = createEntry({ title: 'Multi' });
+  addEntryAttachment(entry, 'a.txt', 0);
+  addEntryAttachment(entry, 'b.txt', 1);
+
+  renameEntryAttachment(entry, 'a.txt', 'renamed.txt');
+  assert.deepEqual(
+    getEntryAttachments(entry).map((a) => a.name),
+    ['renamed.txt', 'b.txt'],
+  );
+
+  renameEntryAttachment(entry, 'missing.txt', 'ignored.txt');
+  assert.deepEqual(
+    getEntryAttachments(entry).map((a) => a.name),
+    ['renamed.txt', 'b.txt'],
+  );
+});
+
+test('removeEntryAttachment removes only the matching attachment; a missing name is a no-op', () => {
+  const entry = createEntry({ title: 'Multi' });
+  addEntryAttachment(entry, 'a.txt', 0);
+  addEntryAttachment(entry, 'b.txt', 1);
+
+  removeEntryAttachment(entry, 'a.txt');
+  assert.deepEqual(
+    getEntryAttachments(entry).map((a) => a.name),
+    ['b.txt'],
+  );
+
+  removeEntryAttachment(entry, 'missing.txt');
+  assert.deepEqual(
+    getEntryAttachments(entry).map((a) => a.name),
+    ['b.txt'],
+  );
+});
+
+test('getEntryAttachments skips a malformed <Binary> child (no Key, or Value with no Ref)', () => {
+  const entry = createEntry({ title: 'Malformed' });
+
+  const noKey = createElement('Binary');
+  const noKeyValue = createElement('Value');
+  setAttribute(noKeyValue, 'Ref', '0');
+  appendChild(noKey, noKeyValue);
+  appendChild(entry, noKey);
+
+  const noRef = createElement('Binary');
+  appendChild(noRef, createElement('Key', 'no-ref.txt'));
+  appendChild(noRef, createElement('Value'));
+  appendChild(entry, noRef);
+
+  assert.deepEqual(getEntryAttachments(entry), []);
+});
+
+test("save() drops an unreferenced binary and remaps the survivor's Ref to stay contiguous", async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const root = kdbx.getRootGroup();
+  const dropEntry = createEntry({ title: 'Drop' });
+  const keepEntry = createEntry({ title: 'Keep' });
+  appendChild(root, dropEntry);
+  // Nested one level deep so pruning's tree walk must recurse into a
+  // subgroup, not just scan the root group's direct entries.
+  const subGroup = createGroup('Sub');
+  appendChild(root, subGroup);
+  appendChild(subGroup, keepEntry);
+
+  const dropData = new TextEncoder().encode('drop me');
+  const keepData = new TextEncoder().encode('keep me');
+  const dropRef = kdbx.addBinary(dropData); // pool index 0
+  const keepRef = kdbx.addBinary(keepData); // pool index 1
+  addEntryAttachment(dropEntry, 'drop.txt', dropRef);
+  addEntryAttachment(keepEntry, 'keep.txt', keepRef);
+
+  // Remove the "drop" entry's only attachment before its first save, so pool
+  // index 0 is genuinely unreferenced and index 1 must be remapped to 0.
+  removeEntryAttachment(dropEntry, 'drop.txt');
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  assert.equal(reloaded.binaries.length, 1, 'the unreferenced binary was dropped');
+
+  const reloadedSub = getChild(reloaded.getRootGroup(), 'Group') as XmlElement;
+  const reloadedKeep = getChild(reloadedSub, 'Entry') as XmlElement;
+  assert.equal(fieldsOf(reloadedKeep).Title, 'Keep');
+  const attachments = getEntryAttachments(reloadedKeep);
+  assert.equal(attachments.length, 1);
+  assert.deepEqual(reloaded.getBinaryData(attachments[0]?.ref as number), keepData);
+});
+
+test('save() defensively handles malformed/stale <Binary> references without throwing', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const entry = createEntry({ title: 'Malformed refs' });
+  appendChild(kdbx.getRootGroup(), entry);
+
+  const data = new TextEncoder().encode('real attachment');
+  const ref = kdbx.addBinary(data);
+  // Two attachments sharing the same valid ref.
+  addEntryAttachment(entry, 'first.txt', ref);
+  addEntryAttachment(entry, 'second.txt', ref);
+  // A stale ref pointing past the end of the pool.
+  addEntryAttachment(entry, 'stale.txt', 999);
+  // A <Binary> with no <Value> child at all.
+  const noValue = createElement('Binary');
+  appendChild(noValue, createElement('Key', 'no-value.txt'));
+  appendChild(entry, noValue);
+  // A <Binary> with a <Value> present but no Ref attribute on it.
+  const noRefAttr = createElement('Binary');
+  appendChild(noRefAttr, createElement('Key', 'no-ref-attr.txt'));
+  appendChild(noRefAttr, createElement('Value'));
+  appendChild(entry, noRefAttr);
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  assert.equal(
+    reloaded.binaries.length,
+    1,
+    'the single real binary survives, shared by two attachments',
+  );
+
+  const reloadedEntry = firstEntry(reloaded);
+  const named = (name: string) => getEntryAttachments(reloadedEntry).find((a) => a.name === name);
+  assert.deepEqual(reloaded.getBinaryData(named('first.txt')?.ref as number), data);
+  assert.deepEqual(reloaded.getBinaryData(named('second.txt')?.ref as number), data);
+  // The stale Ref is left untouched (harmless: resolves to no data at read time).
+  assert.equal(named('stale.txt')?.ref, 999);
+  assert.equal(reloaded.getBinaryData(999), undefined);
 });
