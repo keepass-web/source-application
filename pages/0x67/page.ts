@@ -386,17 +386,29 @@ function wireEntryListEvents(): void {
     renderEntryPanel();
   });
 
-  qs('[data-action="lock"]').addEventListener('click', () => {
-    Object.assign(app, {
-      db: null,
-      file: null,
-      filename: '',
-      currentGroup: null,
-      currentEntry: null,
-      searchQuery: '',
-      dirty: false,
+  qs('[data-action="lock"]').addEventListener('click', async () => {
+    // Re-encrypt the current in-memory state (including anything not yet
+    // saved) rather than reloading the original file, so locking never loses
+    // an edit — only Close does that, and only with confirmation.
+    const bytes = await must(app.db).save();
+    app.file = bytes.buffer as ArrayBuffer;
+    Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    showUnlock();
+  });
+
+  qs('[data-action="close"]').addEventListener('click', () => {
+    confirmDiscardIfDirty(() => {
+      Object.assign(app, {
+        db: null,
+        file: null,
+        filename: '',
+        currentGroup: null,
+        currentEntry: null,
+        searchQuery: '',
+        dirty: false,
+      });
+      showUpload();
     });
-    showUpload();
   });
 
   qs('[data-action="settings"]').addEventListener('click', openSettings);
@@ -695,6 +707,29 @@ async function downloadDatabase(): Promise<void> {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   app.dirty = false;
+}
+
+// ============================================================
+// Dialog: Confirm Discard
+// ============================================================
+
+/** Run `proceed` immediately if there's nothing unsaved to lose; otherwise
+ * confirm first, since locking/closing here discards in-memory edits rather
+ * than saving them (there's no autosave). */
+function confirmDiscardIfDirty(proceed: () => void): void {
+  if (!app.dirty) {
+    proceed();
+    return;
+  }
+
+  const dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]')).onclick = () => {
+    dlg.close();
+    proceed();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-discard"]')).onclick = () =>
+    dlg.close();
+  dlg.showModal();
 }
 
 // ============================================================

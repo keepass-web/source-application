@@ -101,6 +101,7 @@
         <div class="header-actions">
           <button type="button" class="icon-btn" data-action="settings" title="Settings">⚙</button>
           <button type="button" class="icon-btn" data-action="lock" title="Lock">🔒</button>
+          <button type="button" class="icon-btn" data-action="close" title="Close">✕</button>
         </div>
       </header>
       <div class="app-body">
@@ -210,6 +211,22 @@
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-delete">Cancel</button>
       <button type="button" class="btn btn-danger" data-action="confirm-delete">Delete</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Confirm Discard
+       ============================================================ -->
+  <dialog id="dlg-confirm-discard" class="kw-dialog">
+    <div class="dialog-header">
+      <h2>Discard unsaved changes?</h2>
+    </div>
+    <div class="dialog-body">
+      <p>You have unsaved changes that will be lost.</p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="cancel-discard">Cancel</button>
+      <button type="button" class="btn btn-danger" data-action="confirm-discard">Discard</button>
     </div>
   </dialog>
 

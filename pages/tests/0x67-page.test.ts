@@ -322,9 +322,12 @@ test('0x67 app', async (t) => {
       assert.equal(root().querySelectorAll('.entry-row').length, 0);
       assert.equal(q('#group-tree').querySelectorAll('.group-btn').length, 1);
 
-      // Reset back to the upload screen for the rest of the walkthrough
-      // (lock still does a full reset at this point in the walkthrough).
-      q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      // Reset back to the upload screen for the rest of the walkthrough.
+      // Closing a freshly-created (unsaved) database needs confirmation.
+      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
       assert.ok(q('#drop-zone'));
     },
   );
@@ -766,11 +769,89 @@ test('0x67 app', async (t) => {
     assert.equal(dlg.open, false);
   });
 
-  await t.test('locking resets app state and returns to the upload screen', () => {
-    q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    assert.ok(q('#drop-zone'));
+  await t.test(
+    'locking re-encrypts the current state (including unsaved edits) and returns to the unlock screen',
+    async () => {
+      q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      await waitFor(() => q('#master-password') !== null);
+      assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
+
+      // A wrong password on the relocked (freshly re-encrypted) state is
+      // still rejected — locking doesn't weaken the credential check.
+      q<HTMLInputElement>('#master-password').value = 'not the right password';
+      dispatch(q('#unlock-form'), 'submit');
+      await waitFor(() => q<HTMLButtonElement>('#unlock-btn').disabled === false);
+      assert.equal(q<HTMLElement>('#unlock-error').hidden, false);
+
+      // The same password and key file the database was originally opened
+      // with unlocks it again.
+      q<HTMLInputElement>('#master-password').value = PASSWORD;
+      const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+      setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+      dispatch(keyfileInput, 'change');
+      await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+      dispatch(q('#unlock-form'), 'submit');
+      await waitFor(() => dom.window.document.body.classList.contains('app-mode'), 15000);
+
+      // The "Personal" group created earlier in this walkthrough only
+      // exists in the edited, never-downloaded state — finding it here
+      // proves locking preserved the in-memory edits instead of reverting
+      // to the originally-uploaded bytes.
+      const groupNames = Array.from(
+        q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+      ).map((b) => b.textContent);
+      assert.ok(groupNames.includes('Personal'));
+    },
+  );
+
+  await t.test('closing with nothing changed since the lock skips the confirm dialog', () => {
+    // showUnlock() clears the dirty flag on every successful unlock
+    // (including this relock), so there's nothing to confirm yet.
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
     assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
   });
+});
+
+test('closing with unsaved changes prompts to discard, and confirming discards them', async () => {
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('close-test.kdbx', dbBytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  // Make an unsaved edit, then return to the entry list (the close button
+  // lives in its header, not the detail screen the save dialog leaves us on).
+  q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  let dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  assert.equal(dlg.open, true);
+  dq('#dlg-confirm-discard [data-action="cancel-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.ok(q('#group-tree'), 'cancelling keeps the database open');
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.ok(q('#drop-zone'), 'confirming discard returns to the upload screen');
 });
 
 // ============================================================
@@ -874,15 +955,18 @@ test('must() throws when a screen template is missing an element it depends on',
   // path rather than a contrived direct call (page.ts exports nothing to
   // call directly). Per spec, DOM event listener exceptions are reported to
   // the console, not rethrown to dispatchEvent's caller — jsdom's virtual
-  // console surfaces them as a 'jsdomError' event instead.
-  const lockBtn = q('[data-action="lock"]');
+  // console surfaces them as a 'jsdomError' event instead. Close (not lock)
+  // is used here specifically because it stays synchronous when nothing is
+  // dirty — lock always awaits Kdbx#save() first, which would make the
+  // throw happen after this test's synchronous assertion already ran.
+  const closeBtn = q('[data-action="close"]');
   root().remove();
 
   let captured: Error | undefined;
   dom.virtualConsole.on('jsdomError', (err: Error) => {
     captured = err;
   });
-  lockBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  closeBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
   assert.ok(captured, 'removing #root should make the next screen render throw');
   assert.match(String(captured?.message ?? captured), /expected element not found/);
