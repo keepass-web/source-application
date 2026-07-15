@@ -39,7 +39,10 @@
       <form id="unlock-form" class="unlock-form" novalidate>
         <div class="field">
           <label for="master-password">Master password</label>
-          <input type="password" id="master-password" autocomplete="current-password">
+          <div class="password-field-wrap">
+            <input type="password" id="master-password" autocomplete="current-password">
+            <button type="button" class="icon-btn" data-action="toggle-password" title="Show / hide">👁</button>
+          </div>
         </div>
         <div class="field">
           <span class="field-label">Key file <span class="optional">(optional)</span></span>

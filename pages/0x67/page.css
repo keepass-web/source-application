@@ -276,6 +276,32 @@ body:not(.app-mode) {
   flex-direction: column;
 }
 
+.password-field-wrap {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.password-field-wrap:focus-within {
+  border-color: var(--accent);
+}
+
+#master-password {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+#master-password:focus {
+  outline: none;
+}
+
 .file-pick {
   display: flex;
   align-items: center;

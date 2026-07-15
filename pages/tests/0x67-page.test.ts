@@ -365,6 +365,19 @@ test('0x67 app', async (t) => {
     await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
   });
 
+  await t.test('the master password field can be revealed and hidden again', () => {
+    const passwordInput = q<HTMLInputElement>('#master-password');
+    assert.equal(passwordInput.type, 'password');
+    q('[data-action="toggle-password"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(passwordInput.type, 'text');
+    q('[data-action="toggle-password"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(passwordInput.type, 'password');
+  });
+
   await t.test('the correct password and key file unlock into the entry list', async () => {
     q<HTMLInputElement>('#master-password').value = PASSWORD;
     dispatch(q('#unlock-form'), 'submit');

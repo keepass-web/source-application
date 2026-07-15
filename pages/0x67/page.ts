@@ -155,6 +155,10 @@ function showUnlock(): void {
     showUpload();
   });
 
+  qs('[data-action="toggle-password"]').addEventListener('click', () => {
+    passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+  });
+
   const keyfileInput = qs<HTMLInputElement>('#keyfile-input');
   keyfileInput.addEventListener('change', async () => {
     const f = keyfileInput.files?.[0];
