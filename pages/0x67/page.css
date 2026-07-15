@@ -10,6 +10,16 @@
   padding: 0;
 }
 
+/* Elements with an explicit `display` (e.g. .btn's `display: inline-flex`)
+ * otherwise win the cascade over the UA stylesheet's `[hidden] { display:
+ * none }`, since both are same-specificity author-vs-UA rules and author
+ * always wins — so JS toggling `el.hidden` silently stops hiding anything
+ * once a class gives that element its own `display`. Force it back. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: this rule's entire job is to out-rank any other display declaration, by design */
+  display: none !important;
+}
+
 :root {
   --bg: #0d1117;
   --surface: #161b22;
