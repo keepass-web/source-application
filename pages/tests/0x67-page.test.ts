@@ -35,10 +35,12 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getEntryTags,
   getText,
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setEntryTags,
   setText,
 } from '../../packages/kdbx/src/index.ts';
 import type { generatePassword } from '../0x67/logic.ts';
@@ -136,6 +138,8 @@ Object.assign(globalThis, {
   createGroup,
   findOrCreateRecycleBin,
   isInRecycleBin,
+  getEntryTags,
+  setEntryTags,
   ...logic,
 });
 
@@ -753,6 +757,29 @@ test('0x67 app', async (t) => {
     assert.equal(created.length, 1);
     assert.deepEqual(revoked, created);
   });
+
+  await t.test(
+    'tags entered on the edit screen show as chips on the detail screen, and round-trip back into the tags input on re-edit',
+    () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-tags').value, '', 'no tags set yet');
+      q<HTMLInputElement>('#edit-tags').value = 'Work, Urgent ;; Personal';
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+      const chips = Array.from(q('#detail-tags').querySelectorAll('.tag-chip')).map(
+        (el) => el.textContent,
+      );
+      assert.deepEqual(chips, ['Work', 'Urgent', 'Personal']);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-tags').value, 'Work, Urgent, Personal');
+      q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
+    },
+  );
 
   await t.test('editing an existing entry (not new) cancels back to the detail screen', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));

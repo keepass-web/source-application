@@ -31,6 +31,7 @@ import {
   createElement,
   getChild,
   getChildren,
+  getEntryTags,
   getText,
   setAttribute,
 } from '../../build/packages/kdbx/src/model.js';
@@ -146,8 +147,8 @@ export function groupPathTo(
 }
 
 /**
- * Keep only entries with a String field whose value contains the query,
- * case-insensitively.
+ * Keep only entries with a String field or tag whose value contains the
+ * query, case-insensitively.
  */
 export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[] {
   const q = query.toLowerCase();
@@ -156,7 +157,7 @@ export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): 
       const v = getChild(string, 'Value');
       if (v && getText(v).toLowerCase().includes(q)) return true;
     }
-    return false;
+    return getEntryTags(entry).some((tag) => tag.toLowerCase().includes(q));
   });
 }
 

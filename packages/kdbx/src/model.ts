@@ -237,6 +237,44 @@ export function createEntry(input: EntryInput): XmlElement {
   return entry;
 }
 
+/**
+ * An entry's tags, from its `<Tags>` element — KeePass's own `;`-joined
+ * text format. Empty (`[]`) when the element is absent, matching how real
+ * KeePass omits it entirely on a tagless entry rather than writing an empty
+ * one.
+ */
+export function getEntryTags(entry: XmlElement): string[] {
+  const tagsEl = getChild(entry, 'Tags');
+  if (!tagsEl) return [];
+  return getText(tagsEl)
+    .split(';')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+}
+
+/**
+ * Replace an entry's tags. An empty list removes the `<Tags>` element
+ * entirely rather than leaving one with empty text, matching real KeePass.
+ */
+export function setEntryTags(entry: XmlElement, tags: string[]): void {
+  const cleaned = tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+  const existing = getChild(entry, 'Tags');
+
+  if (cleaned.length === 0) {
+    if (existing) {
+      entry.children = entry.children.filter((child) => child !== existing);
+    }
+    return;
+  }
+
+  const text = cleaned.join(';');
+  if (existing) {
+    setText(existing, text);
+  } else {
+    appendChild(entry, createElement('Tags', text));
+  }
+}
+
 /** Build a `<Group>` element with the given name. */
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');

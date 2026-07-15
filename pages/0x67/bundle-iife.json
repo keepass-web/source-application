@@ -43,6 +43,8 @@
     "createGroup",
     "findOrCreateRecycleBin",
     "isInRecycleBin",
+    "getEntryTags",
+    "setEntryTags",
 
     "entryField",
     "entryTitle",

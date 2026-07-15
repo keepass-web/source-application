@@ -441,6 +441,14 @@ function showEntryDetail(): void {
   const entry = must(app.currentEntry);
   qs('#detail-title').textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
 
+  const tagsEl = qs('#detail-tags');
+  for (const tag of getEntryTags(entry)) {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.textContent = tag;
+    tagsEl.appendChild(chip);
+  }
+
   const fieldsEl = qs('#detail-fields');
 
   for (const string of getChildren(entry, 'String')) {
@@ -592,6 +600,8 @@ function showEntryEdit(isNew: boolean): void {
     });
   });
 
+  qs<HTMLInputElement>('#edit-tags').value = getEntryTags(entry).join(', ');
+
   const fieldsEl = qs('#edit-fields');
 
   for (const string of getChildren(entry, 'String')) {
@@ -697,6 +707,9 @@ function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
     protect: row.dataset.protected === '1',
   }));
   applyEntryEdits(entry, fields);
+
+  const tagsInput = qs<HTMLInputElement>('#edit-tags');
+  setEntryTags(entry, tagsInput.value.split(/[,;]/));
 
   app.dirty = true;
 

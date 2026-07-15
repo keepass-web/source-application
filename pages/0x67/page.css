@@ -554,6 +554,27 @@ body:not(.app-mode) .screen-detail {
   gap: 1rem;
 }
 
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.tag-chips:empty {
+  display: none;
+  margin-bottom: 0;
+}
+
+.tag-chip {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
 .detail-field {
   display: flex;
   flex-direction: column;

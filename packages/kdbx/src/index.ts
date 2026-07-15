@@ -70,10 +70,12 @@ export {
   getAttribute,
   getChild,
   getChildren,
+  getEntryTags,
   getText,
   isInRecycleBin,
   ProtectedValue,
   setAttribute,
+  setEntryTags,
   setText,
 } from './model.ts';
 export {

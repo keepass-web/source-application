@@ -10,10 +10,12 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getEntryTags,
   getText,
   isInRecycleBin,
   ProtectedValue,
   setAttribute,
+  setEntryTags,
   type XmlElement,
 } from '../src/index.ts';
 
@@ -94,6 +96,36 @@ test('findOrCreateRecycleBin replaces a stale RecycleBinUUID that no longer matc
 test('findOrCreateRecycleBin throws on a document missing Meta or a root group', () => {
   const malformed = createElement('KeePassFile');
   assert.throws(() => findOrCreateRecycleBin(malformed), /missing Meta or a root group/);
+});
+
+test('getEntryTags returns [] when Tags is absent, and splits/trims/drops empties when present', () => {
+  const entry = createEntry({ title: 'No tags yet' });
+  assert.deepEqual(getEntryTags(entry), []);
+
+  appendChild(entry, createElement('Tags', ' Work ;; Personal ;Urgent'));
+  assert.deepEqual(getEntryTags(entry), ['Work', 'Personal', 'Urgent']);
+});
+
+test('setEntryTags creates, updates, and removes the Tags element as appropriate', () => {
+  const entry = createEntry({ title: 'Tag me' });
+
+  // No existing element, non-empty tags: creates one.
+  setEntryTags(entry, ['Work', 'Urgent']);
+  assert.equal(getText(getChild(entry, 'Tags') as XmlElement), 'Work;Urgent');
+
+  // Existing element, non-empty tags: updates in place rather than duplicating.
+  setEntryTags(entry, ['Personal']);
+  const tagsElements = getChildren(entry, 'Tags');
+  assert.equal(tagsElements.length, 1);
+  assert.equal(getText(tagsElements[0] as XmlElement), 'Personal');
+
+  // Existing element, empty (or all-blank) tags: removes it entirely.
+  setEntryTags(entry, ['  ', '']);
+  assert.equal(getChild(entry, 'Tags'), undefined);
+
+  // No existing element, empty tags: stays absent (no-op).
+  setEntryTags(entry, []);
+  assert.equal(getChild(entry, 'Tags'), undefined);
 });
 
 test('isInRecycleBin is true for the bin itself and anything nested inside it, false otherwise', () => {

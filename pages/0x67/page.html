@@ -142,6 +142,7 @@
       </header>
       <div class="detail-body">
         <h1 id="detail-title" class="detail-title">Entry</h1>
+        <div id="detail-tags" class="tag-chips"></div>
         <div id="detail-fields" class="detail-fields"></div>
       </div>
     </div>
@@ -159,6 +160,10 @@
       </header>
       <div class="edit-body">
         <button type="button" class="icon-picker-btn" id="edit-icon-btn" title="Choose icon"></button>
+        <div class="field">
+          <label for="edit-tags">Tags <span class="optional">(comma or semicolon separated)</span></label>
+          <input type="text" id="edit-tags" autocomplete="off" placeholder="Work, Personal">
+        </div>
         <div id="edit-fields" class="edit-fields"></div>
         <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
       </div>

@@ -134,6 +134,21 @@ test('filterEntriesByQuery matches case-insensitively against any String value',
   assert.deepEqual(filterEntriesByQuery(all, 'nonexistent'), []);
 });
 
+test('filterEntriesByQuery also matches against tags', () => {
+  const root = createGroup('Root');
+  const tagged = createEntry({ title: 'Tagged Entry' });
+  appendChild(tagged, createElement('Tags', 'Work;Urgent'));
+  const untagged = createEntry({ title: 'Untagged Entry' });
+  appendChild(root, tagged);
+  appendChild(root, untagged);
+  const all = collectAllEntries(root);
+
+  assert.deepEqual(
+    filterEntriesByQuery(all, 'urg').map(({ entry }) => entry),
+    [tagged],
+  );
+});
+
 test('filterEntriesByQuery skips String fields with no Value element', () => {
   const entry = createElement('Entry');
   const string = createElement('String');

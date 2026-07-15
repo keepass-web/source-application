@@ -28,10 +28,12 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getEntryTags,
   getText,
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setEntryTags,
   setText,
 } from '../../packages/kdbx/src/index.ts';
 import * as logic from '../0x67/logic.ts';
@@ -95,6 +97,8 @@ Object.assign(globalThis, {
   createGroup,
   findOrCreateRecycleBin,
   isInRecycleBin,
+  getEntryTags,
+  setEntryTags,
   ...logic,
 });
 
