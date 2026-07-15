@@ -5,6 +5,8 @@ import {
   createElement,
   createEntry,
   createGroup,
+  getChild,
+  setText,
   type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
 import {
@@ -26,6 +28,7 @@ import {
   isoToLocalInputValue,
   isValidClipboardTimeout,
   localInputValueToIso,
+  sortEntries,
 } from '../0x67/logic.ts';
 
 const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -192,6 +195,63 @@ test('filterEntriesByQuery skips String fields with no Value element', () => {
   appendChild(root, entry);
 
   assert.deepEqual(filterEntriesByQuery(collectAllEntries(root), 'anything'), []);
+});
+
+test('sortEntries orders by title or username, case-insensitively, in either direction', () => {
+  const root = createGroup('Root');
+  const bob = createEntry({ title: 'bob', username: 'Zeta' });
+  const alice = createEntry({ title: 'Alice', username: 'alpha' });
+  appendChild(root, bob);
+  appendChild(root, alice);
+  const all = collectAllEntries(root);
+
+  assert.deepEqual(
+    sortEntries(all, 'title', 'asc').map(({ entry }) => entry),
+    [alice, bob],
+    '"Alice" sorts before "bob" case-insensitively',
+  );
+  assert.deepEqual(
+    sortEntries(all, 'title', 'desc').map(({ entry }) => entry),
+    [bob, alice],
+  );
+  assert.deepEqual(
+    sortEntries(all, 'username', 'asc').map(({ entry }) => entry),
+    [alice, bob],
+    '"alpha" sorts before "Zeta" case-insensitively',
+  );
+  assert.deepEqual(
+    sortEntries(all, 'username', 'desc').map(({ entry }) => entry),
+    [bob, alice],
+  );
+});
+
+test('sortEntries orders by LastModificationTime, and does not mutate the input array', () => {
+  const root = createGroup('Root');
+  const older = createEntry({ title: 'Older' });
+  const newer = createEntry({ title: 'Newer' });
+  appendChild(root, older);
+  appendChild(root, newer);
+  const setModified = (entry: XmlElement, iso: string): void => {
+    const times = getChild(entry, 'Times') as XmlElement;
+    setText(getChild(times, 'LastModificationTime') as XmlElement, iso);
+  };
+  setModified(older, '2020-01-01T00:00:00Z');
+  setModified(newer, '2024-06-15T00:00:00Z');
+  const all = collectAllEntries(root);
+
+  assert.deepEqual(
+    sortEntries(all, 'modified', 'asc').map(({ entry }) => entry),
+    [older, newer],
+  );
+  assert.deepEqual(
+    sortEntries(all, 'modified', 'desc').map(({ entry }) => entry),
+    [newer, older],
+  );
+  assert.deepEqual(
+    all.map(({ entry }) => entry),
+    [older, newer],
+    'the input array is untouched',
+  );
 });
 
 test('applyEntryEdits replaces all String fields with the given key/value/protect triples', () => {

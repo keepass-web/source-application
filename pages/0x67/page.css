@@ -511,6 +511,21 @@ body:not(.app-mode) {
   color: var(--muted);
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sort-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
+}
+
 .entry-list {
   flex: 1;
   overflow-y: auto;

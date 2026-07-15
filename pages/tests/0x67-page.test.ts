@@ -1718,6 +1718,74 @@ test('entry history: edits are snapshotted, and a past version can be restored o
   );
 });
 
+test('entry list sorting: by title, username, or modified time, in either direction', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  const bob = createEntry({ title: 'Bob', username: 'zeta' });
+  const alice = createEntry({ title: 'Alice', username: 'alpha' });
+  appendChild(rootGroup, bob);
+  appendChild(rootGroup, alice);
+  // createEntry() stamps both with "now" — set distinguishable modified times directly.
+  const modifiedOf = (entry: XmlElement): XmlElement =>
+    getChild(getChild(entry, 'Times') as XmlElement, 'LastModificationTime') as XmlElement;
+  setText(modifiedOf(bob), '2020-01-01T00:00:00Z');
+  setText(modifiedOf(alice), '2024-01-01T00:00:00Z');
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('sorting.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const titles = (): (string | null)[] =>
+    Array.from(root().querySelectorAll<HTMLElement>('.entry-row-title')).map(
+      (el) => el.textContent,
+    );
+  const sortSelect = q<HTMLSelectElement>('#sort-select');
+
+  // Default: title ascending.
+  assert.equal(sortSelect.value, 'title:asc');
+  assert.ok(titles()[0]?.includes('Alice'));
+  assert.ok(titles()[1]?.includes('Bob'));
+
+  sortSelect.value = 'title:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+  assert.ok(titles()[1]?.includes('Alice'));
+
+  sortSelect.value = 'username:asc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Alice'), '"alpha" sorts before "zeta"');
+
+  sortSelect.value = 'username:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+
+  sortSelect.value = 'modified:desc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Alice'), 'Alice (2024) is newer than Bob (2020)');
+
+  sortSelect.value = 'modified:asc';
+  dispatch(sortSelect, 'change');
+  assert.ok(titles()[0]?.includes('Bob'));
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
 test('must() throws when a screen template is missing an element it depends on', async () => {
   // Re-upload and unlock again so there's a live app state to work with,
   // independent of the walkthrough above.

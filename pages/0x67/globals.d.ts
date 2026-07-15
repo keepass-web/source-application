@@ -125,6 +125,14 @@ declare function groupPathTo(
 ): string[] | null;
 declare function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[];
 
+type EntrySortField = 'title' | 'username' | 'modified';
+type EntrySortDirection = 'asc' | 'desc';
+declare function sortEntries(
+  entries: EntryWithGroup[],
+  field: EntrySortField,
+  direction: EntrySortDirection,
+): EntryWithGroup[];
+
 interface EditedField {
   key: string;
   value: string;

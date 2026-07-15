@@ -32,6 +32,7 @@ import {
   getChild,
   getChildren,
   getEntryTags,
+  getEntryTimes,
   getText,
   setAttribute,
 } from '../../build/packages/kdbx/src/model.js';
@@ -177,6 +178,35 @@ export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): 
     }
     return getEntryTags(entry).some((tag) => tag.toLowerCase().includes(q));
   });
+}
+
+export type EntrySortField = 'title' | 'username' | 'modified';
+export type EntrySortDirection = 'asc' | 'desc';
+
+function entrySortKey(entry: XmlElement, field: EntrySortField): string {
+  switch (field) {
+    case 'title':
+      return entryTitle(entry).toLowerCase();
+    case 'username':
+      return entryField(entry, 'UserName').toLowerCase();
+    case 'modified':
+      return getEntryTimes(entry).modified;
+  }
+}
+
+/** Sort entries by title, username, or last-modified time. Ties keep their
+ * original relative order (Array#sort is stable). */
+export function sortEntries(
+  entries: EntryWithGroup[],
+  field: EntrySortField,
+  direction: EntrySortDirection,
+): EntryWithGroup[] {
+  const sign = direction === 'asc' ? 1 : -1;
+  return entries
+    .slice()
+    .sort(
+      (a, b) => entrySortKey(a.entry, field).localeCompare(entrySortKey(b.entry, field)) * sign,
+    );
 }
 
 /** A single row from the entry-edit form, already read out of the DOM. */

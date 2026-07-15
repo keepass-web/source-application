@@ -11,6 +11,8 @@ interface AppState {
   searchQuery: string;
   clipboardTimeout: number; // seconds
   dirty: boolean; // unsaved edits exist
+  sortField: EntrySortField;
+  sortDir: EntrySortDirection;
 }
 
 const app: AppState = {
@@ -22,6 +24,8 @@ const app: AppState = {
   searchQuery: '',
   clipboardTimeout: 30,
   dirty: false,
+  sortField: 'title',
+  sortDir: 'asc',
 };
 
 /** True once a trusted same-origin parent frame has handed this app a vault to
@@ -451,6 +455,8 @@ function renderEntryPanel(): void {
     return;
   }
 
+  rows = sortEntries(rows, app.sortField, app.sortDir);
+
   for (const { entry, group } of rows) {
     listEl.appendChild(buildEntryRow(entry, group));
   }
@@ -496,6 +502,15 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 function wireEntryListEvents(): void {
   qs<HTMLInputElement>('#search-input').addEventListener('input', (e) => {
     app.searchQuery = (e.target as HTMLInputElement).value.trim();
+    renderEntryPanel();
+  });
+
+  const sortSelect = qs<HTMLSelectElement>('#sort-select');
+  sortSelect.value = `${app.sortField}:${app.sortDir}`;
+  sortSelect.addEventListener('change', () => {
+    const [field, direction] = sortSelect.value.split(':') as [EntrySortField, EntrySortDirection];
+    app.sortField = field;
+    app.sortDir = direction;
     renderEntryPanel();
   });
 

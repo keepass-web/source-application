@@ -118,7 +118,17 @@
         <main class="entry-panel">
           <div class="panel-header">
             <span id="panel-title" class="panel-title"></span>
-            <button type="button" class="icon-btn" data-action="add-entry" title="New entry">+</button>
+            <div class="panel-header-actions">
+              <select id="sort-select" class="sort-select" title="Sort entries">
+                <option value="title:asc">Title (A–Z)</option>
+                <option value="title:desc">Title (Z–A)</option>
+                <option value="username:asc">Username (A–Z)</option>
+                <option value="username:desc">Username (Z–A)</option>
+                <option value="modified:desc">Modified (newest)</option>
+                <option value="modified:asc">Modified (oldest)</option>
+              </select>
+              <button type="button" class="icon-btn" data-action="add-entry" title="New entry">+</button>
+            </div>
           </div>
           <div id="entry-list" class="entry-list"></div>
         </main>
