@@ -94,6 +94,15 @@ declare function getEntryTimes(entry: XmlElement): EntryTimes;
 declare function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void;
 declare function touchLastModified(entry: XmlElement): void;
 
+declare function getEntryHistory(entry: XmlElement): XmlElement[];
+declare function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void;
+declare function restoreHistoryEntry(
+  document: XmlElement,
+  entry: XmlElement,
+  snapshot: XmlElement,
+): void;
+declare function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void;
+
 // --- this page's own pure logic (see logic.ts) ---
 
 interface EntryWithGroup {

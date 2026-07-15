@@ -590,6 +590,7 @@ function showEntryDetail(): void {
   if (db.header.version.major !== 3) {
     renderDetailAttachments(db, entry, qs('#detail-attachments'));
   }
+  renderDetailHistory(db, entry, qs('#detail-history'));
 
   qs('[data-action="back"]').addEventListener('click', () => {
     app.currentEntry = null;
@@ -755,6 +756,47 @@ function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLEle
   }
 }
 
+function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  // Newest first: getEntryHistory() returns them in append (oldest-first) order.
+  for (const snapshot of getEntryHistory(entry).slice().reverse()) {
+    const row = document.createElement('div');
+    row.className = 'history-row';
+
+    const label = document.createElement('span');
+    label.className = 'history-label';
+    const times = getEntryTimes(snapshot);
+    label.textContent = `${formatDateTime(times.modified)} — ${entryTitle(snapshot)}`;
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 'icon-btn';
+    restoreBtn.title = 'Restore this version';
+    restoreBtn.textContent = '↩';
+    restoreBtn.addEventListener('click', () => {
+      restoreHistoryEntry(db.root, entry, snapshot);
+      app.dirty = true;
+      showEntryDetail();
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.title = 'Delete this version';
+    deleteBtn.textContent = '🗑';
+    deleteBtn.addEventListener('click', () => {
+      deleteHistoryEntry(entry, snapshot);
+      app.dirty = true;
+      renderDetailHistory(db, entry, container);
+    });
+
+    row.appendChild(label);
+    row.appendChild(restoreBtn);
+    row.appendChild(deleteBtn);
+    container.appendChild(row);
+  }
+}
+
 // ============================================================
 // Screen: Entry Edit
 // ============================================================
@@ -846,7 +888,7 @@ function showEntryEdit(isNew: boolean): void {
   });
 
   qs('[data-action="save"]').addEventListener('click', () => {
-    commitEdits(entry, fieldsEl);
+    commitEdits(entry, fieldsEl, isNew);
   });
 }
 
@@ -950,7 +992,13 @@ function buildEditField(
   return row;
 }
 
-function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
+function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): void {
+  // A brand-new entry has no prior state worth keeping — only snapshot when
+  // editing one that already existed, matching real KeePass.
+  if (!isNew) {
+    pushHistorySnapshot(must(app.db).root, entry);
+  }
+
   const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
     key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
     value: must(row.querySelector<HTMLInputElement>('.edit-value')).value,

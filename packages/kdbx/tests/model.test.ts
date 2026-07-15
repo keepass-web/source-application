@@ -6,21 +6,36 @@ import {
   createElement,
   createEntry,
   createGroup,
+  deleteHistoryEntry,
   findOrCreateRecycleBin,
   getAttribute,
   getChild,
   getChildren,
+  getEntryHistory,
   getEntryTags,
   getEntryTimes,
   getText,
   isInRecycleBin,
   ProtectedValue,
+  pushHistorySnapshot,
+  restoreHistoryEntry,
   setAttribute,
   setEntryExpiry,
   setEntryTags,
+  setText,
   touchLastModified,
   type XmlElement,
 } from '../src/index.ts';
+
+/** Read a standard field's value off an entry, for asserting on test fixtures. */
+function fieldValue(entry: XmlElement, key: string): string {
+  for (const string of getChildren(entry, 'String')) {
+    if (getText(getChild(string, 'Key') as XmlElement) === key) {
+      return getText(getChild(string, 'Value') as XmlElement);
+    }
+  }
+  return '';
+}
 
 test('ProtectedValue wraps a string and exposes it via .text and toString()', () => {
   const value = ProtectedValue.fromString('s3cret');
@@ -211,4 +226,101 @@ test('isInRecycleBin is true for the bin itself and anything nested inside it, f
   assert.equal(isInRecycleBin(document, nested), true);
   assert.equal(isInRecycleBin(document, rootGroup), false);
   assert.equal(isInRecycleBin(document, other), false);
+});
+
+test('getEntryHistory returns [] when History is absent, and the pushed snapshots otherwise', () => {
+  const entry = createEntry({ title: 'Original' });
+  assert.deepEqual(getEntryHistory(entry), []);
+
+  const document = createDatabaseDocument('MyDb');
+  pushHistorySnapshot(document, entry);
+  const history = getEntryHistory(entry);
+  assert.equal(history.length, 1);
+  assert.equal(fieldValue(history[0] as XmlElement, 'Title'), 'Original');
+});
+
+test('pushHistorySnapshot clones the pre-edit state, not the state after the caller has since changed it', () => {
+  const document = createDatabaseDocument('MyDb');
+  const entry = createEntry({ title: 'Before' });
+  pushHistorySnapshot(document, entry);
+  const titleValueEl = getChild(
+    getChildren(entry, 'String')[0] as XmlElement,
+    'Value',
+  ) as XmlElement;
+  setText(titleValueEl, 'After'); // mutate the live entry, not the already-pushed snapshot
+
+  const history = getEntryHistory(entry);
+  assert.equal(fieldValue(entry, 'Title'), 'After');
+  assert.equal(fieldValue(history[0] as XmlElement, 'Title'), 'Before');
+  // The snapshot itself must not carry its own nested History.
+  assert.equal(getChild(history[0] as XmlElement, 'History'), undefined);
+});
+
+test('pushHistorySnapshot trims to Meta/HistoryMaxItems, dropping the oldest first', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  setText(getChild(meta, 'HistoryMaxItems') as XmlElement, '2');
+
+  const entry = createEntry({ title: 'v1' });
+  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry);
+
+  const history = getEntryHistory(entry);
+  assert.equal(history.length, 2, 'trimmed down to HistoryMaxItems');
+});
+
+test('pushHistorySnapshot defaults to 10 when HistoryMaxItems is absent, and skips trimming on a malformed value', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  meta.children = meta.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'HistoryMaxItems'),
+  );
+
+  const entry = createEntry({ title: 'v1' });
+  for (let i = 0; i < 11; i++) {
+    pushHistorySnapshot(document, entry);
+  }
+  assert.equal(getEntryHistory(entry).length, 10, 'defaults to 10 when HistoryMaxItems is absent');
+
+  appendChild(meta, createElement('HistoryMaxItems', 'not-a-number'));
+  pushHistorySnapshot(document, entry);
+  assert.equal(getEntryHistory(entry).length, 11, 'a malformed max leaves trimming disabled');
+});
+
+test('restoreHistoryEntry snapshots the current state, then adopts the historical fields under the same UUID', () => {
+  const document = createDatabaseDocument('MyDb');
+  const entry = createEntry({ title: 'Original', username: 'alice' });
+  const originalUuid = getText(getChild(entry, 'UUID') as XmlElement);
+  pushHistorySnapshot(document, entry);
+
+  const oldValueEl = getChild(getChildren(entry, 'String')[0] as XmlElement, 'Value') as XmlElement;
+  setText(oldValueEl, 'Edited');
+  const [snapshot] = getEntryHistory(entry);
+
+  restoreHistoryEntry(document, entry, snapshot as XmlElement);
+
+  assert.equal(fieldValue(entry, 'Title'), 'Original', 'live entry adopts the historical fields');
+  assert.equal(getText(getChild(entry, 'UUID') as XmlElement), originalUuid, 'UUID is unchanged');
+
+  const history = getEntryHistory(entry);
+  assert.equal(history.length, 2, 'the pre-restore state was itself snapshotted');
+  assert.equal(
+    fieldValue(history[1] as XmlElement, 'Title'),
+    'Edited',
+    'the just-replaced state is the newest history entry',
+  );
+});
+
+test('deleteHistoryEntry removes one snapshot, and does nothing without a History element', () => {
+  const entry = createEntry({ title: 'v1' });
+  deleteHistoryEntry(entry, entry); // no History element yet: no-op, no throw
+
+  const document = createDatabaseDocument('MyDb');
+  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry);
+  const [first, second] = getEntryHistory(entry);
+
+  deleteHistoryEntry(entry, first as XmlElement);
+  assert.deepEqual(getEntryHistory(entry), [second]);
 });

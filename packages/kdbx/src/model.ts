@@ -384,6 +384,86 @@ export function removeEntryAttachment(entry: XmlElement, name: string): void {
   });
 }
 
+const KX_DEFAULT_HISTORY_MAX_ITEMS = 10;
+
+/** An entry's past versions, from its `<History>` child, oldest first —
+ * matching how real KeePass appends to it. `[]` when it has none. */
+export function getEntryHistory(entry: XmlElement): XmlElement[] {
+  const historyEl = getChild(entry, 'History');
+  return historyEl ? getChildren(historyEl, 'Entry') : [];
+}
+
+/**
+ * Snapshot `entry`'s current state (everything except its own History) onto
+ * its History, trimmed to `document`'s Meta/HistoryMaxItems (defaulting to
+ * 10, matching real KeePass, for a database that predates that field).
+ * Must be called with the pre-edit state still in place — real KeePass
+ * snapshots before applying an edit, not after.
+ */
+export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void {
+  const snapshot = cloneElement(entry);
+  snapshot.children = snapshot.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'History'),
+  );
+
+  let historyEl = getChild(entry, 'History');
+  if (!historyEl) {
+    historyEl = createElement('History');
+    appendChild(entry, historyEl);
+  }
+  appendChild(historyEl, snapshot);
+
+  const meta = getChild(document, 'Meta');
+  const maxItemsEl = meta && getChild(meta, 'HistoryMaxItems');
+  const maxItems = maxItemsEl
+    ? Number.parseInt(getText(maxItemsEl), 10)
+    : KX_DEFAULT_HISTORY_MAX_ITEMS;
+  if (!Number.isFinite(maxItems) || maxItems < 0) return;
+
+  const entries = getChildren(historyEl, 'Entry');
+  const excess = entries.length - maxItems;
+  if (excess > 0) {
+    const dropped = new Set(entries.slice(0, excess));
+    historyEl.children = historyEl.children.filter(
+      (child) => !(child.type === 'element' && dropped.has(child)),
+    );
+  }
+}
+
+/**
+ * Restore `entry` to a past version from its History: the entry's current
+ * state is snapshotted first (so it isn't lost), then its fields are
+ * replaced with the historical version's — matching real KeePass, where
+ * restoring is itself a further edit, not a rewind. `snapshot` must be one
+ * of the elements `getEntryHistory(entry)` returned.
+ */
+export function restoreHistoryEntry(
+  document: XmlElement,
+  entry: XmlElement,
+  snapshot: XmlElement,
+): void {
+  const restoredFields = cloneElement(snapshot);
+  pushHistorySnapshot(document, entry);
+
+  const uuidEl = getChild(entry, 'UUID');
+  const historyEl = getChild(entry, 'History');
+  const newChildren: XmlNode[] = [];
+  if (uuidEl) newChildren.push(uuidEl);
+  for (const child of restoredFields.children) {
+    if (child.type === 'element' && (child.name === 'UUID' || child.name === 'History')) continue;
+    newChildren.push(child);
+  }
+  if (historyEl) newChildren.push(historyEl);
+  entry.children = newChildren;
+}
+
+/** Permanently remove one past version from an entry's History. */
+export function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void {
+  const historyEl = getChild(entry, 'History');
+  if (!historyEl) return;
+  historyEl.children = historyEl.children.filter((child) => child !== snapshot);
+}
+
 /** Build a `<Group>` element with the given name. */
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');

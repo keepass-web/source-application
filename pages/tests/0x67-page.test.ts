@@ -32,18 +32,22 @@ import {
   createElement,
   createEntry,
   createGroup,
+  deleteHistoryEntry,
   findOrCreateRecycleBin,
   getAttribute,
   getChild,
   getChildren,
   getEntryAttachments,
+  getEntryHistory,
   getEntryTags,
   getEntryTimes,
   getText,
   isInRecycleBin,
   Kdbx,
+  pushHistorySnapshot,
   removeEntryAttachment,
   renameEntryAttachment,
+  restoreHistoryEntry,
   setAttribute,
   setEntryExpiry,
   setEntryTags,
@@ -155,6 +159,10 @@ Object.assign(globalThis, {
   addEntryAttachment,
   renameEntryAttachment,
   removeEntryAttachment,
+  getEntryHistory,
+  pushHistorySnapshot,
+  restoreHistoryEntry,
+  deleteHistoryEntry,
   ...logic,
 });
 
@@ -1574,6 +1582,90 @@ test('a stale attachment Ref (pointing to no pool data) is shown but downloading
 
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('entry history: edits are snapshotted, and a past version can be restored or deleted', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'v1' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('history.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const historyRows = (): HTMLElement[] =>
+    Array.from(q('#detail-history').querySelectorAll<HTMLElement>('.history-row'));
+  const editTitleTo = (title: string): void => {
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    q<HTMLInputElement>('.edit-value').value = title; // first .edit-value is Title
+    q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-save [data-action="close"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+  };
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(historyRows().length, 0, 'no history on an untouched entry');
+
+  editTitleTo('v2');
+  assert.equal(historyRows().length, 1, 'editing an existing entry snapshots its pre-edit state');
+  assert.ok(
+    (historyRows()[0] as HTMLElement).querySelector('.history-label')?.textContent?.includes('v1'),
+  );
+
+  editTitleTo('v3');
+  // Just asserted length 2/3 above each time, so these indices are always present.
+  const rowsAfterTwoEdits = historyRows();
+  assert.equal(rowsAfterTwoEdits.length, 2);
+  const [newer, older] = rowsAfterTwoEdits as [HTMLElement, HTMLElement];
+  // Newest snapshot first.
+  assert.ok(newer.querySelector('.history-label')?.textContent?.includes('v2'));
+  assert.ok(older.querySelector('.history-label')?.textContent?.includes('v1'));
+
+  // Restore the older ("v1") snapshot.
+  older
+    .querySelector<HTMLButtonElement>('[title="Restore this version"]')
+    ?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.ok(
+    q<HTMLElement>('#detail-title').textContent?.includes('v1'),
+    'adopts the restored title',
+  );
+  const rowsAfterRestore = historyRows();
+  assert.equal(
+    rowsAfterRestore.length,
+    3,
+    'restoring itself snapshots the pre-restore ("v3") state',
+  );
+  const [newest] = rowsAfterRestore as [HTMLElement];
+  assert.ok(newest.querySelector('.history-label')?.textContent?.includes('v3'));
+
+  // Delete one snapshot.
+  newest
+    .querySelector<HTMLButtonElement>('[title="Delete this version"]')
+    ?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(historyRows().length, 2);
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  // The edits above left the database dirty, so closing needs confirmation.
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('must() throws when a screen template is missing an element it depends on', async () => {

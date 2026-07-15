@@ -52,6 +52,10 @@
     "addEntryAttachment",
     "renameEntryAttachment",
     "removeEntryAttachment",
+    "getEntryHistory",
+    "pushHistorySnapshot",
+    "restoreHistoryEntry",
+    "deleteHistoryEntry",
 
     "entryField",
     "entryTitle",
