@@ -1059,3 +1059,13 @@ input.attachment-name:focus {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* ============================================================
+   Printing (entry detail only — see data-action="print")
+   ============================================================ */
+
+@media print {
+  .detail-header {
+    display: none;
+  }
+}

@@ -634,6 +634,8 @@ function showEntryDetail(): void {
     );
   });
 
+  qs('[data-action="print"]').addEventListener('click', () => window.print());
+
   // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
   // entry is already inside the bin, where it's "Restore" or a permanent,
   // confirmed "Delete" instead.

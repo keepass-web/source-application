@@ -1075,6 +1075,20 @@ test('0x67 app', async (t) => {
     assert.equal(valueSpan.textContent, '••••••••');
   });
 
+  await t.test('the print button calls window.print()', () => {
+    let printCalls = 0;
+    const realPrint = dom.window.print;
+    dom.window.print = () => {
+      printCalls++;
+    };
+    try {
+      q('[data-action="print"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    } finally {
+      dom.window.print = realPrint;
+    }
+    assert.equal(printCalls, 1);
+  });
+
   await t.test(
     'copying a field writes to the clipboard, flips the icon, then reverts on a timer',
     (t) => {
