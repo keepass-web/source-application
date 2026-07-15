@@ -81,7 +81,7 @@ jobs:
 
       # The root build script builds argon2 and chacha20, then kdbx, then
       # pages, in that dependency order, writing all intermediate output to
-      # build/ and the final distributables to dist/ — see ci.yml Step 6.
+      # build/ and the final distributables to dist/ — see ci.yml Step 7.
       # Neither directory is committed, so this rebuild from source is the
       # only place dist/*.html come from; there's nothing to reuse from CI.
       # The inliner prints "sha256:<hex>  <output path>" to stdout for each
@@ -89,9 +89,15 @@ jobs:
       # whitespace-separated field (the checksum) for the summary. CNAME is
       # copied verbatim; its checksum is computed separately since it isn't
       # inlined.
+      #
+      # KEEPASS_WEB_COMMIT_DATE feeds every distributable's version footer
+      # (GITHUB_REF_TYPE/GITHUB_REF_NAME/GITHUB_SHA are already set by
+      # Actions) — see tools/build/inliner/src/version-label.ts and
+      # docs/REPRODUCING.md for reproducing this outside CI.
       - name: Build distributables
         if: steps.existing-release.outputs.exists != 'true'
         run: |
+          export KEEPASS_WEB_COMMIT_DATE="$(git show -s --format=%cI HEAD)"
           npm run build
           cp pages/CNAME dist/CNAME
 

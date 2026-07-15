@@ -103,14 +103,24 @@ jobs:
       - name: Test
         run: npm test
 
-      # Step 6 — Build distributables
+      # Step 6 — Version footer inputs
+      # Every distributable's footer shows what it was built from. GITHUB_REF_TYPE,
+      # GITHUB_REF_NAME, and GITHUB_SHA are already set by Actions on every job;
+      # the commit date isn't, so it's computed here once and persisted via
+      # $GITHUB_ENV so the later "Record checksums" step (a separate step, hence
+      # a separate process) sees the same value the build itself used — see
+      # tools/build/inliner/src/version-label.ts and docs/REPRODUCING.md.
+      - name: Resolve commit date for the version footer
+        run: echo "KEEPASS_WEB_COMMIT_DATE=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+
+      # Step 7 — Build distributables
       # The root build script builds argon2 and chacha20, then kdbx, then pages,
       # in that dependency order — pages' bundler reads their compiled build/
       # output, so they must exist first.
       - name: Build distributables
         run: npm run build
 
-      # Step 7 — Checksums
+      # Step 8 — Checksums
       # Surfaces each distributable's checksum in the workflow summary. For
       # tagged releases, these values are attached to the GitHub release as the
       # published checksums that third parties verify against.

@@ -30,11 +30,34 @@ body {
   font-size: 15px;
   line-height: 1.5;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .wordmark {
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* #root is a flex-shrink:0 sibling away from footer below, so it grows to
+   fill whatever space footer doesn't need — see .screen-host, which used to
+   claim a flat 100vh of its own and is now sized off this instead. */
+#root {
+  flex: 1;
+  min-height: 0;
+}
+
+footer {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+footer a {
   color: var(--accent);
 }
 
@@ -149,7 +172,7 @@ body {
 .screen-host {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
 }
 
 .host-header {

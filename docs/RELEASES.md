@@ -12,6 +12,8 @@
 
 Every file served from [keepass-web.app][app] is a verbatim copy of a file published in a GitHub release — nothing is created, modified, or synthesized during deployment. A copy downloaded from Releases and a copy served from the hosted site are the same bytes; see [Reproducing a build][reproducing] to verify that yourself.
 
+Each of the four HTML pages shows its own build's version in the footer — the tag it was released as, linked to that exact tree in this repo, and the date it was committed (shown in whatever locale format the visitor's own browser uses). A non-release build (a plain local `npm run build`, or CI on a branch) shows a linked short commit sha instead of a tag, or "development build" with no link if no commit metadata was supplied at all — see [Reproducing a build][reproducing].
+
 ## Overview
 
 ```

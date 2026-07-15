@@ -1071,6 +1071,32 @@ input.attachment-name:focus {
 }
 
 /* ============================================================
+   Footer
+   (a flex-shrink:0 sibling of #root in both body layouts above, so it
+   claims its own space instead of being clipped by app-mode's
+   height:100vh/overflow:hidden or centered away by the upload/unlock
+   layout's justify-content:center)
+   ============================================================ */
+
+footer {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}
+
+/* ============================================================
    Printing (entry detail only — see data-action="print")
    ============================================================ */
 

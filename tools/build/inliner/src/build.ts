@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Manifest } from './types.ts';
+import { computeVersionLabel, renderVersionFragment } from './version-label.ts';
 
 const STYLES_SENTINEL = '<!--STYLES-->';
 const SCRIPTS_SENTINEL = '<!--SCRIPTS-->';
+const VERSION_SENTINEL = '<!--VERSION-->';
 
 /**
  * Reads the manifest at `manifestPath`, inlines all styles and scripts into the
@@ -26,13 +28,25 @@ export function build(manifestPath: string): { checksum: string; outputPath: str
   if (!template.includes(SCRIPTS_SENTINEL)) {
     throw new Error(`Template is missing the required sentinel: ${SCRIPTS_SENTINEL}`);
   }
+  if (!template.includes(VERSION_SENTINEL)) {
+    throw new Error(`Template is missing the required sentinel: ${VERSION_SENTINEL}`);
+  }
 
   const css = manifest.styles.map((f) => readFileSync(join(base, f), 'utf8')).join('\n');
   const js = manifest.scripts.map((f) => readFileSync(join(base, f), 'utf8')).join('\n');
+  const version = renderVersionFragment(
+    computeVersionLabel({
+      refType: process.env.GITHUB_REF_TYPE,
+      refName: process.env.GITHUB_REF_NAME,
+      sha: process.env.GITHUB_SHA,
+    }),
+    process.env.KEEPASS_WEB_COMMIT_DATE,
+  );
 
   const html = template
     .replace(STYLES_SENTINEL, `<style>\n${css}\n</style>`)
-    .replace(SCRIPTS_SENTINEL, `<script>\n${js}\n</script>`);
+    .replace(SCRIPTS_SENTINEL, `<script>\n${js}\n</script>`)
+    .replace(VERSION_SENTINEL, version);
 
   const outputPath = join(base, manifest.output);
   mkdirSync(dirname(outputPath), { recursive: true });

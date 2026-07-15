@@ -32,10 +32,57 @@ function sha256(s: string): string {
 
 const indexPath = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 
-function runCLI(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+// The version-label env vars mirror GitHub Actions' own names, which means
+// they're present for real whenever this suite runs inside Actions. Every
+// test below needs a known, deterministic value for them regardless of what
+// CI happens to be running under, so this list is scrubbed to a fixed state
+// (by default, entirely absent) before each build() call and CLI spawn.
+const VERSION_ENV_KEYS = [
+  'GITHUB_REF_TYPE',
+  'GITHUB_REF_NAME',
+  'GITHUB_SHA',
+  'KEEPASS_WEB_COMMIT_DATE',
+] as const;
+
+function withVersionEnv<T>(
+  overrides: Partial<Record<(typeof VERSION_ENV_KEYS)[number], string>>,
+  fn: () => T,
+): T {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of VERSION_ENV_KEYS) {
+    previous[key] = process.env[key];
+    const value = overrides[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    for (const key of VERSION_ENV_KEYS) {
+      if (previous[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous[key];
+      }
+    }
+  }
+}
+
+function runCLI(
+  args: string[],
+  env: Partial<Record<(typeof VERSION_ENV_KEYS)[number], string>> = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const scrubbed: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of VERSION_ENV_KEYS) {
+    delete scrubbed[key];
+  }
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--experimental-strip-types', indexPath, ...args], {
       stdio: 'pipe',
+      env: { ...scrubbed, ...env },
     });
     let stdout = '';
     let stderr = '';
@@ -51,13 +98,15 @@ function runCLI(args: string[]): Promise<{ code: number; stdout: string; stderr:
   });
 }
 
+const SENTINELS = '<!--STYLES--><!--SCRIPTS--><!--VERSION-->';
+
 // ---------------------------------------------------------------------------
 // build()
 // ---------------------------------------------------------------------------
 
 test('inlines style and script into the template', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--></html>');
+  write(dir, 'template.html', `<html>${SENTINELS}</html>`);
   write(dir, 'style.css', 'body { color: red; }');
   write(dir, 'script.js', 'console.log(1);');
   manifest(dir, {
@@ -67,10 +116,10 @@ test('inlines style and script into the template', () => {
     output: 'out.html',
   });
 
-  const { checksum, outputPath } = build(join(dir, 'build.json'));
+  const { checksum, outputPath } = withVersionEnv({}, () => build(join(dir, 'build.json')));
 
   const expected =
-    '<html><style>\nbody { color: red; }\n</style><script>\nconsole.log(1);\n</script></html>';
+    '<html><style>\nbody { color: red; }\n</style><script>\nconsole.log(1);\n</script>development build</html>';
   assert.equal(readFileSync(join(dir, 'out.html'), 'utf8'), expected);
   assert.equal(checksum, sha256(expected));
   assert.equal(outputPath, join(dir, 'out.html'));
@@ -78,7 +127,7 @@ test('inlines style and script into the template', () => {
 
 test('concatenates multiple CSS files in manifest order', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
+  write(dir, 'template.html', SENTINELS);
   write(dir, 'a.css', '.a {}');
   write(dir, 'b.css', '.b {}');
   manifest(dir, {
@@ -88,7 +137,7 @@ test('concatenates multiple CSS files in manifest order', () => {
     output: 'out.html',
   });
 
-  build(join(dir, 'build.json'));
+  withVersionEnv({}, () => build(join(dir, 'build.json')));
 
   const result = readFileSync(join(dir, 'out.html'), 'utf8');
   assert.ok(result.indexOf('.a {}') < result.indexOf('.b {}'), '.a {} must precede .b {}');
@@ -96,7 +145,7 @@ test('concatenates multiple CSS files in manifest order', () => {
 
 test('concatenates multiple JS files in manifest order', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
+  write(dir, 'template.html', SENTINELS);
   write(dir, 'a.js', 'const a = 1;');
   write(dir, 'b.js', 'const b = 2;');
   manifest(dir, {
@@ -106,7 +155,7 @@ test('concatenates multiple JS files in manifest order', () => {
     output: 'out.html',
   });
 
-  build(join(dir, 'build.json'));
+  withVersionEnv({}, () => build(join(dir, 'build.json')));
 
   const result = readFileSync(join(dir, 'out.html'), 'utf8');
   assert.ok(result.indexOf('const a') < result.indexOf('const b'), 'a must precede b');
@@ -114,7 +163,7 @@ test('concatenates multiple JS files in manifest order', () => {
 
 test('creates the output directory when it does not exist', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
+  write(dir, 'template.html', SENTINELS);
   manifest(dir, {
     template: 'template.html',
     styles: [],
@@ -122,13 +171,13 @@ test('creates the output directory when it does not exist', () => {
     output: 'deep/nested/out.html',
   });
 
-  assert.doesNotThrow(() => build(join(dir, 'build.json')));
+  assert.doesNotThrow(() => withVersionEnv({}, () => build(join(dir, 'build.json'))));
   assert.ok(readFileSync(join(dir, 'deep', 'nested', 'out.html'), 'utf8').length > 0);
 });
 
 test('throws when the STYLES sentinel is absent from the template', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<html><!--SCRIPTS--></html>');
+  write(dir, 'template.html', '<html><!--SCRIPTS--><!--VERSION--></html>');
   manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
 
   assert.throws(
@@ -139,13 +188,82 @@ test('throws when the STYLES sentinel is absent from the template', () => {
 
 test('throws when the SCRIPTS sentinel is absent from the template', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<html><!--STYLES--></html>');
+  write(dir, 'template.html', '<html><!--STYLES--><!--VERSION--></html>');
   manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
 
   assert.throws(
     () => build(join(dir, 'build.json')),
     /missing the required sentinel: <!--SCRIPTS-->/,
   );
+});
+
+test('throws when the VERSION sentinel is absent from the template', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--></html>');
+  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+
+  assert.throws(
+    () => build(join(dir, 'build.json')),
+    /missing the required sentinel: <!--VERSION-->/,
+  );
+});
+
+test('VERSION sentinel: renders a linked tag and locale-formatting script when built from a tag', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', SENTINELS);
+  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+
+  withVersionEnv(
+    {
+      GITHUB_REF_TYPE: 'tag',
+      GITHUB_REF_NAME: 'v1.2.3',
+      GITHUB_SHA: 'a'.repeat(40),
+      KEEPASS_WEB_COMMIT_DATE: '2026-07-01T12:00:00Z',
+    },
+    () => build(join(dir, 'build.json')),
+  );
+
+  const result = readFileSync(join(dir, 'out.html'), 'utf8');
+  assert.ok(
+    result.includes(
+      '<a href="https://github.com/keepass-web/source-application/tree/v1.2.3">v1.2.3</a>',
+    ),
+  );
+  assert.ok(
+    result.includes('committed on <time id="commit-date" datetime="2026-07-01T12:00:00Z">'),
+  );
+  assert.ok(result.includes("new Date(document.getElementById('commit-date')"));
+});
+
+test('VERSION sentinel: falls back to a linked short sha when there is no exact tag', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', SENTINELS);
+  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+
+  const sha = `${'b'.repeat(39)}c`;
+  withVersionEnv({ GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'main', GITHUB_SHA: sha }, () =>
+    build(join(dir, 'build.json')),
+  );
+
+  const result = readFileSync(join(dir, 'out.html'), 'utf8');
+  assert.ok(
+    result.includes(
+      `<a href="https://github.com/keepass-web/source-application/commit/${sha}">sha:${sha.slice(0, 12)}</a>`,
+    ),
+  );
+  assert.ok(!result.includes('committed on'));
+});
+
+test('VERSION sentinel: renders an unlinked "development build" with no env vars set', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', SENTINELS);
+  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+
+  withVersionEnv({}, () => build(join(dir, 'build.json')));
+
+  const result = readFileSync(join(dir, 'out.html'), 'utf8');
+  assert.ok(result.includes('development build'));
+  assert.ok(!result.includes('<a href'));
 });
 
 // ---------------------------------------------------------------------------
@@ -160,7 +278,7 @@ test('CLI: exits 1 and prints usage when no manifest path is given', async () =>
 
 test('CLI: exits 0 and prints sha256 checksum and output path on success', async () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS-->');
+  write(dir, 'template.html', SENTINELS);
   manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
 
   const { code, stdout } = await runCLI([join(dir, 'build.json')]);
