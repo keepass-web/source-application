@@ -50,6 +50,7 @@
     "filterEntriesByQuery",
     "applyEntryEdits",
     "isCustomField",
-    "isValidClipboardTimeout"
+    "isValidClipboardTimeout",
+    "generatePassword"
   ]
 }

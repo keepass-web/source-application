@@ -92,3 +92,13 @@ interface EditedField {
 declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
 declare function isCustomField(key: string): boolean;
 declare function isValidClipboardTimeout(seconds: number): boolean;
+
+interface PasswordGeneratorOptions {
+  length: number;
+  upper?: boolean;
+  lower?: boolean;
+  digits?: boolean;
+  symbols?: boolean;
+}
+
+declare function generatePassword(options: PasswordGeneratorOptions): string;

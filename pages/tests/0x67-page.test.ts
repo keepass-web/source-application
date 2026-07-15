@@ -38,6 +38,7 @@ import {
   Kdbx,
   setAttribute,
 } from '../../packages/kdbx/src/index.ts';
+import type { generatePassword } from '../0x67/logic.ts';
 import * as logic from '../0x67/logic.ts';
 
 // ============================================================
@@ -557,6 +558,93 @@ test('0x67 app', async (t) => {
     newRow.querySelector<HTMLButtonElement>('[title="Remove field"]')?.click();
     assert.equal(root().querySelectorAll('.edit-field').length, before);
   });
+
+  await t.test(
+    'the password generator fills the Password field, and an empty selection blocks "use"',
+    () => {
+      const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+        (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+      ) as HTMLElement;
+      const valueInput = passwordRow.querySelector<HTMLInputElement>(
+        '.edit-value',
+      ) as HTMLInputElement;
+      const generateBtn = passwordRow.querySelector<HTMLButtonElement>(
+        '[title="Generate password"]',
+      );
+      assert.ok(generateBtn);
+
+      generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-generate-password');
+      assert.equal(dlg.open, true);
+      const preview = byId<HTMLElement>('generator-preview');
+      assert.equal(preview.textContent?.length, 20);
+
+      const firstPreview = preview.textContent;
+      dq('#dlg-generate-password [data-action="regenerate"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.notEqual(preview.textContent, firstPreview);
+
+      // Unchecking every character class shows an error and clears the
+      // preview; "Use this password" is then a no-op.
+      for (const id of ['generator-upper', 'generator-lower', 'generator-digits']) {
+        const checkbox = byId<HTMLInputElement>(id);
+        checkbox.checked = false;
+        dispatch(checkbox, 'input');
+      }
+      assert.equal(byId<HTMLElement>('generator-error').hidden, false);
+      assert.equal(preview.textContent, '');
+      dq('#dlg-generate-password [data-action="use-password"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, true, 'nothing generated yet, so the dialog stays open');
+
+      // Re-enabling a class regenerates a usable password again.
+      const lowerCheckbox = byId<HTMLInputElement>('generator-lower');
+      lowerCheckbox.checked = true;
+      dispatch(lowerCheckbox, 'input');
+      assert.equal(byId<HTMLElement>('generator-error').hidden, true);
+      const finalPreview = preview.textContent;
+      assert.ok(finalPreview);
+
+      dq('#dlg-generate-password [data-action="use-password"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(valueInput.value, finalPreview);
+
+      // The close (✕) button dismisses without applying anything.
+      generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dq('#dlg-generate-password [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(valueInput.value, finalPreview, 'closing must not touch the field');
+
+      // A non-Error throw (generatePassword itself never does this; the
+      // guard exists for whatever might) still shows a fallback message.
+      const globalGenerator = globalThis as unknown as {
+        generatePassword: typeof generatePassword;
+      };
+      const realGenerate = globalGenerator.generatePassword;
+      globalGenerator.generatePassword = () => {
+        throw 'not an Error instance';
+      };
+      try {
+        generateBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      } finally {
+        globalGenerator.generatePassword = realGenerate;
+      }
+      assert.equal(byId<HTMLElement>('generator-error').hidden, false);
+      assert.equal(
+        byId<HTMLElement>('generator-error').textContent,
+        'Could not generate a password.',
+      );
+      dq('#dlg-generate-password [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
 
   await t.test('cancelling a brand-new entry deletes it and returns to the entry list', () => {
     // Currently on the entry-edit screen for the entry just added to the

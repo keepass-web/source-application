@@ -14,11 +14,17 @@ import {
   entryTitle,
   filterEntriesByQuery,
   findEntryParent,
+  generatePassword,
   groupName,
   groupPathTo,
   isCustomField,
   isValidClipboardTimeout,
 } from '../0x67/logic.ts';
+
+const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const GENERATOR_LOWER = 'abcdefghijklmnopqrstuvwxyz';
+const GENERATOR_DIGITS = '0123456789';
+const GENERATOR_SYMBOLS = '!@#$%^&*()-_=+[]{};:,.<>?';
 
 test('entryField returns the value of a matching field, or "" when absent', () => {
   const entry = createEntry({ title: 'GitHub', username: 'octocat' });
@@ -167,4 +173,65 @@ test('isValidClipboardTimeout requires a real number of at least 5 seconds', () 
   assert.equal(isValidClipboardTimeout(30), true);
   assert.equal(isValidClipboardTimeout(4), false);
   assert.equal(isValidClipboardTimeout(Number.NaN), false);
+});
+
+test('generatePassword produces a password of the requested length', () => {
+  const password = generatePassword({
+    length: 32,
+    upper: true,
+    lower: true,
+    digits: true,
+    symbols: true,
+  });
+  assert.equal(password.length, 32);
+});
+
+test('generatePassword only draws from the selected character classes', () => {
+  const upperOnly = generatePassword({ length: 40, upper: true });
+  assert.ok([...upperOnly].every((c) => GENERATOR_UPPER.includes(c)));
+
+  const lowerOnly = generatePassword({ length: 40, lower: true });
+  assert.ok([...lowerOnly].every((c) => GENERATOR_LOWER.includes(c)));
+
+  const digitsOnly = generatePassword({ length: 40, digits: true });
+  assert.ok([...digitsOnly].every((c) => GENERATOR_DIGITS.includes(c)));
+
+  const symbolsOnly = generatePassword({ length: 40, symbols: true });
+  assert.ok([...symbolsOnly].every((c) => GENERATOR_SYMBOLS.includes(c)));
+});
+
+test('generatePassword draws from every selected class given enough length', () => {
+  // Long enough that, statistically, the chance any eligible class is
+  // entirely absent (or that rejection sampling's redraw branch never
+  // fires once across the whole run) is astronomically small — the same
+  // trust placed in this repo's real KDF/cipher tests elsewhere, not a
+  // mocked RNG.
+  const password = generatePassword({
+    length: 200,
+    upper: true,
+    lower: true,
+    digits: true,
+    symbols: true,
+  });
+  const all = GENERATOR_UPPER + GENERATOR_LOWER + GENERATOR_DIGITS + GENERATOR_SYMBOLS;
+  assert.ok([...password].every((c) => all.includes(c)));
+  assert.ok([...password].some((c) => GENERATOR_UPPER.includes(c)));
+  assert.ok([...password].some((c) => GENERATOR_LOWER.includes(c)));
+  assert.ok([...password].some((c) => GENERATOR_DIGITS.includes(c)));
+  assert.ok([...password].some((c) => GENERATOR_SYMBOLS.includes(c)));
+});
+
+test('generatePassword throws when no character class is selected', () => {
+  assert.throws(() => generatePassword({ length: 10 }), /select at least one/i);
+  assert.throws(
+    () =>
+      generatePassword({ length: 10, upper: false, lower: false, digits: false, symbols: false }),
+    /select at least one/i,
+  );
+});
+
+test('generatePassword throws for a non-positive or non-integer length', () => {
+  assert.throws(() => generatePassword({ length: 0, upper: true }), /positive whole number/i);
+  assert.throws(() => generatePassword({ length: -5, upper: true }), /positive whole number/i);
+  assert.throws(() => generatePassword({ length: 3.5, upper: true }), /positive whole number/i);
 });

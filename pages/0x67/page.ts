@@ -611,6 +611,20 @@ function buildEditField(
     row.appendChild(toggle);
   }
 
+  if (key === 'Password') {
+    const generateBtn = document.createElement('button');
+    generateBtn.type = 'button';
+    generateBtn.className = 'icon-btn';
+    generateBtn.title = 'Generate password';
+    generateBtn.textContent = '🎲';
+    generateBtn.addEventListener('click', () => {
+      openPasswordGenerator((password) => {
+        valueInput.value = password;
+      });
+    });
+    row.appendChild(generateBtn);
+  }
+
   if (removable) {
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
@@ -711,6 +725,52 @@ async function downloadDatabase(): Promise<void> {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   app.dirty = false;
+}
+
+// ============================================================
+// Dialog: Generate Password
+// ============================================================
+
+function openPasswordGenerator(onUse: (password: string) => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-generate-password');
+  const lengthInput = byId<HTMLInputElement>('generator-length');
+  const upperInput = byId<HTMLInputElement>('generator-upper');
+  const lowerInput = byId<HTMLInputElement>('generator-lower');
+  const digitsInput = byId<HTMLInputElement>('generator-digits');
+  const symbolsInput = byId<HTMLInputElement>('generator-symbols');
+  const preview = byId<HTMLElement>('generator-preview');
+  const errorEl = byId<HTMLElement>('generator-error');
+
+  function regenerate(): void {
+    errorEl.hidden = true;
+    try {
+      preview.textContent = generatePassword({
+        length: Number.parseInt(lengthInput.value, 10),
+        upper: upperInput.checked,
+        lower: lowerInput.checked,
+        digits: digitsInput.checked,
+        symbols: symbolsInput.checked,
+      });
+    } catch (err) {
+      preview.textContent = '';
+      errorEl.textContent = err instanceof Error ? err.message : 'Could not generate a password.';
+      errorEl.hidden = false;
+    }
+  }
+
+  for (const input of [lengthInput, upperInput, lowerInput, digitsInput, symbolsInput]) {
+    input.oninput = regenerate;
+  }
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="regenerate"]')).onclick = regenerate;
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="use-password"]')).onclick = () => {
+    if (!preview.textContent) return;
+    onUse(preview.textContent);
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+
+  regenerate();
+  dlg.showModal();
 }
 
 // ============================================================

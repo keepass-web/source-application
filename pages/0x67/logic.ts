@@ -151,3 +151,55 @@ export function isCustomField(key: string): boolean {
 export function isValidClipboardTimeout(seconds: number): boolean {
   return !Number.isNaN(seconds) && seconds >= 5;
 }
+
+/** Character classes offered by the password generator. */
+const GENERATOR_CHARSETS = {
+  upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  lower: 'abcdefghijklmnopqrstuvwxyz',
+  digits: '0123456789',
+  symbols: '!@#$%^&*()-_=+[]{};:,.<>?',
+} as const;
+
+export interface PasswordGeneratorOptions {
+  length: number;
+  upper?: boolean;
+  lower?: boolean;
+  digits?: boolean;
+  symbols?: boolean;
+}
+
+/**
+ * Generate a random password from the selected character classes, using
+ * crypto.getRandomValues (never Math.random). Rejection sampling — redrawing
+ * a byte that falls above the largest multiple of the charset size a byte can
+ * hold — avoids the modulo-bias a plain `byte % charset.length` would
+ * introduce toward the low end of the charset.
+ */
+export function generatePassword(options: PasswordGeneratorOptions): string {
+  const charset = (['upper', 'lower', 'digits', 'symbols'] as const)
+    .filter((name) => options[name])
+    .map((name) => GENERATOR_CHARSETS[name])
+    .join('');
+  if (!charset) {
+    throw new Error('Select at least one character type.');
+  }
+  if (!Number.isInteger(options.length) || options.length < 1) {
+    throw new Error('Length must be a positive whole number.');
+  }
+
+  const max = 256 - (256 % charset.length);
+  const byte = new Uint8Array(1);
+  let result = '';
+  while (result.length < options.length) {
+    crypto.getRandomValues(byte);
+    // byte has a fixed length of 1, so index 0 is always populated; the cast
+    // only satisfies noUncheckedIndexedAccess.
+    const value = byte[0] as number;
+    if (value < max) {
+      // value % charset.length is always < charset.length, so this index is
+      // always populated too.
+      result += charset[value % charset.length] as string;
+    }
+  }
+  return result;
+}
