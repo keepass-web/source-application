@@ -22,7 +22,7 @@ No runtime dependencies. devDependencies allowed case by case; none with an inst
 
 ## User-mindfulness
 
-This app handles other people's passwords. Before making a change, ask: does this add a network call, telemetry, or any other way for data to leave the browser? The entire trust model rests on a user being able to watch the network tab and see nothing. Don't compromise that without it being an explicit, deliberate, documented decision — never as a side effect.
+This app handles other people's passwords. Before making a change, ask: does this add a network call, telemetry, or any other way for data to leave the browser? The entire trust model rests on a user being able to watch the network tab and see nothing on the app (`0x67.html`) and every offline page — that must stay true without exception. The cloud connectors are the one place network traffic is expected, and even there the rule is narrow: a connector may load only the SDK of the provider the user just chose to sign in to (e.g. Google's Picker), never code from an unrelated third party, and the master password and all decryption stay in the embedded `0x67.html` iframe, which loads no external code. Don't widen that boundary — no external script on an offline page, no third-party code in a connector — without it being an explicit, deliberate, documented decision, never a side effect.
 
 Keep code readable by a literate technical user in a single sitting. Prefer the obvious approach over the clever one. Never log, transmit, or persist a password, secret, or decrypted field anywhere outside in-memory browser state.
 

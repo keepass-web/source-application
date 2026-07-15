@@ -746,3 +746,17 @@ body:not(.app-mode) .screen-edit {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--border);
 }
+
+.save-status {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.save-status.ok {
+  color: var(--success);
+}
+
+.save-status.error {
+  color: var(--danger);
+}

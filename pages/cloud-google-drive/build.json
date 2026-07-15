@@ -1,0 +1,6 @@
+{
+  "template": "page.html",
+  "styles": ["page.css"],
+  "scripts": ["../../build/pages/cloud-google-drive/bundle.js"],
+  "output": "../../dist/cloud-google-drive.html"
+}

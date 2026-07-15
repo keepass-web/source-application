@@ -1,0 +1,12 @@
+{
+  "packagesDir": "../../build/pages/cloud-google-drive",
+  "output": "../../build/pages/cloud-google-drive/bundle.js",
+  "files": ["logic.js", "page.js"],
+  "exports": [
+    "must",
+    "buildDriveDownloadUrl",
+    "buildDriveUpdateUrl",
+    "isReadyMessage",
+    "isSaveMessage"
+  ]
+}
