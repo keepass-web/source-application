@@ -540,6 +540,7 @@ function wireEntryListEvents(): void {
   });
 
   qs('[data-action="settings"]').addEventListener('click', openSettings);
+  qs('[data-action="export"]').addEventListener('click', openExportDialog);
 
   qs('[data-action="add-entry"]').addEventListener('click', () => {
     const newEntry = createEntry({ title: 'New Entry' });
@@ -1088,6 +1089,40 @@ function openSettings(): void {
       app.dirty = true;
     }
 
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// ============================================================
+// Dialog: Export
+// ============================================================
+
+function downloadTextFile(content: string, filename: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function openExportDialog(): void {
+  const dlg = byId<HTMLDialogElement>('dlg-export');
+  const baseName = app.filename.replace(/\.kdbx$/i, '') || 'entries';
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="export-csv"]')).onclick = () => {
+    const entries = collectAllEntries(must(app.db).getRootGroup());
+    downloadTextFile(toCsv(entries), `${baseName}.csv`, 'text/csv');
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="export-xml"]')).onclick = () => {
+    const entries = collectAllEntries(must(app.db).getRootGroup());
+    downloadTextFile(toXml(entries), `${baseName}.xml`, 'application/xml');
     dlg.close();
   };
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();

@@ -951,6 +951,10 @@ input.attachment-name:focus {
   font-size: 0.9rem;
 }
 
+.warning-text {
+  color: var(--danger);
+}
+
 .dialog-body .field {
   margin-bottom: 0;
 }

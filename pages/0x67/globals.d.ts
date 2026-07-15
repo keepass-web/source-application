@@ -132,6 +132,8 @@ declare function sortEntries(
   field: EntrySortField,
   direction: EntrySortDirection,
 ): EntryWithGroup[];
+declare function toCsv(entries: EntryWithGroup[]): string;
+declare function toXml(entries: EntryWithGroup[]): string;
 
 interface EditedField {
   key: string;

@@ -1786,6 +1786,121 @@ test('entry list sorting: by title, username, or modified time, in either direct
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
+test('exporting entries as CSV or XML downloads an unencrypted plaintext file', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Exported Entry', username: 'exp-user' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('vault.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const dlg = byId<HTMLDialogElement>('dlg-export');
+  assert.equal(dlg.open, true);
+  assert.match(dq('.warning-text').textContent ?? '', /unencrypted/i);
+
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  const realRevoke = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    const u = realCreate(obj);
+    created.push(u);
+    return u;
+  };
+  URL.revokeObjectURL = (u: string) => {
+    revoked.push(u);
+    realRevoke(u);
+  };
+  try {
+    dq('#dlg-export [data-action="export-csv"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(dlg.open, false, 'exporting closes the dialog');
+
+    q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-export [data-action="export-xml"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(dlg.open, false);
+  } finally {
+    URL.createObjectURL = realCreate;
+    URL.revokeObjectURL = realRevoke;
+  }
+  assert.equal(created.length, 2, 'one object URL per export');
+  assert.deepEqual(revoked, created, 'every created URL is revoked');
+
+  // The close (✕) button dismisses without exporting anything.
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-export [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.equal(dlg.open, false);
+  assert.equal(created.length, 2, 'closing must not trigger another export');
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('exporting falls back to "entries" as the base filename when none is set', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  // A filename that's just the extension strips to '' — exercises the
+  // "|| 'entries'" fallback in openExportDialog's base filename.
+  setFiles(fileInput, [makeFile('.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  q('[data-action="export"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  const downloadNames: string[] = [];
+  const realClick = dom.window.HTMLAnchorElement.prototype.click;
+  dom.window.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    downloadNames.push(this.download);
+  };
+  try {
+    dq('#dlg-export [data-action="export-csv"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+  } finally {
+    dom.window.HTMLAnchorElement.prototype.click = realClick;
+  }
+  assert.deepEqual(downloadNames, ['entries.csv']);
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
 test('must() throws when a screen template is missing an element it depends on', async () => {
   // Re-upload and unlock again so there's a live app state to work with,
   // independent of the walkthrough above.

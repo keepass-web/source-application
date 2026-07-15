@@ -29,6 +29,8 @@ import {
   isValidClipboardTimeout,
   localInputValueToIso,
   sortEntries,
+  toCsv,
+  toXml,
 } from '../0x67/logic.ts';
 
 const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -252,6 +254,41 @@ test('sortEntries orders by LastModificationTime, and does not mutate the input 
     [older, newer],
     'the input array is untouched',
   );
+});
+
+test('toCsv writes a header row, quotes fields only when needed, and joins tags with ";"', () => {
+  const root = createGroup('Personal');
+  const plain = createEntry({ title: 'GitHub', username: 'octocat', password: 'hunter2' });
+  appendChild(plain, createElement('Tags', 'Work;Urgent'));
+  const quoted = createEntry({ title: 'Say "hi", bye', notes: 'Line one\nLine two' });
+  appendChild(root, plain);
+  appendChild(root, quoted);
+
+  const csv = toCsv(collectAllEntries(root));
+  const lines = csv.split('\r\n');
+  assert.equal(lines[0], 'Group,Title,UserName,Password,URL,Notes,Tags');
+  assert.equal(lines[1], 'Personal,GitHub,octocat,hunter2,,,Work;Urgent');
+  assert.equal(lines[2], 'Personal,"Say ""hi"", bye",,,,"Line one\nLine two",');
+  assert.equal(lines.length, 3);
+});
+
+test('toCsv writes just the header row for an empty entry list', () => {
+  assert.equal(toCsv([]), 'Group,Title,UserName,Password,URL,Notes,Tags');
+});
+
+test('toXml escapes XML-significant characters and wraps entries in <Entries>', () => {
+  const root = createGroup('Root');
+  const entry = createEntry({ title: 'A & B <script> "quote" \'apos\'' });
+  appendChild(root, entry);
+
+  const xml = toXml(collectAllEntries(root));
+  assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<Entries>\n/);
+  assert.match(xml, /<Title>A &amp; B &lt;script&gt; &quot;quote&quot; &apos;apos&apos;<\/Title>/);
+  assert.match(xml, /<\/Entries>\n$/);
+});
+
+test('toXml produces an empty <Entries> element for an empty entry list', () => {
+  assert.match(toXml([]), /<Entries>\n\n<\/Entries>\n$/);
 });
 
 test('applyEntryEdits replaces all String fields with the given key/value/protect triples', () => {

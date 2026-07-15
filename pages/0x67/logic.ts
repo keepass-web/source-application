@@ -209,6 +209,64 @@ export function sortEntries(
     );
 }
 
+function exportFields(entry: XmlElement, group: XmlElement): [string, string][] {
+  return [
+    ['Group', groupName(group)],
+    ['Title', entryTitle(entry)],
+    ['UserName', entryField(entry, 'UserName')],
+    ['Password', entryField(entry, 'Password')],
+    ['URL', entryField(entry, 'URL')],
+    ['Notes', entryField(entry, 'Notes')],
+    ['Tags', getEntryTags(entry).join(';')],
+  ];
+}
+
+/** Quote a CSV field only when it needs it (contains a comma, quote, or
+ * newline), doubling any internal quotes — RFC 4180. */
+function csvField(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/** Serialize entries (Group, Title, UserName, Password, URL, Notes, Tags) as
+ * plaintext CSV — see the caller for the "this is unencrypted" warning this
+ * always needs. */
+export function toCsv(entries: EntryWithGroup[]): string {
+  const header = ['Group', 'Title', 'UserName', 'Password', 'URL', 'Notes', 'Tags'];
+  const lines = [header.join(',')];
+  for (const { entry, group } of entries) {
+    lines.push(
+      exportFields(entry, group)
+        .map(([, value]) => csvField(value))
+        .join(','),
+    );
+  }
+  return lines.join('\r\n');
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/** Serialize entries as plaintext XML — same fields and the same "this is
+ * unencrypted" caveat as {@link toCsv}. Not a KDBX document. */
+export function toXml(entries: EntryWithGroup[]): string {
+  const rows = entries.map(({ entry, group }) => {
+    const body = exportFields(entry, group)
+      .map(([tag, value]) => `    <${tag}>${xmlEscape(value)}</${tag}>`)
+      .join('\n');
+    return `  <Entry>\n${body}\n  </Entry>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<Entries>\n${rows.join('\n')}\n</Entries>\n`;
+}
+
 /** A single row from the entry-edit form, already read out of the DOM. */
 export interface EditedField {
   key: string;

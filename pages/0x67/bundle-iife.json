@@ -67,6 +67,8 @@
     "groupPathTo",
     "filterEntriesByQuery",
     "sortEntries",
+    "toCsv",
+    "toXml",
     "applyEntryEdits",
     "isCustomField",
     "isValidClipboardTimeout",
