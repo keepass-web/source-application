@@ -574,6 +574,131 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'group tree: rename, move (with own-subtree blocked), and delete/permanently-delete',
+    () => {
+      // Root has no rename/move/delete actions of its own.
+      const rootBtn = (): HTMLButtonElement =>
+        q('#group-tree').querySelector<HTMLButtonElement>('.group-btn') as HTMLButtonElement;
+      assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-actions'), null);
+
+      // Group rows are icon-prefixed ("🌐 Personal"), and the root's own
+      // label ("📁 Personal Vault") would falsely match a plain substring
+      // check against "Personal" — match on the trailing name instead.
+      const groupBtnFor = (name: string): HTMLButtonElement =>
+        Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+          b.textContent?.endsWith(name),
+        ) as HTMLButtonElement;
+      const rowFor = (name: string): HTMLElement =>
+        groupBtnFor(name).closest('.group-row') as HTMLElement;
+      const actionBtn = (name: string, title: string): HTMLButtonElement =>
+        rowFor(name).querySelector<HTMLButtonElement>(`[title="${title}"]`) as HTMLButtonElement;
+      // The tree is always fully expanded, so a trashed/moved group's button
+      // never disappears from #group-tree — it just relocates. Check its new
+      // position (is it inside this parent's own subtree?) rather than mere
+      // presence/absence.
+      const isInSubtreeOf = (parentName: string, childName: string): boolean =>
+        Array.from(
+          rowFor(parentName).nextElementSibling?.querySelectorAll<HTMLButtonElement>(
+            '.group-btn',
+          ) ?? [],
+        ).some((b) => b.textContent?.endsWith(childName));
+      const click = (el: EventTarget): void => {
+        el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+      const addRootGroup = (name: string): void => {
+        click(rootBtn());
+        click(q('[data-action="add-group"]'));
+        byId<HTMLInputElement>('new-group-name').value = name;
+        click(dq('#dlg-new-group [data-action="create-group"]'));
+      };
+
+      // Two new, root-level groups (not touching "Personal"/"Work", which
+      // later steps in this walkthrough depend on).
+      addRootGroup('Rename Target');
+      addRootGroup('Move Target');
+
+      // --- rename: reuses dlg-new-group, retitled and prefilled ---
+      click(actionBtn('Rename Target', 'Rename group'));
+      const groupDlg = byId<HTMLDialogElement>('dlg-new-group');
+      assert.equal(byId<HTMLElement>('new-group-title').textContent, 'Rename group');
+      assert.equal(byId<HTMLInputElement>('new-group-name').value, 'Rename Target');
+      byId<HTMLInputElement>('new-group-name').value = 'Renamed Group';
+      click(dq('#dlg-new-group [data-action="create-group"]'));
+      assert.equal(groupDlg.open, false);
+      assert.ok(groupBtnFor('Renamed Group'));
+      assert.equal(groupBtnFor('Rename Target'), undefined);
+
+      // --- move: a group cannot be moved into itself ---
+      click(actionBtn('Move Target', 'Move group'));
+      const moveDlg = byId<HTMLDialogElement>('dlg-move-to');
+      assert.equal(moveDlg.open, true);
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group to…');
+      const destBtn = (name: string): HTMLButtonElement =>
+        Array.from(
+          byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
+        ).find((b) => b.textContent?.endsWith(name)) as HTMLButtonElement;
+      assert.equal(destBtn('Move Target').disabled, true);
+      click(destBtn('Renamed Group'));
+      assert.equal(moveDlg.open, false);
+      assert.ok(
+        isInSubtreeOf('Renamed Group', 'Move Target'),
+        '"Move Target" is now nested under "Renamed Group"',
+      );
+
+      // One entry in the moved subtree, so the eventual permanent-delete
+      // confirmation exercises its singular "1 entry" wording too (the
+      // Recycle Bin test elsewhere covers the plural "0 entries" case).
+      click(groupBtnFor('Move Target'));
+      click(q('[data-action="add-entry"]'));
+      click(q('[data-action="save"]'));
+      click(dq('#dlg-save [data-action="close"]'));
+      click(q('[data-action="back"]'));
+
+      // --- move: a descendant is also an invalid target, and cancel/close both leave it in place ---
+      click(actionBtn('Renamed Group', 'Move group'));
+      assert.equal(destBtn('Renamed Group').disabled, true, 'self is not a valid target');
+      assert.equal(destBtn('Move Target').disabled, true, 'own descendant is not a valid target');
+      click(dq('#dlg-move-to [data-action="close"]'));
+      assert.equal(moveDlg.open, false);
+
+      click(actionBtn('Renamed Group', 'Move group'));
+      click(dq('#dlg-move-to [data-action="cancel-move"]'));
+      assert.equal(moveDlg.open, false);
+
+      // --- delete outside the bin: no confirmation, moves into Recycle Bin ---
+      click(actionBtn('Renamed Group', 'Delete group'));
+      assert.equal(byId<HTMLDialogElement>('dlg-confirm-delete').open, false);
+      assert.ok(groupBtnFor('Recycle Bin'), 'the recycle bin group is created on first trash');
+      assert.ok(
+        isInSubtreeOf('Recycle Bin', 'Renamed Group'),
+        'trashing moves the group into the bin',
+      );
+      assert.ok(
+        isInSubtreeOf('Renamed Group', 'Move Target'),
+        'its own subtree moved along with it',
+      );
+
+      // --- delete inside the bin: confirmed, permanent, whole subtree ---
+      click(actionBtn('Renamed Group', 'Delete group'));
+      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(confirmDlg.open, true);
+      assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
+      // The 1 entry saved into "Move Target" earlier exercises the singular
+      // wording; the Recycle Bin test elsewhere covers the plural case.
+      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /\b1 entry\b/);
+      click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      assert.equal(confirmDlg.open, false);
+      assert.equal(groupBtnFor('Renamed Group'), undefined, 'permanently gone');
+      assert.equal(groupBtnFor('Move Target'), undefined, 'its subtree went with it');
+
+      // Back to "Personal", empty, for the rest of the walkthrough.
+      click(groupBtnFor('Personal'));
+      assert.equal(q<HTMLElement>('#panel-title').textContent, 'Personal');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0);
+    },
+  );
+
   await t.test('adding a new entry opens the edit screen, prefilled with standard fields', () => {
     q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'New Entry');

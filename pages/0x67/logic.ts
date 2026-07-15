@@ -112,6 +112,24 @@ export function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlEl
   return null;
 }
 
+/** Find the group that directly contains the given subgroup, or null if
+ * `group` is `rootGroup` itself (which has no parent). */
+export function findGroupParent(rootGroup: XmlElement, group: XmlElement): XmlElement | null {
+  for (const sub of getChildren(rootGroup, 'Group')) {
+    if (sub === group) return rootGroup;
+    const found = findGroupParent(sub, group);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** True if `candidate` is `ancestor` itself, or nested anywhere inside it —
+ * used to block moving a group into its own subtree. */
+export function isDescendantGroup(ancestor: XmlElement, candidate: XmlElement): boolean {
+  if (ancestor === candidate) return true;
+  return getChildren(ancestor, 'Group').some((sub) => isDescendantGroup(sub, candidate));
+}
+
 export interface EntryWithGroup {
   entry: XmlElement;
   group: XmlElement;

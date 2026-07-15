@@ -16,11 +16,13 @@ import {
   entryTitle,
   filterEntriesByQuery,
   findEntryParent,
+  findGroupParent,
   generatePassword,
   groupName,
   groupPathTo,
   iconEmoji,
   isCustomField,
+  isDescendantGroup,
   isoToLocalInputValue,
   isValidClipboardTimeout,
   localInputValueToIso,
@@ -73,6 +75,35 @@ test('findEntryParent finds the direct parent, searches subgroups, and returns n
   assert.equal(findEntryParent(root, directEntry), root);
   assert.equal(findEntryParent(root, nestedEntry), sub);
   assert.equal(findEntryParent(root, orphanEntry), null);
+});
+
+test('findGroupParent finds the direct parent, searches subgroups, and returns null for the root itself', () => {
+  const root = createGroup('Root');
+  const sub = createGroup('Sub');
+  appendChild(root, sub);
+  const nested = createGroup('Nested');
+  appendChild(sub, nested);
+  const orphan = createGroup('Orphan');
+
+  assert.equal(findGroupParent(root, sub), root);
+  assert.equal(findGroupParent(root, nested), sub);
+  assert.equal(findGroupParent(root, orphan), null);
+  assert.equal(findGroupParent(root, root), null);
+});
+
+test('isDescendantGroup is true for the group itself and anything nested inside it, false otherwise', () => {
+  const root = createGroup('Root');
+  const sub = createGroup('Sub');
+  appendChild(root, sub);
+  const nested = createGroup('Nested');
+  appendChild(sub, nested);
+  const sibling = createGroup('Sibling');
+  appendChild(root, sibling);
+
+  assert.equal(isDescendantGroup(sub, sub), true);
+  assert.equal(isDescendantGroup(sub, nested), true);
+  assert.equal(isDescendantGroup(sub, sibling), false);
+  assert.equal(isDescendantGroup(sub, root), false);
 });
 
 test('collectAllEntries gathers every entry in the tree, paired with its group', () => {

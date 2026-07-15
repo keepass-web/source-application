@@ -237,10 +237,10 @@
        ============================================================ -->
   <dialog id="dlg-confirm-delete" class="kw-dialog">
     <div class="dialog-header">
-      <h2>Delete entry?</h2>
+      <h2 id="confirm-delete-title">Delete entry?</h2>
     </div>
     <div class="dialog-body">
-      <p>This cannot be undone.</p>
+      <p id="confirm-delete-message">This cannot be undone.</p>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-delete">Cancel</button>
@@ -297,7 +297,7 @@
        ============================================================ -->
   <dialog id="dlg-new-group" class="kw-dialog">
     <div class="dialog-header">
-      <h2>New group</h2>
+      <h2 id="new-group-title">New group</h2>
       <button type="button" class="close-btn" data-action="close">✕</button>
     </div>
     <div class="dialog-body">
@@ -310,6 +310,22 @@
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-group">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="create-group">Create</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Move To
+       ============================================================ -->
+  <dialog id="dlg-move-to" class="kw-dialog">
+    <div class="dialog-header">
+      <h2 id="move-to-title">Move to…</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="move-to-tree" class="move-to-tree"></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-secondary" data-action="cancel-move">Cancel</button>
     </div>
   </dialog>
 

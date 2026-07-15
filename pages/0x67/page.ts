@@ -281,12 +281,14 @@ function renderGroupTree(): void {
   container.innerHTML = '';
   const ul = document.createElement('ul');
   ul.className = 'group-list';
-  ul.appendChild(buildGroupNode(must(app.db).getRootGroup()));
+  ul.appendChild(buildGroupNode(must(app.db).getRootGroup(), true));
   container.appendChild(ul);
 }
 
-function buildGroupNode(group: XmlElement): HTMLLIElement {
+function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const li = document.createElement('li');
+  const row = document.createElement('div');
+  row.className = 'group-row';
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -300,18 +302,125 @@ function buildGroupNode(group: XmlElement): HTMLLIElement {
     renderGroupTree();
     renderEntryPanel();
   });
-  li.appendChild(btn);
+  row.appendChild(btn);
+
+  // The root group represents the database itself — renamed via database
+  // settings (its master password/name), not as an ordinary group, and
+  // neither movable nor deletable.
+  if (!isRoot) {
+    row.appendChild(buildGroupActions(group));
+  }
+
+  li.appendChild(row);
 
   const subgroups = getChildren(group, 'Group');
   if (subgroups.length > 0) {
     const ul = document.createElement('ul');
     for (const sub of subgroups) {
-      ul.appendChild(buildGroupNode(sub));
+      ul.appendChild(buildGroupNode(sub, false));
     }
     li.appendChild(ul);
   }
 
   return li;
+}
+
+function buildGroupActions(group: XmlElement): HTMLDivElement {
+  const actions = document.createElement('div');
+  actions.className = 'group-actions';
+
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'icon-btn group-action-btn';
+  renameBtn.title = 'Rename group';
+  renameBtn.textContent = '✏️';
+  renameBtn.addEventListener('click', () => {
+    openGroupDialog({ type: 'rename', group }, () => {
+      renderGroupTree();
+      renderEntryPanel();
+    });
+  });
+  actions.appendChild(renameBtn);
+
+  const moveBtn = document.createElement('button');
+  moveBtn.type = 'button';
+  moveBtn.className = 'icon-btn group-action-btn';
+  moveBtn.title = 'Move group';
+  moveBtn.textContent = '📂';
+  moveBtn.addEventListener('click', () => {
+    openMoveToDialog(
+      'Move group to…',
+      (candidate) => !isDescendantGroup(group, candidate),
+      (destination) => moveGroupTo(group, destination),
+    );
+  });
+  actions.appendChild(moveBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'icon-btn group-action-btn';
+  deleteBtn.title = 'Delete group';
+  deleteBtn.textContent = '🗑';
+  deleteBtn.addEventListener('click', () => {
+    deleteGroupAction(group);
+  });
+  actions.appendChild(deleteBtn);
+
+  return actions;
+}
+
+/** Deselect (back to root) if the current selection is `group` or nested
+ * inside it — used when a group is moved or trashed out from under the
+ * user's current view. */
+function resetSelectionIfAffected(rootGroup: XmlElement, group: XmlElement): void {
+  if (app.currentGroup && isDescendantGroup(group, app.currentGroup)) {
+    app.currentGroup = rootGroup;
+    app.searchQuery = '';
+  }
+}
+
+function moveGroupTo(group: XmlElement, destination: XmlElement): void {
+  const rootGroup = must(app.db).getRootGroup();
+  const parent = findGroupParent(rootGroup, group);
+  if (parent && parent !== destination) {
+    parent.children = parent.children.filter((c) => c !== group);
+    appendChild(destination, group);
+    app.dirty = true;
+  }
+  renderGroupTree();
+  renderEntryPanel();
+}
+
+function deleteGroupAction(group: XmlElement): void {
+  const db = must(app.db);
+  const rootGroup = db.getRootGroup();
+
+  if (isInRecycleBin(db.root, group)) {
+    const entryCount = collectAllEntries(group).length;
+    let entryWord = 'entries';
+    if (entryCount === 1) {
+      entryWord = 'entry';
+    }
+    openConfirmDelete(
+      'Delete group?',
+      `This group and its ${entryCount} ${entryWord} will be permanently deleted. This cannot be undone.`,
+      () => {
+        const parent = findGroupParent(rootGroup, group);
+        if (parent) parent.children = parent.children.filter((c) => c !== group);
+        resetSelectionIfAffected(rootGroup, group);
+        app.dirty = true;
+        renderGroupTree();
+        renderEntryPanel();
+      },
+    );
+    return;
+  }
+
+  // Outside the bin, deleting a group is "Trash" — reversible, so (like
+  // trashing an entry) it needs no confirmation.
+  const bin = findOrCreateRecycleBin(db.root);
+  resetSelectionIfAffected(rootGroup, group);
+  moveGroupTo(group, bin);
 }
 
 function renderEntryPanel(): void {
@@ -426,7 +535,7 @@ function wireEntryListEvents(): void {
   });
 
   qs('[data-action="add-group"]').addEventListener('click', () => {
-    openNewGroupDialog(must(app.currentGroup), () => showEntryList());
+    openGroupDialog({ type: 'create', parent: must(app.currentGroup) }, () => showEntryList());
   });
 }
 
@@ -529,7 +638,7 @@ function showEntryDetail(): void {
   });
 
   deleteBtn.addEventListener('click', () => {
-    openConfirmDelete(() => {
+    openConfirmDelete('Delete entry?', 'This cannot be undone.', () => {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         parent.children = parent.children.filter((c) => c !== entry);
@@ -997,8 +1106,10 @@ function confirmDiscardIfDirty(proceed: () => void): void {
 // Dialog: Confirm Delete
 // ============================================================
 
-function openConfirmDelete(callback: () => void): void {
+function openConfirmDelete(title: string, message: string, callback: () => void): void {
   const dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+  byId('confirm-delete-title').textContent = title;
+  byId('confirm-delete-message').textContent = message;
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]')).onclick = () => {
     dlg.close();
@@ -1040,13 +1151,28 @@ function openIconPicker(onPick: (iconId: number) => void): void {
 // Dialog: New Group
 // ============================================================
 
-function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): void {
+type GroupDialogMode =
+  | { type: 'create'; parent: XmlElement }
+  | { type: 'rename'; group: XmlElement };
+
+function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
   const dlg = byId<HTMLDialogElement>('dlg-new-group');
   const nameInput = byId<HTMLInputElement>('new-group-name');
-  nameInput.value = '';
+  const titleEl = byId('new-group-title');
+  const submitBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]'));
 
   // 49 matches createGroup()'s own default group icon.
-  let selectedIconId = 49;
+  let selectedIconId = mode.type === 'rename' ? Number.parseInt(elementIconId(mode.group), 10) : 49;
+  if (mode.type === 'rename') {
+    titleEl.textContent = 'Rename group';
+    submitBtn.textContent = 'Save';
+    nameInput.value = groupName(mode.group);
+  } else {
+    titleEl.textContent = 'New group';
+    submitBtn.textContent = 'Create';
+    nameInput.value = '';
+  }
+
   const iconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
   iconBtn.textContent = iconEmoji(String(selectedIconId));
   iconBtn.onclick = () => {
@@ -1056,20 +1182,25 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
     });
   };
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).onclick = () => {
+  submitBtn.onclick = () => {
     const name = nameInput.value.trim();
     if (!name) {
       nameInput.focus();
       return;
     }
-    const newGroup = createGroup(name);
-    // createGroup() always appends an IconID child, so this is always present.
-    setText(getChild(newGroup, 'IconID') as XmlElement, String(selectedIconId));
-    appendChild(parentGroup, newGroup);
-    app.currentGroup = newGroup;
+    if (mode.type === 'rename') {
+      // createGroup() always appends Name/IconID children, so both are always present.
+      setText(getChild(mode.group, 'Name') as XmlElement, name);
+      setText(getChild(mode.group, 'IconID') as XmlElement, String(selectedIconId));
+    } else {
+      const newGroup = createGroup(name);
+      setText(getChild(newGroup, 'IconID') as XmlElement, String(selectedIconId));
+      appendChild(mode.parent, newGroup);
+      app.currentGroup = newGroup;
+    }
     app.dirty = true;
     dlg.close();
-    onCreated();
+    onDone();
   };
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-group"]')).onclick = () =>
@@ -1079,12 +1210,56 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
   // Allow Enter to submit
   nameInput.onkeydown = (e) => {
     if (e.key === 'Enter') {
-      must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).click();
+      submitBtn.click();
     }
   };
 
   dlg.showModal();
   nameInput.focus();
+}
+
+function openMoveToDialog(
+  title: string,
+  isValidTarget: (candidate: XmlElement) => boolean,
+  onPick: (destination: XmlElement) => void,
+): void {
+  const dlg = byId<HTMLDialogElement>('dlg-move-to');
+  byId('move-to-title').textContent = title;
+  const treeEl = byId('move-to-tree');
+  treeEl.innerHTML = '';
+
+  const buildNode = (group: XmlElement): HTMLLIElement => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'move-to-btn';
+    btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+    btn.disabled = !isValidTarget(group);
+    btn.addEventListener('click', () => {
+      dlg.close();
+      onPick(group);
+    });
+    li.appendChild(btn);
+
+    const subgroups = getChildren(group, 'Group');
+    if (subgroups.length > 0) {
+      const ul = document.createElement('ul');
+      for (const sub of subgroups) ul.appendChild(buildNode(sub));
+      li.appendChild(ul);
+    }
+    return li;
+  };
+
+  const rootUl = document.createElement('ul');
+  rootUl.className = 'move-to-list';
+  rootUl.appendChild(buildNode(must(app.db).getRootGroup()));
+  treeEl.appendChild(rootUl);
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-move"]')).onclick = () =>
+    dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+
+  dlg.showModal();
 }
 
 // ============================================================

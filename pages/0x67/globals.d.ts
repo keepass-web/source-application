@@ -105,6 +105,8 @@ declare function entryField(entry: XmlElement, key: string): string;
 declare function entryTitle(entry: XmlElement): string;
 declare function groupName(group: XmlElement): string;
 declare function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null;
+declare function findGroupParent(rootGroup: XmlElement, group: XmlElement): XmlElement | null;
+declare function isDescendantGroup(ancestor: XmlElement, candidate: XmlElement): boolean;
 declare function collectAllEntries(group: XmlElement, results?: EntryWithGroup[]): EntryWithGroup[];
 declare function groupPathTo(
   rootGroup: XmlElement,
