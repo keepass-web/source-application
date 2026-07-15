@@ -11,6 +11,8 @@ interface AppState {
   searchQuery: string;
   clipboardTimeout: number; // seconds
   dirty: boolean; // unsaved edits exist
+  sortField: EntrySortField;
+  sortDir: EntrySortDirection;
 }
 
 const app: AppState = {
@@ -22,6 +24,8 @@ const app: AppState = {
   searchQuery: '',
   clipboardTimeout: 30,
   dirty: false,
+  sortField: 'title',
+  sortDir: 'asc',
 };
 
 /** True once a trusted same-origin parent frame has handed this app a vault to
@@ -125,6 +129,8 @@ function showUpload(): void {
     const f = e.dataTransfer?.files[0];
     if (f) handleFile(f);
   });
+
+  qs('[data-action="create-database"]').addEventListener('click', () => showCreateDatabase());
 }
 
 async function handleFile(file: File): Promise<void> {
@@ -151,6 +157,10 @@ function showUnlock(): void {
     app.file = null;
     app.filename = '';
     showUpload();
+  });
+
+  qs('[data-action="toggle-password"]').addEventListener('click', () => {
+    passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
   });
 
   const keyfileInput = qs<HTMLInputElement>('#keyfile-input');
@@ -191,6 +201,74 @@ function showUnlock(): void {
 }
 
 // ============================================================
+// Screen: Create Database
+// ============================================================
+
+function showCreateDatabase(): void {
+  document.body.classList.remove('app-mode');
+  setRoot(cloneTemplate('tpl-create-database'));
+
+  const nameInput = qs<HTMLInputElement>('#create-name');
+  const passwordInput = qs<HTMLInputElement>('#create-password');
+  const confirmInput = qs<HTMLInputElement>('#create-password-confirm');
+  nameInput.focus();
+
+  let keyfileData: Uint8Array | null = null;
+
+  qs('[data-action="back"]').addEventListener('click', () => showUpload());
+
+  const keyfileInput = qs<HTMLInputElement>('#create-keyfile-input');
+  keyfileInput.addEventListener('change', async () => {
+    const f = keyfileInput.files?.[0];
+    if (f) {
+      keyfileData = new Uint8Array(await f.arrayBuffer());
+      qs('#create-keyfile-label').textContent = f.name;
+    }
+  });
+
+  qs('#create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = qs<HTMLButtonElement>('#create-btn');
+    const errorEl = qs('#create-error');
+    errorEl.hidden = true;
+
+    if (!passwordInput.value) {
+      errorEl.textContent = 'Enter a master password.';
+      errorEl.hidden = false;
+      passwordInput.focus();
+      return;
+    }
+    if (passwordInput.value !== confirmInput.value) {
+      errorEl.textContent = 'Passwords do not match.';
+      errorEl.hidden = false;
+      confirmInput.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    try {
+      const input: CredentialsInput = { password: passwordInput.value };
+      if (keyfileData) input.keyFile = keyfileData;
+      const creds = new Credentials(input);
+      const databaseName = nameInput.value.trim() || 'Database';
+      app.db = await Kdbx.create(creds, { databaseName });
+      app.filename = `${databaseName}.kdbx`;
+      app.currentGroup = app.db.getRootGroup();
+      app.searchQuery = '';
+      app.dirty = true;
+      showEntryList();
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : 'Could not create database.';
+      errorEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = 'Create';
+    }
+  });
+}
+
+// ============================================================
 // Screen: Entry List
 // ============================================================
 
@@ -207,17 +285,19 @@ function renderGroupTree(): void {
   container.innerHTML = '';
   const ul = document.createElement('ul');
   ul.className = 'group-list';
-  ul.appendChild(buildGroupNode(must(app.db).getRootGroup()));
+  ul.appendChild(buildGroupNode(must(app.db).getRootGroup(), true));
   container.appendChild(ul);
 }
 
-function buildGroupNode(group: XmlElement): HTMLLIElement {
+function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const li = document.createElement('li');
+  const row = document.createElement('div');
+  row.className = 'group-row';
 
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `group-btn${group === app.currentGroup ? ' active' : ''}`;
-  btn.textContent = groupName(group);
+  btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
   btn.addEventListener('click', () => {
     app.currentGroup = group;
     app.searchQuery = '';
@@ -226,18 +306,125 @@ function buildGroupNode(group: XmlElement): HTMLLIElement {
     renderGroupTree();
     renderEntryPanel();
   });
-  li.appendChild(btn);
+  row.appendChild(btn);
+
+  // The root group represents the database itself — renamed via database
+  // settings (its master password/name), not as an ordinary group, and
+  // neither movable nor deletable.
+  if (!isRoot) {
+    row.appendChild(buildGroupActions(group));
+  }
+
+  li.appendChild(row);
 
   const subgroups = getChildren(group, 'Group');
   if (subgroups.length > 0) {
     const ul = document.createElement('ul');
     for (const sub of subgroups) {
-      ul.appendChild(buildGroupNode(sub));
+      ul.appendChild(buildGroupNode(sub, false));
     }
     li.appendChild(ul);
   }
 
   return li;
+}
+
+function buildGroupActions(group: XmlElement): HTMLDivElement {
+  const actions = document.createElement('div');
+  actions.className = 'group-actions';
+
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'icon-btn group-action-btn';
+  renameBtn.title = 'Rename group';
+  renameBtn.textContent = '✏️';
+  renameBtn.addEventListener('click', () => {
+    openGroupDialog({ type: 'rename', group }, () => {
+      renderGroupTree();
+      renderEntryPanel();
+    });
+  });
+  actions.appendChild(renameBtn);
+
+  const moveBtn = document.createElement('button');
+  moveBtn.type = 'button';
+  moveBtn.className = 'icon-btn group-action-btn';
+  moveBtn.title = 'Move group';
+  moveBtn.textContent = '📂';
+  moveBtn.addEventListener('click', () => {
+    openMoveToDialog(
+      'Move group to…',
+      (candidate) => !isDescendantGroup(group, candidate),
+      (destination) => moveGroupTo(group, destination),
+    );
+  });
+  actions.appendChild(moveBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'icon-btn group-action-btn';
+  deleteBtn.title = 'Delete group';
+  deleteBtn.textContent = '🗑';
+  deleteBtn.addEventListener('click', () => {
+    deleteGroupAction(group);
+  });
+  actions.appendChild(deleteBtn);
+
+  return actions;
+}
+
+/** Deselect (back to root) if the current selection is `group` or nested
+ * inside it — used when a group is moved or trashed out from under the
+ * user's current view. */
+function resetSelectionIfAffected(rootGroup: XmlElement, group: XmlElement): void {
+  if (app.currentGroup && isDescendantGroup(group, app.currentGroup)) {
+    app.currentGroup = rootGroup;
+    app.searchQuery = '';
+  }
+}
+
+function moveGroupTo(group: XmlElement, destination: XmlElement): void {
+  const rootGroup = must(app.db).getRootGroup();
+  const parent = findGroupParent(rootGroup, group);
+  if (parent && parent !== destination) {
+    parent.children = parent.children.filter((c) => c !== group);
+    appendChild(destination, group);
+    app.dirty = true;
+  }
+  renderGroupTree();
+  renderEntryPanel();
+}
+
+function deleteGroupAction(group: XmlElement): void {
+  const db = must(app.db);
+  const rootGroup = db.getRootGroup();
+
+  if (isInRecycleBin(db.root, group)) {
+    const entryCount = collectAllEntries(group).length;
+    let entryWord = 'entries';
+    if (entryCount === 1) {
+      entryWord = 'entry';
+    }
+    openConfirmDelete(
+      'Delete group?',
+      `This group and its ${entryCount} ${entryWord} will be permanently deleted. This cannot be undone.`,
+      () => {
+        const parent = findGroupParent(rootGroup, group);
+        if (parent) parent.children = parent.children.filter((c) => c !== group);
+        resetSelectionIfAffected(rootGroup, group);
+        app.dirty = true;
+        renderGroupTree();
+        renderEntryPanel();
+      },
+    );
+    return;
+  }
+
+  // Outside the bin, deleting a group is "Trash" — reversible, so (like
+  // trashing an entry) it needs no confirmation.
+  const bin = findOrCreateRecycleBin(db.root);
+  resetSelectionIfAffected(rootGroup, group);
+  moveGroupTo(group, bin);
 }
 
 function renderEntryPanel(): void {
@@ -268,6 +455,8 @@ function renderEntryPanel(): void {
     return;
   }
 
+  rows = sortEntries(rows, app.sortField, app.sortDir);
+
   for (const { entry, group } of rows) {
     listEl.appendChild(buildEntryRow(entry, group));
   }
@@ -279,7 +468,7 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 
   const titleEl = document.createElement('div');
   titleEl.className = 'entry-row-title';
-  titleEl.textContent = entryTitle(entry);
+  titleEl.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
 
   const metaEl = document.createElement('div');
   metaEl.className = 'entry-row-meta';
@@ -316,20 +505,42 @@ function wireEntryListEvents(): void {
     renderEntryPanel();
   });
 
-  qs('[data-action="lock"]').addEventListener('click', () => {
-    Object.assign(app, {
-      db: null,
-      file: null,
-      filename: '',
-      currentGroup: null,
-      currentEntry: null,
-      searchQuery: '',
-      dirty: false,
+  const sortSelect = qs<HTMLSelectElement>('#sort-select');
+  sortSelect.value = `${app.sortField}:${app.sortDir}`;
+  sortSelect.addEventListener('change', () => {
+    const [field, direction] = sortSelect.value.split(':') as [EntrySortField, EntrySortDirection];
+    app.sortField = field;
+    app.sortDir = direction;
+    renderEntryPanel();
+  });
+
+  qs('[data-action="lock"]').addEventListener('click', async () => {
+    // Re-encrypt the current in-memory state (including anything not yet
+    // saved) rather than reloading the original file, so locking never loses
+    // an edit — only Close does that, and only with confirmation.
+    const bytes = await must(app.db).save();
+    app.file = bytes.buffer as ArrayBuffer;
+    Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    showUnlock();
+  });
+
+  qs('[data-action="close"]').addEventListener('click', () => {
+    confirmDiscardIfDirty(() => {
+      Object.assign(app, {
+        db: null,
+        file: null,
+        filename: '',
+        currentGroup: null,
+        currentEntry: null,
+        searchQuery: '',
+        dirty: false,
+      });
+      showUpload();
     });
-    showUpload();
   });
 
   qs('[data-action="settings"]').addEventListener('click', openSettings);
+  qs('[data-action="export"]').addEventListener('click', openExportDialog);
 
   qs('[data-action="add-entry"]').addEventListener('click', () => {
     const newEntry = createEntry({ title: 'New Entry' });
@@ -340,7 +551,7 @@ function wireEntryListEvents(): void {
   });
 
   qs('[data-action="add-group"]').addEventListener('click', () => {
-    openNewGroupDialog(must(app.currentGroup), () => showEntryList());
+    openGroupDialog({ type: 'create', parent: must(app.currentGroup) }, () => showEntryList());
   });
 }
 
@@ -348,12 +559,34 @@ function wireEntryListEvents(): void {
 // Screen: Entry Detail
 // ============================================================
 
+function formatDateTime(iso: string): string {
+  return iso ? new Date(iso).toLocaleString() : '—';
+}
+
 function showEntryDetail(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-detail'));
 
   const entry = must(app.currentEntry);
-  qs('#detail-title').textContent = entryTitle(entry);
+  qs('#detail-title').textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
+
+  const times = getEntryTimes(entry);
+  const metaParts = [
+    `Created ${formatDateTime(times.created)}`,
+    `Modified ${formatDateTime(times.modified)}`,
+  ];
+  if (times.expires && times.expiryTime) {
+    metaParts.push(`Expires ${formatDateTime(times.expiryTime)}`);
+  }
+  qs('#detail-meta').textContent = metaParts.join(' · ');
+
+  const tagsEl = qs('#detail-tags');
+  for (const tag of getEntryTags(entry)) {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.textContent = tag;
+    tagsEl.appendChild(chip);
+  }
 
   const fieldsEl = qs('#detail-fields');
 
@@ -369,6 +602,12 @@ function showEntryDetail(): void {
     fieldsEl.appendChild(buildDetailField(key, value, isProtected));
   }
 
+  const db = must(app.db);
+  if (db.header.version.major !== 3) {
+    renderDetailAttachments(db, entry, qs('#detail-attachments'));
+  }
+  renderDetailHistory(db, entry, qs('#detail-history'));
+
   qs('[data-action="back"]').addEventListener('click', () => {
     app.currentEntry = null;
     showEntryList();
@@ -378,9 +617,65 @@ function showEntryDetail(): void {
     showEntryEdit(false);
   });
 
-  qs('[data-action="delete"]').addEventListener('click', () => {
-    openConfirmDelete(() => {
-      const parent = findEntryParent(must(app.db).getRootGroup(), entry);
+  qs('[data-action="move-entry"]').addEventListener('click', () => {
+    openMoveToDialog(
+      'Move entry to…',
+      () => true,
+      (destination) => {
+        const parent = findEntryParent(db.getRootGroup(), entry);
+        if (parent && parent !== destination) {
+          parent.children = parent.children.filter((c) => c !== entry);
+          appendChild(destination, entry);
+          app.dirty = true;
+        }
+        app.currentEntry = null;
+        showEntryList();
+      },
+    );
+  });
+
+  qs('[data-action="print"]').addEventListener('click', () => window.print());
+
+  // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
+  // entry is already inside the bin, where it's "Restore" or a permanent,
+  // confirmed "Delete" instead.
+  const parentGroup = findEntryParent(db.getRootGroup(), entry);
+  const inBin = parentGroup !== null && isInRecycleBin(db.root, parentGroup);
+
+  const trashBtn = qs<HTMLButtonElement>('[data-action="trash"]');
+  const restoreBtn = qs<HTMLButtonElement>('[data-action="restore"]');
+  const deleteBtn = qs<HTMLButtonElement>('[data-action="delete"]');
+  trashBtn.hidden = inBin;
+  restoreBtn.hidden = !inBin;
+  deleteBtn.hidden = !inBin;
+
+  trashBtn.addEventListener('click', () => {
+    const bin = findOrCreateRecycleBin(db.root);
+    const parent = findEntryParent(db.getRootGroup(), entry);
+    if (parent && parent !== bin) {
+      parent.children = parent.children.filter((c) => c !== entry);
+      appendChild(bin, entry);
+      app.dirty = true;
+    }
+    app.currentEntry = null;
+    showEntryList();
+  });
+
+  restoreBtn.addEventListener('click', () => {
+    const rootGroup = db.getRootGroup();
+    const parent = findEntryParent(rootGroup, entry);
+    if (parent && parent !== rootGroup) {
+      parent.children = parent.children.filter((c) => c !== entry);
+      appendChild(rootGroup, entry);
+      app.dirty = true;
+    }
+    app.currentEntry = null;
+    showEntryList();
+  });
+
+  deleteBtn.addEventListener('click', () => {
+    openConfirmDelete('Delete entry?', 'This cannot be undone.', () => {
+      const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         parent.children = parent.children.filter((c) => c !== entry);
         app.dirty = true;
@@ -444,6 +739,82 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   return row;
 }
 
+function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  for (const attachment of getEntryAttachments(entry)) {
+    const row = document.createElement('div');
+    row.className = 'attachment-row';
+
+    const label = document.createElement('span');
+    label.className = 'attachment-name';
+    label.textContent = attachment.name;
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.type = 'button';
+    downloadBtn.className = 'icon-btn';
+    downloadBtn.title = 'Download';
+    downloadBtn.textContent = '⬇';
+    downloadBtn.addEventListener('click', () => {
+      const data = db.getBinaryData(attachment.ref);
+      if (!data) return;
+      const blob = new Blob([new Uint8Array(data)]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    row.appendChild(label);
+    row.appendChild(downloadBtn);
+    container.appendChild(row);
+  }
+}
+
+function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  // Newest first: getEntryHistory() returns them in append (oldest-first) order.
+  for (const snapshot of getEntryHistory(entry).slice().reverse()) {
+    const row = document.createElement('div');
+    row.className = 'history-row';
+
+    const label = document.createElement('span');
+    label.className = 'history-label';
+    const times = getEntryTimes(snapshot);
+    label.textContent = `${formatDateTime(times.modified)} — ${entryTitle(snapshot)}`;
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 'icon-btn';
+    restoreBtn.title = 'Restore this version';
+    restoreBtn.textContent = '↩';
+    restoreBtn.addEventListener('click', () => {
+      restoreHistoryEntry(db.root, entry, snapshot);
+      app.dirty = true;
+      showEntryDetail();
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.title = 'Delete this version';
+    deleteBtn.textContent = '🗑';
+    deleteBtn.addEventListener('click', () => {
+      deleteHistoryEntry(entry, snapshot);
+      app.dirty = true;
+      renderDetailHistory(db, entry, container);
+    });
+
+    row.appendChild(label);
+    row.appendChild(restoreBtn);
+    row.appendChild(deleteBtn);
+    container.appendChild(row);
+  }
+}
+
 // ============================================================
 // Screen: Entry Edit
 // ============================================================
@@ -454,6 +825,39 @@ function showEntryEdit(isNew: boolean): void {
 
   const entry = must(app.currentEntry);
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
+
+  const iconBtn = qs<HTMLButtonElement>('#edit-icon-btn');
+  const refreshIconBtn = (): void => {
+    iconBtn.textContent = iconEmoji(elementIconId(entry));
+  };
+  refreshIconBtn();
+  iconBtn.addEventListener('click', () => {
+    openIconPicker((iconId) => {
+      // createEntry() always appends an IconID child, so this is always present.
+      setText(getChild(entry, 'IconID') as XmlElement, String(iconId));
+      refreshIconBtn();
+    });
+  });
+
+  qs<HTMLInputElement>('#edit-tags').value = getEntryTags(entry).join(', ');
+
+  const expiresCheckbox = qs<HTMLInputElement>('#edit-expires');
+  const expiryInput = qs<HTMLInputElement>('#edit-expiry-time');
+  const times = getEntryTimes(entry);
+  // ExpiryTime is always populated from creation (kx_createTimes()' own
+  // default), even on an entry that has never actually expired — only show
+  // it when Expires is genuinely on, so an old entry doesn't silently
+  // prefill a stale, possibly past, date the moment the box is checked.
+  expiresCheckbox.checked = times.expires;
+  expiryInput.disabled = !times.expires;
+  expiryInput.value =
+    times.expires && times.expiryTime ? isoToLocalInputValue(times.expiryTime) : '';
+  expiresCheckbox.addEventListener('change', () => {
+    expiryInput.disabled = !expiresCheckbox.checked;
+    if (expiresCheckbox.checked && !expiryInput.value) {
+      expiryInput.value = defaultExpiryLocalInputValue();
+    }
+  });
 
   const fieldsEl = qs('#edit-fields');
 
@@ -471,6 +875,25 @@ function showEntryEdit(isNew: boolean): void {
     fieldsEl.appendChild(buildEditField('', '', false, true));
   });
 
+  const db = must(app.db);
+  if (db.header.version.major === 3) {
+    qs('#edit-attachments-section').hidden = true;
+    qs('#edit-attachments-unsupported').hidden = false;
+  } else {
+    const attachmentsList = qs('#edit-attachments');
+    renderEditAttachments(entry, attachmentsList);
+    qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
+      const input = e.target as HTMLInputElement;
+      const file = input.files?.[0];
+      if (!file) return;
+      const data = new Uint8Array(await file.arrayBuffer());
+      const ref = db.addBinary(data);
+      addEntryAttachment(entry, file.name, ref);
+      renderEditAttachments(entry, attachmentsList);
+      input.value = '';
+    });
+  }
+
   qs('[data-action="cancel"]').addEventListener('click', () => {
     if (isNew) {
       const parent = findEntryParent(must(app.db).getRootGroup(), entry);
@@ -483,8 +906,42 @@ function showEntryEdit(isNew: boolean): void {
   });
 
   qs('[data-action="save"]').addEventListener('click', () => {
-    commitEdits(entry, fieldsEl);
+    commitEdits(entry, fieldsEl, isNew);
   });
+}
+
+function renderEditAttachments(entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  for (const attachment of getEntryAttachments(entry)) {
+    const row = document.createElement('div');
+    row.className = 'attachment-row';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'attachment-name';
+    nameInput.value = attachment.name;
+    nameInput.addEventListener('change', () => {
+      const newName = nameInput.value.trim();
+      if (newName && newName !== attachment.name) {
+        renameEntryAttachment(entry, attachment.name, newName);
+      }
+      renderEditAttachments(entry, container);
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'icon-btn';
+    removeBtn.title = 'Remove attachment';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      removeEntryAttachment(entry, attachment.name);
+      renderEditAttachments(entry, container);
+    });
+
+    row.appendChild(nameInput);
+    row.appendChild(removeBtn);
+    container.appendChild(row);
+  }
 }
 
 function buildEditField(
@@ -525,6 +982,36 @@ function buildEditField(
     row.appendChild(toggle);
   }
 
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'icon-btn';
+  copyBtn.title = 'Copy';
+  copyBtn.textContent = '📋';
+  copyBtn.addEventListener('click', async () => {
+    // Copies whatever is currently typed, not the value the field opened
+    // with — the user may have already edited it.
+    await copyToClipboard(valueInput.value);
+    copyBtn.textContent = '✓';
+    setTimeout(() => {
+      copyBtn.textContent = '📋';
+    }, 1500);
+  });
+  row.appendChild(copyBtn);
+
+  if (key === 'Password') {
+    const generateBtn = document.createElement('button');
+    generateBtn.type = 'button';
+    generateBtn.className = 'icon-btn';
+    generateBtn.title = 'Generate password';
+    generateBtn.textContent = '🎲';
+    generateBtn.addEventListener('click', () => {
+      openPasswordGenerator((password) => {
+        valueInput.value = password;
+      });
+    });
+    row.appendChild(generateBtn);
+  }
+
   if (removable) {
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
@@ -539,13 +1026,31 @@ function buildEditField(
   return row;
 }
 
-function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
+function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): void {
+  // A brand-new entry has no prior state worth keeping — only snapshot when
+  // editing one that already existed, matching real KeePass.
+  if (!isNew) {
+    pushHistorySnapshot(must(app.db).root, entry);
+  }
+
   const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
     key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
     value: must(row.querySelector<HTMLInputElement>('.edit-value')).value,
     protect: row.dataset.protected === '1',
   }));
   applyEntryEdits(entry, fields);
+
+  const tagsInput = qs<HTMLInputElement>('#edit-tags');
+  setEntryTags(entry, tagsInput.value.split(/[,;]/));
+
+  const expiresCheckbox = qs<HTMLInputElement>('#edit-expires');
+  const expiryInput = qs<HTMLInputElement>('#edit-expiry-time');
+  setEntryExpiry(
+    entry,
+    expiresCheckbox.checked,
+    expiryInput.value ? localInputValueToIso(expiryInput.value) : '',
+  );
+  touchLastModified(entry);
 
   app.dirty = true;
 
@@ -563,9 +1068,79 @@ function openSettings(): void {
   const timeoutInput = byId<HTMLInputElement>('clipboard-timeout');
   timeoutInput.value = String(app.clipboardTimeout);
 
+  const newPasswordInput = byId<HTMLInputElement>('settings-new-password');
+  const confirmInput = byId<HTMLInputElement>('settings-new-password-confirm');
+  const keyfileInput = byId<HTMLInputElement>('settings-keyfile-input');
+  const keyfileLabel = byId('settings-keyfile-label');
+  const errorEl = byId('settings-security-error');
+  newPasswordInput.value = '';
+  confirmInput.value = '';
+  keyfileInput.value = '';
+  keyfileLabel.textContent = 'No file chosen';
+  errorEl.hidden = true;
+
+  // The app never retains the original key file's bytes past unlock/create,
+  // so changing the master key means re-supplying the whole credential set —
+  // matching real KeePass's own "Change Master Key" dialog.
+  let keyfileData: Uint8Array | null = null;
+  keyfileInput.onchange = async () => {
+    const f = keyfileInput.files?.[0];
+    if (f) {
+      keyfileData = new Uint8Array(await f.arrayBuffer());
+      keyfileLabel.textContent = f.name;
+    }
+  };
+
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
     if (isValidClipboardTimeout(v)) app.clipboardTimeout = v;
+
+    if (newPasswordInput.value || confirmInput.value) {
+      if (newPasswordInput.value !== confirmInput.value) {
+        errorEl.textContent = 'Passwords do not match.';
+        errorEl.hidden = false;
+        return;
+      }
+      const input: CredentialsInput = { password: newPasswordInput.value };
+      if (keyfileData) input.keyFile = keyfileData;
+      must(app.db).setCredentials(new Credentials(input));
+      app.dirty = true;
+    }
+
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// ============================================================
+// Dialog: Export
+// ============================================================
+
+function downloadTextFile(content: string, filename: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function openExportDialog(): void {
+  const dlg = byId<HTMLDialogElement>('dlg-export');
+  const baseName = app.filename.replace(/\.kdbx$/i, '') || 'entries';
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="export-csv"]')).onclick = () => {
+    const entries = collectAllEntries(must(app.db).getRootGroup());
+    downloadTextFile(toCsv(entries), `${baseName}.csv`, 'text/csv');
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="export-xml"]')).onclick = () => {
+    const entries = collectAllEntries(must(app.db).getRootGroup());
+    downloadTextFile(toXml(entries), `${baseName}.xml`, 'application/xml');
     dlg.close();
   };
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
@@ -628,11 +1203,82 @@ async function downloadDatabase(): Promise<void> {
 }
 
 // ============================================================
+// Dialog: Generate Password
+// ============================================================
+
+function openPasswordGenerator(onUse: (password: string) => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-generate-password');
+  const lengthInput = byId<HTMLInputElement>('generator-length');
+  const upperInput = byId<HTMLInputElement>('generator-upper');
+  const lowerInput = byId<HTMLInputElement>('generator-lower');
+  const digitsInput = byId<HTMLInputElement>('generator-digits');
+  const symbolsInput = byId<HTMLInputElement>('generator-symbols');
+  const preview = byId<HTMLElement>('generator-preview');
+  const errorEl = byId<HTMLElement>('generator-error');
+
+  function regenerate(): void {
+    errorEl.hidden = true;
+    try {
+      preview.textContent = generatePassword({
+        length: Number.parseInt(lengthInput.value, 10),
+        upper: upperInput.checked,
+        lower: lowerInput.checked,
+        digits: digitsInput.checked,
+        symbols: symbolsInput.checked,
+      });
+    } catch (err) {
+      preview.textContent = '';
+      errorEl.textContent = err instanceof Error ? err.message : 'Could not generate a password.';
+      errorEl.hidden = false;
+    }
+  }
+
+  for (const input of [lengthInput, upperInput, lowerInput, digitsInput, symbolsInput]) {
+    input.oninput = regenerate;
+  }
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="regenerate"]')).onclick = regenerate;
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="use-password"]')).onclick = () => {
+    if (!preview.textContent) return;
+    onUse(preview.textContent);
+    dlg.close();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+
+  regenerate();
+  dlg.showModal();
+}
+
+// ============================================================
+// Dialog: Confirm Discard
+// ============================================================
+
+/** Run `proceed` immediately if there's nothing unsaved to lose; otherwise
+ * confirm first, since locking/closing here discards in-memory edits rather
+ * than saving them (there's no autosave). */
+function confirmDiscardIfDirty(proceed: () => void): void {
+  if (!app.dirty) {
+    proceed();
+    return;
+  }
+
+  const dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]')).onclick = () => {
+    dlg.close();
+    proceed();
+  };
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-discard"]')).onclick = () =>
+    dlg.close();
+  dlg.showModal();
+}
+
+// ============================================================
 // Dialog: Confirm Delete
 // ============================================================
 
-function openConfirmDelete(callback: () => void): void {
+function openConfirmDelete(title: string, message: string, callback: () => void): void {
   const dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+  byId('confirm-delete-title').textContent = title;
+  byId('confirm-delete-message').textContent = message;
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]')).onclick = () => {
     dlg.close();
@@ -645,26 +1291,85 @@ function openConfirmDelete(callback: () => void): void {
 }
 
 // ============================================================
+// Dialog: Icon Picker
+// ============================================================
+
+function openIconPicker(onPick: (iconId: number) => void): void {
+  const dlg = byId<HTMLDialogElement>('dlg-icon-picker');
+  const grid = byId<HTMLElement>('icon-grid');
+  grid.innerHTML = '';
+
+  for (const icon of ICON_PALETTE) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-grid-btn';
+    btn.title = icon.label;
+    btn.textContent = icon.emoji;
+    btn.addEventListener('click', () => {
+      onPick(icon.id);
+      dlg.close();
+    });
+    grid.appendChild(btn);
+  }
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// ============================================================
 // Dialog: New Group
 // ============================================================
 
-function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): void {
+type GroupDialogMode =
+  | { type: 'create'; parent: XmlElement }
+  | { type: 'rename'; group: XmlElement };
+
+function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
   const dlg = byId<HTMLDialogElement>('dlg-new-group');
   const nameInput = byId<HTMLInputElement>('new-group-name');
-  nameInput.value = '';
+  const titleEl = byId('new-group-title');
+  const submitBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]'));
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).onclick = () => {
+  // 49 matches createGroup()'s own default group icon.
+  let selectedIconId = mode.type === 'rename' ? Number.parseInt(elementIconId(mode.group), 10) : 49;
+  if (mode.type === 'rename') {
+    titleEl.textContent = 'Rename group';
+    submitBtn.textContent = 'Save';
+    nameInput.value = groupName(mode.group);
+  } else {
+    titleEl.textContent = 'New group';
+    submitBtn.textContent = 'Create';
+    nameInput.value = '';
+  }
+
+  const iconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
+  iconBtn.textContent = iconEmoji(String(selectedIconId));
+  iconBtn.onclick = () => {
+    openIconPicker((iconId) => {
+      selectedIconId = iconId;
+      iconBtn.textContent = iconEmoji(String(selectedIconId));
+    });
+  };
+
+  submitBtn.onclick = () => {
     const name = nameInput.value.trim();
     if (!name) {
       nameInput.focus();
       return;
     }
-    const newGroup = createGroup(name);
-    appendChild(parentGroup, newGroup);
-    app.currentGroup = newGroup;
+    if (mode.type === 'rename') {
+      // createGroup() always appends Name/IconID children, so both are always present.
+      setText(getChild(mode.group, 'Name') as XmlElement, name);
+      setText(getChild(mode.group, 'IconID') as XmlElement, String(selectedIconId));
+    } else {
+      const newGroup = createGroup(name);
+      setText(getChild(newGroup, 'IconID') as XmlElement, String(selectedIconId));
+      appendChild(mode.parent, newGroup);
+      app.currentGroup = newGroup;
+    }
     app.dirty = true;
     dlg.close();
-    onCreated();
+    onDone();
   };
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-group"]')).onclick = () =>
@@ -674,12 +1379,56 @@ function openNewGroupDialog(parentGroup: XmlElement, onCreated: () => void): voi
   // Allow Enter to submit
   nameInput.onkeydown = (e) => {
     if (e.key === 'Enter') {
-      must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]')).click();
+      submitBtn.click();
     }
   };
 
   dlg.showModal();
   nameInput.focus();
+}
+
+function openMoveToDialog(
+  title: string,
+  isValidTarget: (candidate: XmlElement) => boolean,
+  onPick: (destination: XmlElement) => void,
+): void {
+  const dlg = byId<HTMLDialogElement>('dlg-move-to');
+  byId('move-to-title').textContent = title;
+  const treeEl = byId('move-to-tree');
+  treeEl.innerHTML = '';
+
+  const buildNode = (group: XmlElement): HTMLLIElement => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'move-to-btn';
+    btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+    btn.disabled = !isValidTarget(group);
+    btn.addEventListener('click', () => {
+      dlg.close();
+      onPick(group);
+    });
+    li.appendChild(btn);
+
+    const subgroups = getChildren(group, 'Group');
+    if (subgroups.length > 0) {
+      const ul = document.createElement('ul');
+      for (const sub of subgroups) ul.appendChild(buildNode(sub));
+      li.appendChild(ul);
+    }
+    return li;
+  };
+
+  const rootUl = document.createElement('ul');
+  rootUl.className = 'move-to-list';
+  rootUl.appendChild(buildNode(must(app.db).getRootGroup()));
+  treeEl.appendChild(rootUl);
+
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-move"]')).onclick = () =>
+    dlg.close();
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+
+  dlg.showModal();
 }
 
 // ============================================================

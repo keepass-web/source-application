@@ -52,7 +52,10 @@ import {
   applyOutboundProtection,
   cloneElement,
   createDatabaseDocument,
+  getAttribute,
   getChild,
+  getChildren,
+  setAttribute,
 } from './model.ts';
 import { createProtectedStreamCipher } from './protected-stream.ts';
 import type { VariantDictionary, VdValue } from './variant-dictionary.ts';
@@ -202,6 +205,71 @@ export class Kdbx {
     this.#credentials = credentials;
   }
 
+  /**
+   * Add a binary attachment to the pool, reusing an existing identical one
+   * (by content) rather than growing the pool without bound. Returns the
+   * pool index — reference it from an entry via a
+   * `<Binary><Value Ref="N"/></Binary>` child (see model.ts's
+   * addEntryAttachment). KDBX 4.x only: 3.1 stores binaries differently
+   * (Meta/Binaries in the XML), which this library doesn't support.
+   */
+  addBinary(data: Uint8Array): number {
+    for (let i = 0; i < this.binaries.length; i++) {
+      // i < this.binaries.length, so this index is always populated; the
+      // cast only satisfies noUncheckedIndexedAccess.
+      if (bytesEqual((this.binaries[i] as InnerBinary).data, data)) return i;
+    }
+    this.binaries.push({ flags: 0, data });
+    return this.binaries.length - 1;
+  }
+
+  /** The bytes for a pool index, or undefined if out of range. */
+  getBinaryData(ref: number): Uint8Array | undefined {
+    return this.binaries[ref]?.data;
+  }
+
+  /**
+   * Remove any binary pool entries no longer referenced by any entry's
+   * `<Binary>` child, and remap the survivors' Ref indices to stay
+   * contiguous. Called on every save; a no-op for KDBX 3.1, whose pool is
+   * always empty.
+   */
+  #pruneUnreferencedBinaries(): void {
+    if (this.binaries.length === 0) return;
+
+    const refs: Array<{ valueEl: XmlElement; oldRef: number }> = [];
+    const walk = (group: XmlElement): void => {
+      for (const entry of getChildren(group, 'Entry')) {
+        for (const binaryEl of getChildren(entry, 'Binary')) {
+          const valueEl = getChild(binaryEl, 'Value');
+          const refText = valueEl && getAttribute(valueEl, 'Ref');
+          if (valueEl && refText !== undefined) {
+            refs.push({ valueEl, oldRef: Number.parseInt(refText, 10) });
+          }
+        }
+      }
+      for (const sub of getChildren(group, 'Group')) walk(sub);
+    };
+    walk(this.getRootGroup());
+
+    const remap = new Map<number, number>();
+    const kept: InnerBinary[] = [];
+    for (const { oldRef } of refs) {
+      if (remap.has(oldRef)) continue;
+      const binary = this.binaries[oldRef];
+      if (!binary) continue; // stale/out-of-range Ref: leave it be, drop below
+      remap.set(oldRef, kept.length);
+      kept.push(binary);
+    }
+
+    for (const { valueEl, oldRef } of refs) {
+      const newRef = remap.get(oldRef);
+      if (newRef !== undefined) setAttribute(valueEl, 'Ref', String(newRef));
+    }
+
+    this.binaries = kept;
+  }
+
   /** Parse a KDBX database from bytes. */
   static async load(data: Uint8Array, credentials: Credentials): Promise<Kdbx> {
     const { header, rawHeader, offset } = readOuterHeader(data);
@@ -312,6 +380,8 @@ export class Kdbx {
   }
 
   async #save4(): Promise<Uint8Array> {
+    this.#pruneUnreferencedBinaries();
+
     const header = this.header;
     header.masterSeed = getRandomBytes(32);
     header.encryptionIv = getRandomBytes(kx_ivLengthFor(header.cipherId));

@@ -38,10 +38,20 @@ declare class Credentials {
   constructor(input: CredentialsInput);
 }
 
+interface KdbxCreateOptions {
+  databaseName?: string;
+}
+
 declare class Kdbx {
+  root: XmlElement;
+  header: { version: { major: number } };
   getRootGroup(): XmlElement;
   save(): Promise<Uint8Array>;
+  addBinary(data: Uint8Array): number;
+  getBinaryData(ref: number): Uint8Array | undefined;
+  setCredentials(credentials: Credentials): void;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
+  static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }
 
 declare function getChildren(element: XmlElement, name: string): XmlElement[];
@@ -51,6 +61,7 @@ declare function getAttribute(element: XmlElement, name: string): string | undef
 declare function setAttribute(element: XmlElement, name: string, value: string): void;
 declare function createElement(name: string, text?: string): XmlElement;
 declare function appendChild(parent: XmlElement, child: XmlNode): XmlElement;
+declare function setText(element: XmlElement, text: string): void;
 
 interface EntryInput {
   title?: string;
@@ -58,6 +69,40 @@ interface EntryInput {
 
 declare function createEntry(input: EntryInput): XmlElement;
 declare function createGroup(name: string): XmlElement;
+declare function findOrCreateRecycleBin(document: XmlElement): XmlElement;
+declare function isInRecycleBin(document: XmlElement, group: XmlElement): boolean;
+declare function getEntryTags(entry: XmlElement): string[];
+declare function setEntryTags(entry: XmlElement, tags: string[]): void;
+
+interface EntryAttachment {
+  name: string;
+  ref: number;
+}
+
+declare function getEntryAttachments(entry: XmlElement): EntryAttachment[];
+declare function addEntryAttachment(entry: XmlElement, name: string, ref: number): void;
+declare function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void;
+declare function removeEntryAttachment(entry: XmlElement, name: string): void;
+
+interface EntryTimes {
+  created: string;
+  modified: string;
+  expires: boolean;
+  expiryTime: string;
+}
+
+declare function getEntryTimes(entry: XmlElement): EntryTimes;
+declare function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void;
+declare function touchLastModified(entry: XmlElement): void;
+
+declare function getEntryHistory(entry: XmlElement): XmlElement[];
+declare function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void;
+declare function restoreHistoryEntry(
+  document: XmlElement,
+  entry: XmlElement,
+  snapshot: XmlElement,
+): void;
+declare function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void;
 
 // --- this page's own pure logic (see logic.ts) ---
 
@@ -70,6 +115,8 @@ declare function entryField(entry: XmlElement, key: string): string;
 declare function entryTitle(entry: XmlElement): string;
 declare function groupName(group: XmlElement): string;
 declare function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null;
+declare function findGroupParent(rootGroup: XmlElement, group: XmlElement): XmlElement | null;
+declare function isDescendantGroup(ancestor: XmlElement, candidate: XmlElement): boolean;
 declare function collectAllEntries(group: XmlElement, results?: EntryWithGroup[]): EntryWithGroup[];
 declare function groupPathTo(
   rootGroup: XmlElement,
@@ -77,6 +124,16 @@ declare function groupPathTo(
   path?: string[],
 ): string[] | null;
 declare function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[];
+
+type EntrySortField = 'title' | 'username' | 'modified';
+type EntrySortDirection = 'asc' | 'desc';
+declare function sortEntries(
+  entries: EntryWithGroup[],
+  field: EntrySortField,
+  direction: EntrySortDirection,
+): EntryWithGroup[];
+declare function toCsv(entries: EntryWithGroup[]): string;
+declare function toXml(entries: EntryWithGroup[]): string;
 
 interface EditedField {
   key: string;
@@ -87,3 +144,21 @@ interface EditedField {
 declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
 declare function isCustomField(key: string): boolean;
 declare function isValidClipboardTimeout(seconds: number): boolean;
+
+interface PasswordGeneratorOptions {
+  length: number;
+  upper?: boolean;
+  lower?: boolean;
+  digits?: boolean;
+  symbols?: boolean;
+}
+
+declare function generatePassword(options: PasswordGeneratorOptions): string;
+
+declare function elementIconId(element: XmlElement): string;
+declare function iconEmoji(iconId: string): string;
+declare const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }>;
+
+declare function isoToLocalInputValue(iso: string): string;
+declare function localInputValueToIso(value: string): string;
+declare function defaultExpiryLocalInputValue(): string;

@@ -237,6 +237,233 @@ export function createEntry(input: EntryInput): XmlElement {
   return entry;
 }
 
+/**
+ * An entry's tags, from its `<Tags>` element — KeePass's own `;`-joined
+ * text format. Empty (`[]`) when the element is absent, matching how real
+ * KeePass omits it entirely on a tagless entry rather than writing an empty
+ * one.
+ */
+export function getEntryTags(entry: XmlElement): string[] {
+  const tagsEl = getChild(entry, 'Tags');
+  if (!tagsEl) return [];
+  return getText(tagsEl)
+    .split(';')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+}
+
+/**
+ * Replace an entry's tags. An empty list removes the `<Tags>` element
+ * entirely rather than leaving one with empty text, matching real KeePass.
+ */
+export function setEntryTags(entry: XmlElement, tags: string[]): void {
+  const cleaned = tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+  const existing = getChild(entry, 'Tags');
+
+  if (cleaned.length === 0) {
+    if (existing) {
+      entry.children = entry.children.filter((child) => child !== existing);
+    }
+    return;
+  }
+
+  const text = cleaned.join(';');
+  if (existing) {
+    setText(existing, text);
+  } else {
+    appendChild(entry, createElement('Tags', text));
+  }
+}
+
+/** An entry's Times, as plain data — ISO-UTC timestamps, KeePass's own
+ * on-disk format. Fields are `''`/`false` when the Times element (or a
+ * field within it) is missing, e.g. from a hand-built or malformed entry. */
+export interface EntryTimes {
+  created: string;
+  modified: string;
+  expires: boolean;
+  expiryTime: string;
+}
+
+export function getEntryTimes(entry: XmlElement): EntryTimes {
+  const times = getChild(entry, 'Times');
+  const read = (name: string): string => {
+    const field = times && getChild(times, name);
+    return field ? getText(field) : '';
+  };
+  return {
+    created: read('CreationTime'),
+    modified: read('LastModificationTime'),
+    expires: read('Expires') === 'True',
+    expiryTime: read('ExpiryTime'),
+  };
+}
+
+/**
+ * Update an entry's expiration. `expiryTimeIso`, if given, replaces
+ * ExpiryTime; an empty string leaves the existing ExpiryTime untouched
+ * (e.g. when the caller only means to flip Expires off). Does nothing on an
+ * entry with no Times element at all.
+ */
+export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void {
+  const times = getChild(entry, 'Times');
+  if (!times) return;
+
+  const expiresEl = getChild(times, 'Expires');
+  if (expiresEl) setText(expiresEl, expires ? 'True' : 'False');
+
+  if (expiryTimeIso) {
+    const expiryTimeEl = getChild(times, 'ExpiryTime');
+    if (expiryTimeEl) setText(expiryTimeEl, expiryTimeIso);
+  }
+}
+
+/** Bump an entry's LastModificationTime to now — real KeePass does this on
+ * every edit; this app's own applyEntryEdits() only ever touched fields. */
+export function touchLastModified(entry: XmlElement): void {
+  const times = getChild(entry, 'Times');
+  const modEl = times && getChild(times, 'LastModificationTime');
+  if (modEl) setText(modEl, kx_nowIso());
+}
+
+/** An entry's attachment: a name paired with a Kdbx#binaries pool index. */
+export interface EntryAttachment {
+  name: string;
+  ref: number;
+}
+
+/**
+ * An entry's attachments, from its `<Binary>` children
+ * (`<Binary><Key>name</Key><Value Ref="N"/></Binary>`). KDBX 4.x only —
+ * see {@link Kdbx.addBinary} in kdbx.ts.
+ */
+export function getEntryAttachments(entry: XmlElement): EntryAttachment[] {
+  const out: EntryAttachment[] = [];
+  for (const binaryEl of getChildren(entry, 'Binary')) {
+    const keyEl = getChild(binaryEl, 'Key');
+    const valueEl = getChild(binaryEl, 'Value');
+    const refText = valueEl && getAttribute(valueEl, 'Ref');
+    if (keyEl && refText !== undefined) {
+      out.push({ name: getText(keyEl), ref: Number.parseInt(refText, 10) });
+    }
+  }
+  return out;
+}
+
+/** Attach a binary pool reference (see Kdbx#addBinary) to an entry under the given name. */
+export function addEntryAttachment(entry: XmlElement, name: string, ref: number): void {
+  const binaryEl = createElement('Binary');
+  appendChild(binaryEl, createElement('Key', name));
+  const valueEl = createElement('Value');
+  setAttribute(valueEl, 'Ref', String(ref));
+  appendChild(binaryEl, valueEl);
+  appendChild(entry, binaryEl);
+}
+
+/** Rename an entry's attachment, matched by its current name. */
+export function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void {
+  for (const binaryEl of getChildren(entry, 'Binary')) {
+    const keyEl = getChild(binaryEl, 'Key');
+    if (keyEl && getText(keyEl) === oldName) {
+      setText(keyEl, newName);
+      return;
+    }
+  }
+}
+
+/**
+ * Remove an entry's attachment, matched by name. Does not touch the binary
+ * pool itself — Kdbx#save() drops pool entries no longer referenced by any
+ * entry.
+ */
+export function removeEntryAttachment(entry: XmlElement, name: string): void {
+  entry.children = entry.children.filter((child) => {
+    if (child.type !== 'element' || child.name !== 'Binary') return true;
+    const keyEl = getChild(child, 'Key');
+    return !(keyEl && getText(keyEl) === name);
+  });
+}
+
+const KX_DEFAULT_HISTORY_MAX_ITEMS = 10;
+
+/** An entry's past versions, from its `<History>` child, oldest first —
+ * matching how real KeePass appends to it. `[]` when it has none. */
+export function getEntryHistory(entry: XmlElement): XmlElement[] {
+  const historyEl = getChild(entry, 'History');
+  return historyEl ? getChildren(historyEl, 'Entry') : [];
+}
+
+/**
+ * Snapshot `entry`'s current state (everything except its own History) onto
+ * its History, trimmed to `document`'s Meta/HistoryMaxItems (defaulting to
+ * 10, matching real KeePass, for a database that predates that field).
+ * Must be called with the pre-edit state still in place — real KeePass
+ * snapshots before applying an edit, not after.
+ */
+export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void {
+  const snapshot = cloneElement(entry);
+  snapshot.children = snapshot.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'History'),
+  );
+
+  let historyEl = getChild(entry, 'History');
+  if (!historyEl) {
+    historyEl = createElement('History');
+    appendChild(entry, historyEl);
+  }
+  appendChild(historyEl, snapshot);
+
+  const meta = getChild(document, 'Meta');
+  const maxItemsEl = meta && getChild(meta, 'HistoryMaxItems');
+  const maxItems = maxItemsEl
+    ? Number.parseInt(getText(maxItemsEl), 10)
+    : KX_DEFAULT_HISTORY_MAX_ITEMS;
+  if (!Number.isFinite(maxItems) || maxItems < 0) return;
+
+  const entries = getChildren(historyEl, 'Entry');
+  const excess = entries.length - maxItems;
+  if (excess > 0) {
+    const dropped = new Set(entries.slice(0, excess));
+    historyEl.children = historyEl.children.filter(
+      (child) => !(child.type === 'element' && dropped.has(child)),
+    );
+  }
+}
+
+/**
+ * Restore `entry` to a past version from its History: the entry's current
+ * state is snapshotted first (so it isn't lost), then its fields are
+ * replaced with the historical version's — matching real KeePass, where
+ * restoring is itself a further edit, not a rewind. `snapshot` must be one
+ * of the elements `getEntryHistory(entry)` returned.
+ */
+export function restoreHistoryEntry(
+  document: XmlElement,
+  entry: XmlElement,
+  snapshot: XmlElement,
+): void {
+  const restoredFields = cloneElement(snapshot);
+  pushHistorySnapshot(document, entry);
+
+  const uuidEl = getChild(entry, 'UUID');
+  const historyEl = getChild(entry, 'History');
+  const newChildren: XmlNode[] = [];
+  if (uuidEl) newChildren.push(uuidEl);
+  for (const child of restoredFields.children) {
+    if (child.type === 'element' && (child.name === 'UUID' || child.name === 'History')) continue;
+    newChildren.push(child);
+  }
+  if (historyEl) newChildren.push(historyEl);
+  entry.children = newChildren;
+}
+
+/** Permanently remove one past version from an entry's History. */
+export function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void {
+  const historyEl = getChild(entry, 'History');
+  if (!historyEl) return;
+  historyEl.children = historyEl.children.filter((child) => child !== snapshot);
+}
+
 /** Build a `<Group>` element with the given name. */
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');
@@ -245,6 +472,72 @@ export function createGroup(name: string): XmlElement {
   appendChild(group, createElement('IconID', '49'));
   appendChild(group, kx_createTimes());
   return group;
+}
+
+const KX_RECYCLE_BIN_NAME = 'Recycle Bin';
+
+function kx_findGroupByUuid(group: XmlElement, uuid: string): XmlElement | undefined {
+  const idEl = getChild(group, 'UUID');
+  if (idEl && getText(idEl) === uuid) {
+    return group;
+  }
+  for (const sub of getChildren(group, 'Group')) {
+    const found = kx_findGroupByUuid(sub, uuid);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function kx_containsGroup(ancestor: XmlElement, target: XmlElement): boolean {
+  if (ancestor === target) return true;
+  return getChildren(ancestor, 'Group').some((sub) => kx_containsGroup(sub, target));
+}
+
+/** The database's recycle bin group, if `Meta/RecycleBinUUID` names one that still exists. */
+function kx_findRecycleBin(document: XmlElement): XmlElement | undefined {
+  const meta = getChild(document, 'Meta');
+  const uuidEl = meta && getChild(meta, 'RecycleBinUUID');
+  const rootElement = getChild(document, 'Root');
+  const rootGroup = rootElement && getChild(rootElement, 'Group');
+  if (!uuidEl || !rootGroup) return undefined;
+  return kx_findGroupByUuid(rootGroup, getText(uuidEl));
+}
+
+/**
+ * Find the database's recycle bin group, creating it as a child of the root
+ * group the first time anything is trashed and recording its UUID in
+ * `Meta/RecycleBinUUID` — matching real KeePass, which has no recycle bin
+ * group in a fresh database until one is needed.
+ */
+export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
+  const existing = kx_findRecycleBin(document);
+  if (existing) return existing;
+
+  const meta = getChild(document, 'Meta');
+  const rootElement = getChild(document, 'Root');
+  const rootGroup = rootElement && getChild(rootElement, 'Group');
+  if (!meta || !rootGroup) {
+    throw new Error('database is missing Meta or a root group');
+  }
+
+  const bin = createGroup(KX_RECYCLE_BIN_NAME);
+  appendChild(rootGroup, bin);
+  // createGroup() always appends a UUID child first, so this is always present.
+  const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
+
+  const uuidEl = getChild(meta, 'RecycleBinUUID');
+  if (uuidEl) {
+    setText(uuidEl, binUuid);
+  } else {
+    appendChild(meta, createElement('RecycleBinUUID', binUuid));
+  }
+  return bin;
+}
+
+/** True if `group` is the database's recycle bin, or nested inside it. */
+export function isInRecycleBin(document: XmlElement, group: XmlElement): boolean {
+  const bin = kx_findRecycleBin(document);
+  return bin !== undefined && kx_containsGroup(bin, group);
 }
 
 /**
