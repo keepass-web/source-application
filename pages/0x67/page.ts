@@ -1034,9 +1034,45 @@ function openSettings(): void {
   const timeoutInput = byId<HTMLInputElement>('clipboard-timeout');
   timeoutInput.value = String(app.clipboardTimeout);
 
+  const newPasswordInput = byId<HTMLInputElement>('settings-new-password');
+  const confirmInput = byId<HTMLInputElement>('settings-new-password-confirm');
+  const keyfileInput = byId<HTMLInputElement>('settings-keyfile-input');
+  const keyfileLabel = byId('settings-keyfile-label');
+  const errorEl = byId('settings-security-error');
+  newPasswordInput.value = '';
+  confirmInput.value = '';
+  keyfileInput.value = '';
+  keyfileLabel.textContent = 'No file chosen';
+  errorEl.hidden = true;
+
+  // The app never retains the original key file's bytes past unlock/create,
+  // so changing the master key means re-supplying the whole credential set —
+  // matching real KeePass's own "Change Master Key" dialog.
+  let keyfileData: Uint8Array | null = null;
+  keyfileInput.onchange = async () => {
+    const f = keyfileInput.files?.[0];
+    if (f) {
+      keyfileData = new Uint8Array(await f.arrayBuffer());
+      keyfileLabel.textContent = f.name;
+    }
+  };
+
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
     if (isValidClipboardTimeout(v)) app.clipboardTimeout = v;
+
+    if (newPasswordInput.value || confirmInput.value) {
+      if (newPasswordInput.value !== confirmInput.value) {
+        errorEl.textContent = 'Passwords do not match.';
+        errorEl.hidden = false;
+        return;
+      }
+      const input: CredentialsInput = { password: newPasswordInput.value };
+      if (keyfileData) input.keyFile = keyfileData;
+      must(app.db).setCredentials(new Credentials(input));
+      app.dirty = true;
+    }
+
     dlg.close();
   };
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();

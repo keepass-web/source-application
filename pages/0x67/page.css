@@ -229,6 +229,12 @@ body:not(.app-mode) {
   padding: 0.5rem 0.75rem;
 }
 
+.dialog-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
 /* ============================================================
    Screen: Upload
    ============================================================ */

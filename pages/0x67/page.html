@@ -208,6 +208,23 @@
         <label for="clipboard-timeout">Clipboard clear timeout (seconds)</label>
         <input type="number" id="clipboard-timeout" min="5" max="300" value="30">
       </div>
+      <hr class="dialog-divider">
+      <div class="field">
+        <label for="settings-new-password">New master password <span class="optional">(leave blank to keep the current one)</span></label>
+        <input type="password" id="settings-new-password" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label for="settings-new-password-confirm">Confirm new master password</label>
+        <input type="password" id="settings-new-password-confirm" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <span class="field-label">Key file <span class="optional">(optional)</span></span>
+        <label class="file-pick">
+          <span id="settings-keyfile-label">No file chosen</span>
+          <input type="file" id="settings-keyfile-input" hidden>
+        </label>
+      </div>
+      <div id="settings-security-error" class="error-msg" hidden></div>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-primary" data-action="save-settings">Save</button>

@@ -1306,6 +1306,56 @@ test('0x67 app', async (t) => {
   });
 
   await t.test(
+    'settings: changing the master password updates the database credentials',
+    async () => {
+      q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const dlg = byId<HTMLDialogElement>('dlg-settings');
+      assert.equal(byId<HTMLInputElement>('settings-new-password').value, '');
+      assert.equal(byId<HTMLElement>('settings-keyfile-label').textContent, 'No file chosen');
+
+      // Mismatched passwords: rejected, dialog stays open.
+      byId<HTMLInputElement>('settings-new-password').value = 'new-pass';
+      byId<HTMLInputElement>('settings-new-password-confirm').value = 'does-not-match';
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, true);
+      assert.equal(byId<HTMLElement>('settings-security-error').hidden, false);
+
+      // Matching passwords: applied, dialog closes.
+      byId<HTMLInputElement>('settings-new-password-confirm').value = 'new-pass';
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+
+      // The change is a real, unsaved edit — closing now needs confirmation.
+      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(byId<HTMLDialogElement>('dlg-confirm-discard').open, true);
+      dq('#dlg-confirm-discard [data-action="cancel-discard"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // Restore the original credentials (including the key file), so later
+      // steps in this walkthrough — which unlock with PASSWORD/KEYFILE —
+      // keep working.
+      q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      byId<HTMLInputElement>('settings-new-password').value = PASSWORD;
+      byId<HTMLInputElement>('settings-new-password-confirm').value = PASSWORD;
+      const settingsKeyfileInput = byId<HTMLInputElement>('settings-keyfile-input');
+      setFiles(settingsKeyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+      dispatch(settingsKeyfileInput, 'change');
+      await waitFor(
+        () => byId<HTMLElement>('settings-keyfile-label').textContent === 'keyfile.bin',
+      );
+      dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+    },
+  );
+
+  await t.test(
     'locking re-encrypts the current state (including unsaved edits) and returns to the unlock screen',
     async () => {
       q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));

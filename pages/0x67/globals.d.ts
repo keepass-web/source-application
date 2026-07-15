@@ -49,6 +49,7 @@ declare class Kdbx {
   save(): Promise<Uint8Array>;
   addBinary(data: Uint8Array): number;
   getBinaryData(ref: number): Uint8Array | undefined;
+  setCredentials(credentials: Credentials): void;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
   static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }
