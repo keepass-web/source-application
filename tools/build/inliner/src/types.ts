@@ -8,7 +8,7 @@
  * load order — it is the author's responsibility to list dependencies first.
  */
 export interface Manifest {
-  /** HTML template. Must contain exactly one <!--STYLES--> and one <!--SCRIPTS--> sentinel. */
+  /** HTML template. Must contain exactly one <!--STYLES-->, one <!--SCRIPTS-->, and one <!--VERSION--> sentinel. */
   readonly template: string;
   /** CSS files, concatenated in order and inlined at <!--STYLES-->. */
   readonly styles: readonly string[];

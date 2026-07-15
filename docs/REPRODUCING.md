@@ -16,16 +16,29 @@ Any party can reproduce a versioned distributable and verify it against the publ
    docker build -t keepass-web-build -f tools/build/Dockerfile .
    ```
 
-3. Run the build inside the container:
+3. Every distributable's footer shows what it was built from — the tag (or commit) and the date it was committed, sourced from four env vars rather than the container's clock, so the same commit always produces the same bytes no matter when it's rebuilt (see "two independent builds" below). `GITHUB_REF_TYPE`, `GITHUB_REF_NAME`, and `GITHUB_SHA` mirror the env vars GitHub Actions already sets on every job; outside Actions, derive them from the tag checked out in step 1:
 
    ```sh
-   docker run --rm -v "$PWD":/workspace keepass-web-build \
+   ref_name=v<version>
+   sha=$(git rev-parse HEAD)
+   commit_date=$(git show -s --format=%cI HEAD)
+   ```
+
+4. Run the build inside the container:
+
+   ```sh
+   docker run --rm -v "$PWD":/workspace \
+     -e GITHUB_REF_TYPE=tag \
+     -e GITHUB_REF_NAME="$ref_name" \
+     -e GITHUB_SHA="$sha" \
+     -e KEEPASS_WEB_COMMIT_DATE="$commit_date" \
+     keepass-web-build \
      sh -c "npm ci && npm run build"
    ```
 
    `npm run build` builds `argon2`, `chacha20`, and `kdbx`, then bundles and inlines each page. The inliner prints `sha256:<hex>  <output path>` to stdout once per distributable (`index.html`, `router.html`, `0x67.html`, `cloud-google-drive.html`), so each checksum is unambiguously tied to the file it belongs to.
 
-4. Compare each printed checksum against the corresponding value published with the release.
+5. Compare each printed checksum against the corresponding value published with the release.
 
 Two independent builds of the same source commit must produce an identical checksum. A mismatch means the build is not reproducible and should be treated as suspect.
 

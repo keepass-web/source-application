@@ -84,7 +84,8 @@ flowchart TD
     DEP -->|pass| LINT
     LINT --> TC["tsc --noEmit type check, every workspace"]
     TC --> TEST["node:test suite, every workspace"]
-    TEST --> BUILD["npm run build\nargon2 + chacha20 -> kdbx -> pages\nbundle + inline x 4 pages"]
+    TEST --> DATE["Resolve KEEPASS_WEB_COMMIT_DATE\ngit show -s --format=%cI HEAD"]
+    DATE --> BUILD["npm run build\nargon2 + chacha20 -> kdbx -> pages\nbundle + inline x 4 pages\n(version footer: GITHUB_REF_TYPE/NAME/SHA + commit date)"]
     BUILD --> SUM["Publish checksums\nto step summary"]
 ```
 
@@ -98,7 +99,7 @@ flowchart TD
     TAG --> AREL["release.yml"]
     AREL --> CI3["Lint · type check · test"]
     CI3 --> VER2["Verify tag = package.json version"]
-    VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html · router.html\nindex.html · cloud-google-drive.html\nCNAME"]
+    VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html · router.html\nindex.html · cloud-google-drive.html\nCNAME\n(version footer: tag + commit date)"]
     BUILD --> ATTEST["Attest all five files\nactions/attest-build-provenance\nSigns to Sigstore transparency log"]
     ATTEST --> GHREL["Create GitHub release\nUpload all five files\nPublish checksums in release notes"]
     GHREL --> TOKEN["Generate short-lived App token\nscoped to the deploy repo"]
