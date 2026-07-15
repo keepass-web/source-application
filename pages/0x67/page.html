@@ -23,6 +23,7 @@
           Choose file
           <input type="file" id="file-input" accept=".kdbx,.kdb" hidden>
         </label>
+        <button type="button" class="back-link" data-action="create-database">Create a new database</button>
       </div>
     </div>
   </template>
@@ -49,6 +50,40 @@
         </div>
         <div id="unlock-error" class="error-msg" hidden></div>
         <button type="submit" id="unlock-btn" class="btn btn-primary btn-block">Unlock</button>
+      </form>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Create Database
+       ============================================================ -->
+  <template id="tpl-create-database">
+    <div class="screen screen-unlock">
+      <button type="button" class="back-link" data-action="back">← Back</button>
+      <div class="wordmark">KeePass Web</div>
+      <h1 class="db-filename">New database</h1>
+      <form id="create-form" class="unlock-form" novalidate>
+        <div class="field">
+          <label for="create-name">Database name</label>
+          <input type="text" id="create-name" autocomplete="off" value="Database">
+        </div>
+        <div class="field">
+          <label for="create-password">Master password</label>
+          <input type="password" id="create-password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="create-password-confirm">Confirm master password</label>
+          <input type="password" id="create-password-confirm" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <span class="field-label">Key file <span class="optional">(optional)</span></span>
+          <label class="file-pick">
+            <span id="create-keyfile-label">No file chosen</span>
+            <input type="file" id="create-keyfile-input" hidden>
+          </label>
+        </div>
+        <div id="create-error" class="error-msg" hidden></div>
+        <button type="submit" id="create-btn" class="btn btn-primary btn-block">Create</button>
       </form>
     </div>
   </template>

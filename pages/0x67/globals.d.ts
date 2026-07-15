@@ -38,10 +38,15 @@ declare class Credentials {
   constructor(input: CredentialsInput);
 }
 
+interface KdbxCreateOptions {
+  databaseName?: string;
+}
+
 declare class Kdbx {
   getRootGroup(): XmlElement;
   save(): Promise<Uint8Array>;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
+  static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }
 
 declare function getChildren(element: XmlElement, name: string): XmlElement[];

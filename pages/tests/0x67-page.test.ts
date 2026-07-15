@@ -278,6 +278,57 @@ test('0x67 app', async (t) => {
     assert.ok(q('#drop-zone'));
   });
 
+  await t.test(
+    'creating a new database: validation, then landing in an empty entry list',
+    async () => {
+      q('[data-action="create-database"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.ok(q('#create-form'));
+
+      // Back returns to upload without creating anything.
+      q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#drop-zone'));
+      q('[data-action="create-database"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // No password at all.
+      dispatch(q('#create-form'), 'submit');
+      assert.equal(q<HTMLElement>('#create-error').hidden, false);
+      assert.match(q<HTMLElement>('#create-error').textContent ?? '', /master password/i);
+
+      // Passwords that don't match each other.
+      q<HTMLInputElement>('#create-password').value = 'new-db-password';
+      q<HTMLInputElement>('#create-password-confirm').value = 'does-not-match';
+      dispatch(q('#create-form'), 'submit');
+      assert.equal(q<HTMLElement>('#create-error').hidden, false);
+      assert.match(q<HTMLElement>('#create-error').textContent ?? '', /do not match/i);
+
+      q<HTMLInputElement>('#create-name').value = 'Fresh Vault';
+      q<HTMLInputElement>('#create-password-confirm').value = 'new-db-password';
+
+      const createKeyfileInput = q<HTMLInputElement>('#create-keyfile-input');
+      setFiles(createKeyfileInput, [makeFile('create-keyfile.bin', KEYFILE)]);
+      dispatch(createKeyfileInput, 'change');
+      await waitFor(
+        () => q<HTMLElement>('#create-keyfile-label').textContent === 'create-keyfile.bin',
+      );
+
+      dispatch(q('#create-form'), 'submit');
+
+      await waitFor(() => dom.window.document.body.classList.contains('app-mode'), 15000);
+      assert.equal(q<HTMLElement>('#panel-title').textContent, 'Fresh Vault');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0);
+      assert.equal(q('#group-tree').querySelectorAll('.group-btn').length, 1);
+
+      // Reset back to the upload screen for the rest of the walkthrough
+      // (lock still does a full reset at this point in the walkthrough).
+      q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#drop-zone'));
+    },
+  );
+
   await t.test('choosing a file via the file input also reaches the unlock screen', async () => {
     const fileInput = q<HTMLInputElement>('#file-input');
     setFiles(fileInput, [makeFile('real.kdbx', dbBytes)]);
@@ -752,6 +803,52 @@ test('a rejection that is not an Error instance still shows a fallback message',
   );
 
   // Leave the app back on the upload screen, which the next test assumes.
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('create-database: an Error thrown by Kdbx.create is shown as-is', async () => {
+  q('[data-action="create-database"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const realCreate = Kdbx.create;
+  Kdbx.create = () => Promise.reject(new Error('simulated creation failure'));
+  try {
+    q<HTMLInputElement>('#create-password').value = 'x';
+    q<HTMLInputElement>('#create-password-confirm').value = 'x';
+    dispatch(q('#create-form'), 'submit');
+    await waitFor(() => q<HTMLElement>('#create-error').hidden === false);
+  } finally {
+    Kdbx.create = realCreate;
+  }
+  assert.equal(q<HTMLElement>('#create-error').textContent, 'simulated creation failure');
+  assert.equal(q<HTMLButtonElement>('#create-btn').disabled, false);
+  assert.equal(q<HTMLButtonElement>('#create-btn').textContent, 'Create');
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('create-database: a non-Error rejection shows a fallback message, and a blank name falls back to "Database"', async () => {
+  q('[data-action="create-database"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const realCreate = Kdbx.create;
+  let receivedName: string | undefined;
+  Kdbx.create = (_credentials: Credentials, options?: { databaseName?: string }) => {
+    receivedName = options?.databaseName;
+    return Promise.reject('a plain string rejection, not an Error');
+  };
+  try {
+    q<HTMLInputElement>('#create-name').value = '   ';
+    q<HTMLInputElement>('#create-password').value = 'x';
+    q<HTMLInputElement>('#create-password-confirm').value = 'x';
+    dispatch(q('#create-form'), 'submit');
+    await waitFor(() => q<HTMLElement>('#create-error').hidden === false);
+  } finally {
+    Kdbx.create = realCreate;
+  }
+  assert.equal(q<HTMLElement>('#create-error').textContent, 'Could not create database.');
+  assert.equal(receivedName, 'Database');
+
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 

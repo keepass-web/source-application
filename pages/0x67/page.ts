@@ -125,6 +125,8 @@ function showUpload(): void {
     const f = e.dataTransfer?.files[0];
     if (f) handleFile(f);
   });
+
+  qs('[data-action="create-database"]').addEventListener('click', () => showCreateDatabase());
 }
 
 async function handleFile(file: File): Promise<void> {
@@ -186,6 +188,74 @@ function showUnlock(): void {
       btn.disabled = false;
       btn.textContent = 'Unlock';
       passwordInput.focus();
+    }
+  });
+}
+
+// ============================================================
+// Screen: Create Database
+// ============================================================
+
+function showCreateDatabase(): void {
+  document.body.classList.remove('app-mode');
+  setRoot(cloneTemplate('tpl-create-database'));
+
+  const nameInput = qs<HTMLInputElement>('#create-name');
+  const passwordInput = qs<HTMLInputElement>('#create-password');
+  const confirmInput = qs<HTMLInputElement>('#create-password-confirm');
+  nameInput.focus();
+
+  let keyfileData: Uint8Array | null = null;
+
+  qs('[data-action="back"]').addEventListener('click', () => showUpload());
+
+  const keyfileInput = qs<HTMLInputElement>('#create-keyfile-input');
+  keyfileInput.addEventListener('change', async () => {
+    const f = keyfileInput.files?.[0];
+    if (f) {
+      keyfileData = new Uint8Array(await f.arrayBuffer());
+      qs('#create-keyfile-label').textContent = f.name;
+    }
+  });
+
+  qs('#create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = qs<HTMLButtonElement>('#create-btn');
+    const errorEl = qs('#create-error');
+    errorEl.hidden = true;
+
+    if (!passwordInput.value) {
+      errorEl.textContent = 'Enter a master password.';
+      errorEl.hidden = false;
+      passwordInput.focus();
+      return;
+    }
+    if (passwordInput.value !== confirmInput.value) {
+      errorEl.textContent = 'Passwords do not match.';
+      errorEl.hidden = false;
+      confirmInput.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    try {
+      const input: CredentialsInput = { password: passwordInput.value };
+      if (keyfileData) input.keyFile = keyfileData;
+      const creds = new Credentials(input);
+      const databaseName = nameInput.value.trim() || 'Database';
+      app.db = await Kdbx.create(creds, { databaseName });
+      app.filename = `${databaseName}.kdbx`;
+      app.currentGroup = app.db.getRootGroup();
+      app.searchQuery = '';
+      app.dirty = true;
+      showEntryList();
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : 'Could not create database.';
+      errorEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = 'Create';
     }
   });
 }
