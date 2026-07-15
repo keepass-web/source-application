@@ -982,6 +982,22 @@ function buildEditField(
     row.appendChild(toggle);
   }
 
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'icon-btn';
+  copyBtn.title = 'Copy';
+  copyBtn.textContent = '📋';
+  copyBtn.addEventListener('click', async () => {
+    // Copies whatever is currently typed, not the value the field opened
+    // with — the user may have already edited it.
+    await copyToClipboard(valueInput.value);
+    copyBtn.textContent = '✓';
+    setTimeout(() => {
+      copyBtn.textContent = '📋';
+    }, 1500);
+  });
+  row.appendChild(copyBtn);
+
   if (key === 'Password') {
     const generateBtn = document.createElement('button');
     generateBtn.type = 'button';

@@ -1134,6 +1134,36 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test('the edit screen has copy buttons too, copying the currently typed value', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+    ) as HTMLElement;
+    const valueInput = passwordRow.querySelector<HTMLInputElement>(
+      '.edit-value',
+    ) as HTMLInputElement;
+    const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
+    assert.ok(copyBtn, 'edit fields have a copy button, same as detail fields');
+
+    // Not yet saved — proves the button copies the live input, not the
+    // value the field was opened with.
+    valueInput.value = 'not-yet-saved-password';
+    clipboardWritesShouldFail = false;
+    copyBtn?.click();
+
+    return Promise.resolve()
+      .then(() => Promise.resolve())
+      .then(() => {
+        assert.equal(clipboardText, 'not-yet-saved-password');
+        assert.equal(copyBtn?.textContent, '✓');
+        t.mock.timers.tick(1500);
+        assert.equal(copyBtn?.textContent, '📋');
+        q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      });
+  });
+
   await t.test('a clipboard write failure is caught and logged, not thrown', async () => {
     const passwordRow = Array.from(root().querySelectorAll('.detail-field')).find(
       (row) => row.querySelector('.detail-label')?.textContent === 'Password',
