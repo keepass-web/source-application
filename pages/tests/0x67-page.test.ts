@@ -1139,6 +1139,58 @@ test('0x67 app', async (t) => {
   });
 
   await t.test(
+    'moving an entry to another group reparents it, leaving the source group empty',
+    () => {
+      // Currently on the detail screen for "Custom Title", the sole entry in
+      // "Personal". Move it into "Work", then back again, so the next
+      // (trashing) test finds things exactly as it expects.
+      const destBtn = (name: string): HTMLButtonElement =>
+        Array.from(
+          byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
+        ).find((b) => b.textContent?.endsWith(name)) as HTMLButtonElement;
+      const clickGroupNamed = (name: string): void => {
+        const btn = Array.from(
+          q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+        ).find((b) => b.textContent?.endsWith(name));
+        assert.ok(btn, `expected a "${name}" group button`);
+        btn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+
+      q('[data-action="move-entry"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      const dlg = byId<HTMLDialogElement>('dlg-move-to');
+      assert.equal(dlg.open, true);
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move entry to…');
+      destBtn('Work').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(dlg.open, false);
+
+      assert.ok(q('#group-tree'), 'back on the entry list');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0, 'Personal is now empty');
+
+      clickGroupNamed('Work');
+      const movedRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
+      );
+      assert.ok(movedRow, 'the entry is now in "Work"');
+      assert.equal(root().querySelectorAll('.entry-row').length, 2, 'alongside the existing entry');
+
+      // Move it back to "Personal" for the rest of the walkthrough.
+      movedRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q('[data-action="move-entry"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      destBtn('Personal').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Personal');
+      const backRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
+      );
+      assert.ok(backRow, 'moved back to "Personal"');
+      backRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    },
+  );
+
+  await t.test(
     'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
     () => {
       // Group/entry labels are icon-prefixed ("📁 Recycle Bin"), so match by substring.

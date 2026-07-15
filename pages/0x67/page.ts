@@ -600,6 +600,23 @@ function showEntryDetail(): void {
     showEntryEdit(false);
   });
 
+  qs('[data-action="move-entry"]').addEventListener('click', () => {
+    openMoveToDialog(
+      'Move entry to…',
+      () => true,
+      (destination) => {
+        const parent = findEntryParent(db.getRootGroup(), entry);
+        if (parent && parent !== destination) {
+          parent.children = parent.children.filter((c) => c !== entry);
+          appendChild(destination, entry);
+          app.dirty = true;
+        }
+        app.currentEntry = null;
+        showEntryList();
+      },
+    );
+  });
+
   // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
   // entry is already inside the bin, where it's "Restore" or a permanent,
   // confirmed "Delete" instead.
