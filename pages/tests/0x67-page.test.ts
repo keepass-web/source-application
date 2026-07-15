@@ -31,10 +31,12 @@ import {
   createElement,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
   getAttribute,
   getChild,
   getChildren,
   getText,
+  isInRecycleBin,
   Kdbx,
   setAttribute,
 } from '../../packages/kdbx/src/index.ts';
@@ -130,6 +132,8 @@ Object.assign(globalThis, {
   appendChild,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
+  isInRecycleBin,
   ...logic,
 });
 
@@ -811,33 +815,80 @@ test('0x67 app', async (t) => {
     assert.ok(calls.some((args) => args[0] === 'Clipboard write failed'));
   });
 
-  await t.test('deleting an entry: cancel keeps it, confirm removes it', () => {
-    const entryCountBefore = () => {
+  await t.test(
+    'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
+    () => {
+      const clickGroupNamed = (name: string): void => {
+        const btn = Array.from(
+          q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
+        ).find((b) => b.textContent === name);
+        assert.ok(btn, `expected a "${name}" group button`);
+        btn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+
+      // Currently viewing "Custom Title", the sole entry in the "Personal"
+      // group. Outside the bin, Trash is the only destructive action shown.
       q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      const count = root().querySelectorAll('.entry-row').length;
-      const row = root().querySelector('.entry-row') as HTMLElement;
-      row.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      return count;
-    };
-    const before = entryCountBefore();
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(q('[data-action="trash"]').hasAttribute('hidden'), false);
+      assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), true);
+      assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), true);
 
-    q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    let dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
-    assert.equal(dlg.open, true);
-    dq('#dlg-confirm-delete [data-action="cancel-delete"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
-    assert.equal(dlg.open, false);
-    assert.equal(q<HTMLElement>('#detail-title') !== null, true, 'still on the detail screen');
+      q('[data-action="trash"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#group-tree'), 'back on the entry list');
+      assert.equal(root().querySelectorAll('.entry-row').length, 0, 'Personal is empty again');
 
-    q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
-    dq('#dlg-confirm-delete [data-action="confirm-delete"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
-    assert.equal(dlg.open, false);
-    assert.equal(root().querySelectorAll('.entry-row').length, before - 1);
-  });
+      clickGroupNamed('Recycle Bin');
+      assert.equal(root().querySelectorAll('.entry-row').length, 1);
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(q<HTMLElement>('#detail-title').textContent, 'Custom Title');
+      assert.equal(q('[data-action="trash"]').hasAttribute('hidden'), true);
+      assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), false);
+      assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), false);
+
+      // Restoring puts it back at the vault root, not its original group.
+      q('[data-action="restore"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Personal Vault');
+      const restoredRow = Array.from(root().querySelectorAll('.entry-row')).find(
+        (r) => r.querySelector('.entry-row-title')?.textContent === 'Custom Title',
+      );
+      assert.ok(restoredRow, 'restoring returns the entry to the root group');
+
+      // Trash it again, then permanently delete it from the bin.
+      restoredRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q('[data-action="trash"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      clickGroupNamed('Recycle Bin');
+      (q('.entry-row') as HTMLElement).dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      let dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(dlg.open, true);
+      dq('#dlg-confirm-delete [data-action="cancel-delete"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      assert.equal(q<HTMLElement>('#detail-title') !== null, true, 'still on the detail screen');
+
+      q('[data-action="delete"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      dq('#dlg-confirm-delete [data-action="confirm-delete"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(dlg.open, false);
+      clickGroupNamed('Recycle Bin');
+      assert.equal(
+        root().querySelectorAll('.entry-row').length,
+        0,
+        'permanently deleted from the bin',
+      );
+    },
+  );
 
   await t.test('settings: a valid timeout is saved, an invalid one is silently ignored', () => {
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));

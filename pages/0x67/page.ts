@@ -464,9 +464,47 @@ function showEntryDetail(): void {
     showEntryEdit(false);
   });
 
-  qs('[data-action="delete"]').addEventListener('click', () => {
+  // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
+  // entry is already inside the bin, where it's "Restore" or a permanent,
+  // confirmed "Delete" instead.
+  const db = must(app.db);
+  const parentGroup = findEntryParent(db.getRootGroup(), entry);
+  const inBin = parentGroup !== null && isInRecycleBin(db.root, parentGroup);
+
+  const trashBtn = qs<HTMLButtonElement>('[data-action="trash"]');
+  const restoreBtn = qs<HTMLButtonElement>('[data-action="restore"]');
+  const deleteBtn = qs<HTMLButtonElement>('[data-action="delete"]');
+  trashBtn.hidden = inBin;
+  restoreBtn.hidden = !inBin;
+  deleteBtn.hidden = !inBin;
+
+  trashBtn.addEventListener('click', () => {
+    const bin = findOrCreateRecycleBin(db.root);
+    const parent = findEntryParent(db.getRootGroup(), entry);
+    if (parent && parent !== bin) {
+      parent.children = parent.children.filter((c) => c !== entry);
+      appendChild(bin, entry);
+      app.dirty = true;
+    }
+    app.currentEntry = null;
+    showEntryList();
+  });
+
+  restoreBtn.addEventListener('click', () => {
+    const rootGroup = db.getRootGroup();
+    const parent = findEntryParent(rootGroup, entry);
+    if (parent && parent !== rootGroup) {
+      parent.children = parent.children.filter((c) => c !== entry);
+      appendChild(rootGroup, entry);
+      app.dirty = true;
+    }
+    app.currentEntry = null;
+    showEntryList();
+  });
+
+  deleteBtn.addEventListener('click', () => {
     openConfirmDelete(() => {
-      const parent = findEntryParent(must(app.db).getRootGroup(), entry);
+      const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         parent.children = parent.children.filter((c) => c !== entry);
         app.dirty = true;

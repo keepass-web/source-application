@@ -24,10 +24,12 @@ import {
   createElement,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
   getAttribute,
   getChild,
   getChildren,
   getText,
+  isInRecycleBin,
   Kdbx,
   setAttribute,
 } from '../../packages/kdbx/src/index.ts';
@@ -89,6 +91,8 @@ Object.assign(globalThis, {
   appendChild,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
+  isInRecycleBin,
   ...logic,
 });
 

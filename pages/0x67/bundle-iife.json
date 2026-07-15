@@ -40,6 +40,8 @@
     "appendChild",
     "createEntry",
     "createGroup",
+    "findOrCreateRecycleBin",
+    "isInRecycleBin",
 
     "entryField",
     "entryTitle",

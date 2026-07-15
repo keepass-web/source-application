@@ -247,6 +247,72 @@ export function createGroup(name: string): XmlElement {
   return group;
 }
 
+const KX_RECYCLE_BIN_NAME = 'Recycle Bin';
+
+function kx_findGroupByUuid(group: XmlElement, uuid: string): XmlElement | undefined {
+  const idEl = getChild(group, 'UUID');
+  if (idEl && getText(idEl) === uuid) {
+    return group;
+  }
+  for (const sub of getChildren(group, 'Group')) {
+    const found = kx_findGroupByUuid(sub, uuid);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function kx_containsGroup(ancestor: XmlElement, target: XmlElement): boolean {
+  if (ancestor === target) return true;
+  return getChildren(ancestor, 'Group').some((sub) => kx_containsGroup(sub, target));
+}
+
+/** The database's recycle bin group, if `Meta/RecycleBinUUID` names one that still exists. */
+function kx_findRecycleBin(document: XmlElement): XmlElement | undefined {
+  const meta = getChild(document, 'Meta');
+  const uuidEl = meta && getChild(meta, 'RecycleBinUUID');
+  const rootElement = getChild(document, 'Root');
+  const rootGroup = rootElement && getChild(rootElement, 'Group');
+  if (!uuidEl || !rootGroup) return undefined;
+  return kx_findGroupByUuid(rootGroup, getText(uuidEl));
+}
+
+/**
+ * Find the database's recycle bin group, creating it as a child of the root
+ * group the first time anything is trashed and recording its UUID in
+ * `Meta/RecycleBinUUID` — matching real KeePass, which has no recycle bin
+ * group in a fresh database until one is needed.
+ */
+export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
+  const existing = kx_findRecycleBin(document);
+  if (existing) return existing;
+
+  const meta = getChild(document, 'Meta');
+  const rootElement = getChild(document, 'Root');
+  const rootGroup = rootElement && getChild(rootElement, 'Group');
+  if (!meta || !rootGroup) {
+    throw new Error('database is missing Meta or a root group');
+  }
+
+  const bin = createGroup(KX_RECYCLE_BIN_NAME);
+  appendChild(rootGroup, bin);
+  // createGroup() always appends a UUID child first, so this is always present.
+  const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
+
+  const uuidEl = getChild(meta, 'RecycleBinUUID');
+  if (uuidEl) {
+    setText(uuidEl, binUuid);
+  } else {
+    appendChild(meta, createElement('RecycleBinUUID', binUuid));
+  }
+  return bin;
+}
+
+/** True if `group` is the database's recycle bin, or nested inside it. */
+export function isInRecycleBin(document: XmlElement, group: XmlElement): boolean {
+  const bin = kx_findRecycleBin(document);
+  return bin !== undefined && kx_containsGroup(bin, group);
+}
+
 /**
  * Build a complete `<KeePassFile>` document with a Meta section and a root group
  * (optionally pre-populated by `build`).

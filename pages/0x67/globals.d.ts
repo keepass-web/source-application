@@ -43,6 +43,7 @@ interface KdbxCreateOptions {
 }
 
 declare class Kdbx {
+  root: XmlElement;
   getRootGroup(): XmlElement;
   save(): Promise<Uint8Array>;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
@@ -63,6 +64,8 @@ interface EntryInput {
 
 declare function createEntry(input: EntryInput): XmlElement;
 declare function createGroup(name: string): XmlElement;
+declare function findOrCreateRecycleBin(document: XmlElement): XmlElement;
+declare function isInRecycleBin(document: XmlElement, group: XmlElement): boolean;
 
 // --- this page's own pure logic (see logic.ts) ---
 
