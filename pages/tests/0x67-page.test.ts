@@ -26,6 +26,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import {
+  addEntryAttachment,
   appendChild,
   Credentials,
   createElement,
@@ -35,11 +36,14 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getEntryAttachments,
   getEntryTags,
   getEntryTimes,
   getText,
   isInRecycleBin,
   Kdbx,
+  removeEntryAttachment,
+  renameEntryAttachment,
   setAttribute,
   setEntryExpiry,
   setEntryTags,
@@ -147,6 +151,10 @@ Object.assign(globalThis, {
   getEntryTimes,
   setEntryExpiry,
   touchLastModified,
+  getEntryAttachments,
+  addEntryAttachment,
+  renameEntryAttachment,
+  removeEntryAttachment,
   ...logic,
 });
 
@@ -829,6 +837,76 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'attachments can be added, shown on both edit and detail screens, renamed, downloaded, and removed',
+    async () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), false);
+      assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), true);
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+      // A change event with the picker cancelled (no file chosen) is a no-op.
+      setFiles(attachmentInput, []);
+      dispatch(attachmentInput, 'change');
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      setFiles(attachmentInput, [makeFile('notes.txt', new TextEncoder().encode('hello'))]);
+      dispatch(attachmentInput, 'change');
+      await waitFor(() => q('#edit-attachments').children.length === 1);
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'notes.txt');
+
+      // Rename it; a blank rename is a no-op that keeps the old name.
+      q<HTMLInputElement>('.attachment-name').value = 'renamed.txt';
+      dispatch(q<HTMLInputElement>('.attachment-name'), 'change');
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'renamed.txt');
+      q<HTMLInputElement>('.attachment-name').value = '   ';
+      dispatch(q<HTMLInputElement>('.attachment-name'), 'change');
+      assert.equal(q<HTMLInputElement>('.attachment-name').value, 'renamed.txt');
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const detailRow = q('#detail-attachments .attachment-row');
+      assert.ok(detailRow, 'the attachment shows on the detail screen too');
+      assert.equal(detailRow.querySelector('.attachment-name')?.textContent, 'renamed.txt');
+
+      const created: string[] = [];
+      const revoked: string[] = [];
+      const realCreate = URL.createObjectURL.bind(URL);
+      const realRevoke = URL.revokeObjectURL.bind(URL);
+      URL.createObjectURL = (obj: Blob | MediaSource) => {
+        const u = realCreate(obj);
+        created.push(u);
+        return u;
+      };
+      URL.revokeObjectURL = (u: string) => {
+        revoked.push(u);
+        realRevoke(u);
+      };
+      try {
+        q<HTMLButtonElement>('[title="Download"]').click();
+      } finally {
+        URL.createObjectURL = realCreate;
+        URL.revokeObjectURL = realRevoke;
+      }
+      assert.equal(created.length, 1);
+      assert.deepEqual(revoked, created);
+
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      q<HTMLButtonElement>('[title="Remove attachment"]').click();
+      assert.equal(q('#edit-attachments').children.length, 0);
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q('#detail-attachments').children.length, 0);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
+
   await t.test('editing an existing entry (not new) cancels back to the detail screen', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'Edit Entry');
@@ -1252,6 +1330,71 @@ test('an entry with Expires=True but no ExpiryTime, and no CreationTime either (
 
   // Leave the app back on the upload screen, which the next test assumes.
   q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('attachments are hidden with a note on KDBX 3.1 files', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, { version: 3, aesKdfRounds: 1000n });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'V3 Entry' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('v3.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q('#detail-attachments').children.length, 0);
+
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), true);
+  assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), false);
+
+  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Stale Attachment' });
+  addEntryAttachment(entry, 'ghost.txt', 999);
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('stale-ref.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const row = q('#detail-attachments .attachment-row');
+  assert.ok(row, 'the attachment still shows even though its data is missing');
+  q<HTMLButtonElement>('[title="Download"]').click(); // must not throw
+
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });

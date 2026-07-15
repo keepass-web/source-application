@@ -19,6 +19,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import {
+  addEntryAttachment,
   appendChild,
   Credentials,
   createElement,
@@ -28,11 +29,14 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getEntryAttachments,
   getEntryTags,
   getEntryTimes,
   getText,
   isInRecycleBin,
   Kdbx,
+  removeEntryAttachment,
+  renameEntryAttachment,
   setAttribute,
   setEntryExpiry,
   setEntryTags,
@@ -105,6 +109,10 @@ Object.assign(globalThis, {
   getEntryTimes,
   setEntryExpiry,
   touchLastModified,
+  getEntryAttachments,
+  addEntryAttachment,
+  renameEntryAttachment,
+  removeEntryAttachment,
   ...logic,
 });
 

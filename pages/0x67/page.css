@@ -736,6 +736,58 @@ body:not(.app-mode) .screen-edit {
   align-self: flex-start;
 }
 
+.attachments-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+}
+
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+}
+
+span.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+input.attachment-name {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+input.attachment-name:focus {
+  outline: none;
+}
+
 .icon-picker-btn {
   align-self: flex-start;
   background: var(--surface);

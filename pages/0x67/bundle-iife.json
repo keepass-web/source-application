@@ -48,6 +48,10 @@
     "getEntryTimes",
     "setEntryExpiry",
     "touchLastModified",
+    "getEntryAttachments",
+    "addEntryAttachment",
+    "renameEntryAttachment",
+    "removeEntryAttachment",
 
     "entryField",
     "entryTitle",

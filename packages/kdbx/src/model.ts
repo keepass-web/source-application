@@ -326,6 +326,64 @@ export function touchLastModified(entry: XmlElement): void {
   if (modEl) setText(modEl, kx_nowIso());
 }
 
+/** An entry's attachment: a name paired with a Kdbx#binaries pool index. */
+export interface EntryAttachment {
+  name: string;
+  ref: number;
+}
+
+/**
+ * An entry's attachments, from its `<Binary>` children
+ * (`<Binary><Key>name</Key><Value Ref="N"/></Binary>`). KDBX 4.x only —
+ * see {@link Kdbx.addBinary} in kdbx.ts.
+ */
+export function getEntryAttachments(entry: XmlElement): EntryAttachment[] {
+  const out: EntryAttachment[] = [];
+  for (const binaryEl of getChildren(entry, 'Binary')) {
+    const keyEl = getChild(binaryEl, 'Key');
+    const valueEl = getChild(binaryEl, 'Value');
+    const refText = valueEl && getAttribute(valueEl, 'Ref');
+    if (keyEl && refText !== undefined) {
+      out.push({ name: getText(keyEl), ref: Number.parseInt(refText, 10) });
+    }
+  }
+  return out;
+}
+
+/** Attach a binary pool reference (see Kdbx#addBinary) to an entry under the given name. */
+export function addEntryAttachment(entry: XmlElement, name: string, ref: number): void {
+  const binaryEl = createElement('Binary');
+  appendChild(binaryEl, createElement('Key', name));
+  const valueEl = createElement('Value');
+  setAttribute(valueEl, 'Ref', String(ref));
+  appendChild(binaryEl, valueEl);
+  appendChild(entry, binaryEl);
+}
+
+/** Rename an entry's attachment, matched by its current name. */
+export function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void {
+  for (const binaryEl of getChildren(entry, 'Binary')) {
+    const keyEl = getChild(binaryEl, 'Key');
+    if (keyEl && getText(keyEl) === oldName) {
+      setText(keyEl, newName);
+      return;
+    }
+  }
+}
+
+/**
+ * Remove an entry's attachment, matched by name. Does not touch the binary
+ * pool itself — Kdbx#save() drops pool entries no longer referenced by any
+ * entry.
+ */
+export function removeEntryAttachment(entry: XmlElement, name: string): void {
+  entry.children = entry.children.filter((child) => {
+    if (child.type !== 'element' || child.name !== 'Binary') return true;
+    const keyEl = getChild(child, 'Key');
+    return !(keyEl && getText(keyEl) === name);
+  });
+}
+
 /** Build a `<Group>` element with the given name. */
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');

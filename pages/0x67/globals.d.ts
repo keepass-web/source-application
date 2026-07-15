@@ -44,8 +44,11 @@ interface KdbxCreateOptions {
 
 declare class Kdbx {
   root: XmlElement;
+  header: { version: { major: number } };
   getRootGroup(): XmlElement;
   save(): Promise<Uint8Array>;
+  addBinary(data: Uint8Array): number;
+  getBinaryData(ref: number): Uint8Array | undefined;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
   static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }
@@ -69,6 +72,16 @@ declare function findOrCreateRecycleBin(document: XmlElement): XmlElement;
 declare function isInRecycleBin(document: XmlElement, group: XmlElement): boolean;
 declare function getEntryTags(entry: XmlElement): string[];
 declare function setEntryTags(entry: XmlElement, tags: string[]): void;
+
+interface EntryAttachment {
+  name: string;
+  ref: number;
+}
+
+declare function getEntryAttachments(entry: XmlElement): EntryAttachment[];
+declare function addEntryAttachment(entry: XmlElement, name: string, ref: number): void;
+declare function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void;
+declare function removeEntryAttachment(entry: XmlElement, name: string): void;
 
 interface EntryTimes {
   created: string;

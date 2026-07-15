@@ -477,6 +477,11 @@ function showEntryDetail(): void {
     fieldsEl.appendChild(buildDetailField(key, value, isProtected));
   }
 
+  const db = must(app.db);
+  if (db.header.version.major !== 3) {
+    renderDetailAttachments(db, entry, qs('#detail-attachments'));
+  }
+
   qs('[data-action="back"]').addEventListener('click', () => {
     app.currentEntry = null;
     showEntryList();
@@ -489,7 +494,6 @@ function showEntryDetail(): void {
   // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
   // entry is already inside the bin, where it's "Restore" or a permanent,
   // confirmed "Delete" instead.
-  const db = must(app.db);
   const parentGroup = findEntryParent(db.getRootGroup(), entry);
   const inBin = parentGroup !== null && isInRecycleBin(db.root, parentGroup);
 
@@ -590,6 +594,41 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   return row;
 }
 
+function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  for (const attachment of getEntryAttachments(entry)) {
+    const row = document.createElement('div');
+    row.className = 'attachment-row';
+
+    const label = document.createElement('span');
+    label.className = 'attachment-name';
+    label.textContent = attachment.name;
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.type = 'button';
+    downloadBtn.className = 'icon-btn';
+    downloadBtn.title = 'Download';
+    downloadBtn.textContent = '⬇';
+    downloadBtn.addEventListener('click', () => {
+      const data = db.getBinaryData(attachment.ref);
+      if (!data) return;
+      const blob = new Blob([new Uint8Array(data)]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    row.appendChild(label);
+    row.appendChild(downloadBtn);
+    container.appendChild(row);
+  }
+}
+
 // ============================================================
 // Screen: Entry Edit
 // ============================================================
@@ -650,6 +689,25 @@ function showEntryEdit(isNew: boolean): void {
     fieldsEl.appendChild(buildEditField('', '', false, true));
   });
 
+  const db = must(app.db);
+  if (db.header.version.major === 3) {
+    qs('#edit-attachments-section').hidden = true;
+    qs('#edit-attachments-unsupported').hidden = false;
+  } else {
+    const attachmentsList = qs('#edit-attachments');
+    renderEditAttachments(entry, attachmentsList);
+    qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
+      const input = e.target as HTMLInputElement;
+      const file = input.files?.[0];
+      if (!file) return;
+      const data = new Uint8Array(await file.arrayBuffer());
+      const ref = db.addBinary(data);
+      addEntryAttachment(entry, file.name, ref);
+      renderEditAttachments(entry, attachmentsList);
+      input.value = '';
+    });
+  }
+
   qs('[data-action="cancel"]').addEventListener('click', () => {
     if (isNew) {
       const parent = findEntryParent(must(app.db).getRootGroup(), entry);
@@ -664,6 +722,40 @@ function showEntryEdit(isNew: boolean): void {
   qs('[data-action="save"]').addEventListener('click', () => {
     commitEdits(entry, fieldsEl);
   });
+}
+
+function renderEditAttachments(entry: XmlElement, container: HTMLElement): void {
+  container.innerHTML = '';
+  for (const attachment of getEntryAttachments(entry)) {
+    const row = document.createElement('div');
+    row.className = 'attachment-row';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'attachment-name';
+    nameInput.value = attachment.name;
+    nameInput.addEventListener('change', () => {
+      const newName = nameInput.value.trim();
+      if (newName && newName !== attachment.name) {
+        renameEntryAttachment(entry, attachment.name, newName);
+      }
+      renderEditAttachments(entry, container);
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'icon-btn';
+    removeBtn.title = 'Remove attachment';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      removeEntryAttachment(entry, attachment.name);
+      renderEditAttachments(entry, container);
+    });
+
+    row.appendChild(nameInput);
+    row.appendChild(removeBtn);
+    container.appendChild(row);
+  }
 }
 
 function buildEditField(

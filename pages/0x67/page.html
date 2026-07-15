@@ -145,6 +145,7 @@
         <div id="detail-meta" class="detail-meta"></div>
         <div id="detail-tags" class="tag-chips"></div>
         <div id="detail-fields" class="detail-fields"></div>
+        <div id="detail-attachments" class="attachment-list"></div>
       </div>
     </div>
   </template>
@@ -174,6 +175,20 @@
         </div>
         <div id="edit-fields" class="edit-fields"></div>
         <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
+
+        <div id="edit-attachments-section" class="attachments-section">
+          <div class="attachments-header">
+            <span class="field-label">Attachments</span>
+            <label class="btn btn-secondary">
+              + Add attachment
+              <input type="file" id="edit-attachment-input" hidden>
+            </label>
+          </div>
+          <div id="edit-attachments" class="attachment-list"></div>
+        </div>
+        <p id="edit-attachments-unsupported" class="optional" hidden>
+          Attachments aren't supported for KDBX 3.1 files.
+        </p>
       </div>
     </div>
   </template>
