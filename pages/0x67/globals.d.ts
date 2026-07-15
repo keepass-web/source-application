@@ -70,6 +70,17 @@ declare function isInRecycleBin(document: XmlElement, group: XmlElement): boolea
 declare function getEntryTags(entry: XmlElement): string[];
 declare function setEntryTags(entry: XmlElement, tags: string[]): void;
 
+interface EntryTimes {
+  created: string;
+  modified: string;
+  expires: boolean;
+  expiryTime: string;
+}
+
+declare function getEntryTimes(entry: XmlElement): EntryTimes;
+declare function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void;
+declare function touchLastModified(entry: XmlElement): void;
+
 // --- this page's own pure logic (see logic.ts) ---
 
 interface EntryWithGroup {
@@ -112,3 +123,7 @@ declare function generatePassword(options: PasswordGeneratorOptions): string;
 declare function elementIconId(element: XmlElement): string;
 declare function iconEmoji(iconId: string): string;
 declare const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }>;
+
+declare function isoToLocalInputValue(iso: string): string;
+declare function localInputValueToIso(value: string): string;
+declare function defaultExpiryLocalInputValue(): string;

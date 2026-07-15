@@ -11,11 +11,14 @@ import {
   getChild,
   getChildren,
   getEntryTags,
+  getEntryTimes,
   getText,
   isInRecycleBin,
   ProtectedValue,
   setAttribute,
+  setEntryExpiry,
   setEntryTags,
+  touchLastModified,
   type XmlElement,
 } from '../src/index.ts';
 
@@ -57,6 +60,69 @@ test('createDatabaseDocument invokes the optional build callback with the root g
   const rootElement = getChild(root, 'Root') as XmlElement;
   const rootGroup = getChild(rootElement, 'Group') as XmlElement;
   assert.equal(getAttribute(rootGroup, 'Marker'), 'yes');
+});
+
+test('getEntryTimes reads a real entry’s Times, and returns empty/false defaults when Times is absent', () => {
+  const entry = createEntry({ title: 'Timed' });
+  const times = getEntryTimes(entry);
+  assert.ok(times.created.length > 0);
+  assert.ok(times.modified.length > 0);
+  assert.equal(times.expires, false);
+  assert.ok(times.expiryTime.length > 0);
+
+  const bare = createElement('Entry');
+  assert.deepEqual(getEntryTimes(bare), {
+    created: '',
+    modified: '',
+    expires: false,
+    expiryTime: '',
+  });
+});
+
+test('setEntryExpiry updates Expires and, when given, ExpiryTime; an empty ExpiryTime leaves it as-is', () => {
+  const entry = createEntry({ title: 'Timed' });
+  const originalExpiry = getEntryTimes(entry).expiryTime;
+
+  setEntryExpiry(entry, true, '2030-06-15T12:00:00Z');
+  const updated = getEntryTimes(entry);
+  assert.equal(updated.expires, true);
+  assert.equal(updated.expiryTime, '2030-06-15T12:00:00Z');
+
+  // Flipping Expires off without a new ExpiryTime leaves the existing one.
+  setEntryExpiry(entry, false, '');
+  const after = getEntryTimes(entry);
+  assert.equal(after.expires, false);
+  assert.equal(after.expiryTime, '2030-06-15T12:00:00Z');
+  assert.notEqual(after.expiryTime, originalExpiry);
+});
+
+test('setEntryExpiry does nothing on an entry with no Times element, and skips missing Expires/ExpiryTime children', () => {
+  const bare = createElement('Entry');
+  setEntryExpiry(bare, true, '2030-01-01T00:00:00Z');
+  assert.equal(getChild(bare, 'Times'), undefined);
+
+  const partial = createElement('Entry');
+  appendChild(partial, createElement('Times'));
+  setEntryExpiry(partial, true, '2030-01-01T00:00:00Z');
+  const times = getChild(partial, 'Times') as XmlElement;
+  assert.equal(getChild(times, 'Expires'), undefined);
+  assert.equal(getChild(times, 'ExpiryTime'), undefined);
+});
+
+test('touchLastModified bumps LastModificationTime to now, and does nothing without a Times element', () => {
+  const entry = createEntry({ title: 'Timed' });
+  const times = getChild(entry, 'Times') as XmlElement;
+  const modEl = getChild(times, 'LastModificationTime') as XmlElement;
+  modEl.children = [{ type: 'text', value: '2000-01-01T00:00:00Z', cdata: false }];
+
+  touchLastModified(entry);
+  const updated = getEntryTimes(entry).modified;
+  assert.notEqual(updated, '2000-01-01T00:00:00Z');
+  assert.ok(updated.startsWith(String(new Date().getUTCFullYear())));
+
+  const bare = createElement('Entry');
+  touchLastModified(bare); // no Times element: must not throw
+  assert.equal(getChild(bare, 'Times'), undefined);
 });
 
 test('findOrCreateRecycleBin creates the bin once, under the root group, and reuses it after', () => {

@@ -29,12 +29,15 @@ import {
   getChild,
   getChildren,
   getEntryTags,
+  getEntryTimes,
   getText,
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setEntryExpiry,
   setEntryTags,
   setText,
+  touchLastModified,
 } from '../../packages/kdbx/src/index.ts';
 import * as logic from '../0x67/logic.ts';
 
@@ -99,6 +102,9 @@ Object.assign(globalThis, {
   isInRecycleBin,
   getEntryTags,
   setEntryTags,
+  getEntryTimes,
+  setEntryExpiry,
+  touchLastModified,
   ...logic,
 });
 

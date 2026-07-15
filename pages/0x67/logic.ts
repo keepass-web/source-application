@@ -249,3 +249,28 @@ export function generatePassword(options: PasswordGeneratorOptions): string {
   }
   return result;
 }
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Format an ISO-UTC timestamp for an `<input type="datetime-local">` value,
+ * in the browser's local time zone. */
+export function isoToLocalInputValue(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** Parse an `<input type="datetime-local">` value (a timezone-less string,
+ * which the Date constructor treats as local time) back to ISO-UTC. */
+export function localInputValueToIso(value: string): string {
+  return new Date(value).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** A sensible one-year-out default for a newly-enabled expiration, already
+ * formatted for a datetime-local input. */
+export function defaultExpiryLocalInputValue(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return isoToLocalInputValue(d.toISOString());
+}

@@ -10,6 +10,7 @@ import {
 import {
   applyEntryEdits,
   collectAllEntries,
+  defaultExpiryLocalInputValue,
   elementIconId,
   entryField,
   entryTitle,
@@ -20,7 +21,9 @@ import {
   groupPathTo,
   iconEmoji,
   isCustomField,
+  isoToLocalInputValue,
   isValidClipboardTimeout,
+  localInputValueToIso,
 } from '../0x67/logic.ts';
 
 const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -265,4 +268,21 @@ test('iconEmoji maps known IDs and falls back to a generic icon for unknown ones
   assert.equal(iconEmoji('0'), '🔑');
   assert.equal(iconEmoji('49'), '📁');
   assert.equal(iconEmoji('9999'), '❔');
+});
+
+test('isoToLocalInputValue / localInputValueToIso round-trip an ISO-UTC timestamp through datetime-local format', () => {
+  const iso = '2030-06-15T12:00:00Z';
+  const localValue = isoToLocalInputValue(iso);
+  assert.match(localValue, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  assert.equal(localInputValueToIso(localValue), iso);
+});
+
+test('defaultExpiryLocalInputValue is about one year from now, in datetime-local format', () => {
+  const value = defaultExpiryLocalInputValue();
+  assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+  const oneYearFromNow = new Date();
+  oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+  const diffMs = Math.abs(new Date(value).getTime() - oneYearFromNow.getTime());
+  assert.ok(diffMs < 60_000, 'should be within a minute of exactly one year from now');
 });

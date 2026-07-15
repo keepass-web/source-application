@@ -36,12 +36,16 @@ import {
   getChild,
   getChildren,
   getEntryTags,
+  getEntryTimes,
   getText,
   isInRecycleBin,
   Kdbx,
   setAttribute,
+  setEntryExpiry,
   setEntryTags,
   setText,
+  touchLastModified,
+  type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
 import type { generatePassword } from '../0x67/logic.ts';
 import * as logic from '../0x67/logic.ts';
@@ -140,6 +144,9 @@ Object.assign(globalThis, {
   isInRecycleBin,
   getEntryTags,
   setEntryTags,
+  getEntryTimes,
+  setEntryExpiry,
+  touchLastModified,
   ...logic,
 });
 
@@ -781,6 +788,47 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'setting an expiration shows on the detail screen, and unchecking disables the datetime input again',
+    () => {
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const expiresCheckbox = q<HTMLInputElement>('#edit-expires');
+      const expiryInput = q<HTMLInputElement>('#edit-expiry-time');
+      assert.equal(expiresCheckbox.checked, false);
+      assert.equal(expiryInput.disabled, true);
+
+      expiresCheckbox.checked = true;
+      dispatch(expiresCheckbox, 'change');
+      assert.equal(expiryInput.disabled, false);
+      assert.ok(expiryInput.value, 'checking Expires with no prior date fills in a default');
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.match(q<HTMLElement>('#detail-meta').textContent ?? '', /Expires/);
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+
+      // Re-entering edit reflects the saved state; unchecking disables the input again.
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLInputElement>('#edit-expires').checked, true);
+      assert.equal(q<HTMLInputElement>('#edit-expiry-time').disabled, false);
+      const expiryInputAgain = q<HTMLInputElement>('#edit-expiry-time');
+      const savedValue = expiryInputAgain.value;
+      q<HTMLInputElement>('#edit-expires').checked = false;
+      dispatch(q<HTMLInputElement>('#edit-expires'), 'change');
+      assert.equal(expiryInputAgain.disabled, true);
+
+      // Re-checking with a date already present (retained from before, just
+      // disabled) must not clobber it with a fresh default.
+      q<HTMLInputElement>('#edit-expires').checked = true;
+      dispatch(q<HTMLInputElement>('#edit-expires'), 'change');
+      assert.equal(expiryInputAgain.value, savedValue);
+
+      q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
+    },
+  );
+
   await t.test('editing an existing entry (not new) cancels back to the detail screen', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'Edit Entry');
@@ -1156,6 +1204,56 @@ test('create-database: a non-Error rejection shows a fallback message, and a bla
   assert.equal(receivedName, 'Database');
 
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
+test('an entry with Expires=True but no ExpiryTime, and no CreationTime either (a malformed/external file), shows no Expires line, a dash for Created, and an empty enabled datetime input', async () => {
+  // Real KeePass always writes these Times fields, but this app must not
+  // choke on a file where that's not true — same rationale as the "URL
+  // Only" malformed-<String> fixture in buildTestDatabase() above.
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  const entry = createEntry({ title: 'Expires No Time' });
+  const times = getChild(entry, 'Times') as XmlElement;
+  setText(getChild(times, 'Expires') as XmlElement, 'True');
+  times.children = times.children.filter(
+    (c) => !(c.type === 'element' && (c.name === 'ExpiryTime' || c.name === 'CreationTime')),
+  );
+  appendChild(rootGroup, entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('expiry-edge-case.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const meta = q<HTMLElement>('#detail-meta').textContent ?? '';
+  assert.doesNotMatch(meta, /Expires/);
+  assert.match(meta, /Created —/);
+
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(q<HTMLInputElement>('#edit-expires').checked, true);
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').value, '');
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').disabled, false);
+
+  // Leave the app back on the upload screen, which the next test assumes.
+  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
 test('must() throws when a screen template is missing an element it depends on', async () => {

@@ -142,6 +142,7 @@
       </header>
       <div class="detail-body">
         <h1 id="detail-title" class="detail-title">Entry</h1>
+        <div id="detail-meta" class="detail-meta"></div>
         <div id="detail-tags" class="tag-chips"></div>
         <div id="detail-fields" class="detail-fields"></div>
       </div>
@@ -163,6 +164,13 @@
         <div class="field">
           <label for="edit-tags">Tags <span class="optional">(comma or semicolon separated)</span></label>
           <input type="text" id="edit-tags" autocomplete="off" placeholder="Work, Personal">
+        </div>
+        <div class="field expiry-field">
+          <label class="expiry-toggle">
+            <input type="checkbox" id="edit-expires">
+            Expires
+          </label>
+          <input type="datetime-local" id="edit-expiry-time" disabled>
         </div>
         <div id="edit-fields" class="edit-fields"></div>
         <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>

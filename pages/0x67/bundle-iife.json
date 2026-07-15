@@ -45,6 +45,9 @@
     "isInRecycleBin",
     "getEntryTags",
     "setEntryTags",
+    "getEntryTimes",
+    "setEntryExpiry",
+    "touchLastModified",
 
     "entryField",
     "entryTitle",
@@ -59,6 +62,9 @@
     "generatePassword",
     "elementIconId",
     "iconEmoji",
-    "ICON_PALETTE"
+    "ICON_PALETTE",
+    "isoToLocalInputValue",
+    "localInputValueToIso",
+    "defaultExpiryLocalInputValue"
   ]
 }

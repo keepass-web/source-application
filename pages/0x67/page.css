@@ -179,7 +179,8 @@ body:not(.app-mode) {
 .field input[type="text"],
 .field input[type="password"],
 .field input[type="number"],
-.field input[type="search"] {
+.field input[type="search"],
+.field input[type="datetime-local"] {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -187,6 +188,25 @@ body:not(.app-mode) {
   font-size: 0.9rem;
   padding: 0.5rem 0.75rem;
   width: 100%;
+}
+
+.field input[type="datetime-local"]:disabled {
+  opacity: 0.5;
+}
+
+.expiry-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.expiry-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .field input:focus {
@@ -552,6 +572,12 @@ body:not(.app-mode) .screen-detail {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.detail-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 1rem;
 }
 
 .tag-chips {

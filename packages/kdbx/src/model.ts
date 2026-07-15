@@ -275,6 +275,57 @@ export function setEntryTags(entry: XmlElement, tags: string[]): void {
   }
 }
 
+/** An entry's Times, as plain data — ISO-UTC timestamps, KeePass's own
+ * on-disk format. Fields are `''`/`false` when the Times element (or a
+ * field within it) is missing, e.g. from a hand-built or malformed entry. */
+export interface EntryTimes {
+  created: string;
+  modified: string;
+  expires: boolean;
+  expiryTime: string;
+}
+
+export function getEntryTimes(entry: XmlElement): EntryTimes {
+  const times = getChild(entry, 'Times');
+  const read = (name: string): string => {
+    const field = times && getChild(times, name);
+    return field ? getText(field) : '';
+  };
+  return {
+    created: read('CreationTime'),
+    modified: read('LastModificationTime'),
+    expires: read('Expires') === 'True',
+    expiryTime: read('ExpiryTime'),
+  };
+}
+
+/**
+ * Update an entry's expiration. `expiryTimeIso`, if given, replaces
+ * ExpiryTime; an empty string leaves the existing ExpiryTime untouched
+ * (e.g. when the caller only means to flip Expires off). Does nothing on an
+ * entry with no Times element at all.
+ */
+export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void {
+  const times = getChild(entry, 'Times');
+  if (!times) return;
+
+  const expiresEl = getChild(times, 'Expires');
+  if (expiresEl) setText(expiresEl, expires ? 'True' : 'False');
+
+  if (expiryTimeIso) {
+    const expiryTimeEl = getChild(times, 'ExpiryTime');
+    if (expiryTimeEl) setText(expiryTimeEl, expiryTimeIso);
+  }
+}
+
+/** Bump an entry's LastModificationTime to now — real KeePass does this on
+ * every edit; this app's own applyEntryEdits() only ever touched fields. */
+export function touchLastModified(entry: XmlElement): void {
+  const times = getChild(entry, 'Times');
+  const modEl = times && getChild(times, 'LastModificationTime');
+  if (modEl) setText(modEl, kx_nowIso());
+}
+
 /** Build a `<Group>` element with the given name. */
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');

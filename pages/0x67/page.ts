@@ -434,12 +434,26 @@ function wireEntryListEvents(): void {
 // Screen: Entry Detail
 // ============================================================
 
+function formatDateTime(iso: string): string {
+  return iso ? new Date(iso).toLocaleString() : '—';
+}
+
 function showEntryDetail(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-detail'));
 
   const entry = must(app.currentEntry);
   qs('#detail-title').textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
+
+  const times = getEntryTimes(entry);
+  const metaParts = [
+    `Created ${formatDateTime(times.created)}`,
+    `Modified ${formatDateTime(times.modified)}`,
+  ];
+  if (times.expires && times.expiryTime) {
+    metaParts.push(`Expires ${formatDateTime(times.expiryTime)}`);
+  }
+  qs('#detail-meta').textContent = metaParts.join(' · ');
 
   const tagsEl = qs('#detail-tags');
   for (const tag of getEntryTags(entry)) {
@@ -602,6 +616,24 @@ function showEntryEdit(isNew: boolean): void {
 
   qs<HTMLInputElement>('#edit-tags').value = getEntryTags(entry).join(', ');
 
+  const expiresCheckbox = qs<HTMLInputElement>('#edit-expires');
+  const expiryInput = qs<HTMLInputElement>('#edit-expiry-time');
+  const times = getEntryTimes(entry);
+  // ExpiryTime is always populated from creation (kx_createTimes()' own
+  // default), even on an entry that has never actually expired — only show
+  // it when Expires is genuinely on, so an old entry doesn't silently
+  // prefill a stale, possibly past, date the moment the box is checked.
+  expiresCheckbox.checked = times.expires;
+  expiryInput.disabled = !times.expires;
+  expiryInput.value =
+    times.expires && times.expiryTime ? isoToLocalInputValue(times.expiryTime) : '';
+  expiresCheckbox.addEventListener('change', () => {
+    expiryInput.disabled = !expiresCheckbox.checked;
+    if (expiresCheckbox.checked && !expiryInput.value) {
+      expiryInput.value = defaultExpiryLocalInputValue();
+    }
+  });
+
   const fieldsEl = qs('#edit-fields');
 
   for (const string of getChildren(entry, 'String')) {
@@ -710,6 +742,15 @@ function commitEdits(entry: XmlElement, fieldsEl: HTMLElement): void {
 
   const tagsInput = qs<HTMLInputElement>('#edit-tags');
   setEntryTags(entry, tagsInput.value.split(/[,;]/));
+
+  const expiresCheckbox = qs<HTMLInputElement>('#edit-expires');
+  const expiryInput = qs<HTMLInputElement>('#edit-expiry-time');
+  setEntryExpiry(
+    entry,
+    expiresCheckbox.checked,
+    expiryInput.value ? localInputValueToIso(expiryInput.value) : '',
+  );
+  touchLastModified(entry);
 
   app.dirty = true;
 
