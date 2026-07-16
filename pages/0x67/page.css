@@ -21,24 +21,28 @@
 }
 
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --surface-2: #21262d;
-  --border: #30363d;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --accent-dim: #1f3358;
-  --danger: #f85149;
-  --danger-dim: #3d1515;
-  --success: #3fb950;
-  --sidebar-width: 220px;
+  --bg: #eef2ef;
+  --surface: #ffffff;
+  --surface-2: #eaefec;
+  --border: #d8e2dc;
+  --text: #0e1714;
+  --muted: #5a6a62;
+  --accent: #0e7c5a;
+  --accent-dim: #eaf1ee;
+  --danger: #9a2b2b;
+  --danger-dim: #f2dada;
+  --danger-border: #e6c2c2;
+  --warning: #8a5a1e;
+  --warning-bg: #fbf0e7;
+  --warning-border: #ead7c2;
+  --success: #0e7c5a;
+  --sidebar-width: 210px;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: ui-monospace, monospace;
   font-size: 15px;
   line-height: 1.5;
   min-height: 100vh;
@@ -79,11 +83,44 @@ body:not(.app-mode) {
    ============================================================ */
 
 .wordmark {
+  display: inline-flex;
+  align-items: center;
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.mark {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin-right: 0.45rem;
+  flex-shrink: 0;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 2.5px;
+  width: 11px;
+  height: 9px;
+  border: 2.25px solid var(--accent);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 16px;
+  height: 10px;
+  background: var(--accent);
+  border-radius: 3px;
 }
 
 .btn {
@@ -93,7 +130,7 @@ body:not(.app-mode) {
   gap: 0.4rem;
   padding: 0.45rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -128,7 +165,7 @@ body:not(.app-mode) {
 
 .btn-danger {
   background: var(--danger-dim);
-  border-color: var(--danger);
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
@@ -193,7 +230,7 @@ body:not(.app-mode) {
 .field input[type="datetime-local"] {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   font-size: 0.9rem;
   padding: 0.5rem 0.75rem;
@@ -231,8 +268,8 @@ body:not(.app-mode) {
 
 .error-msg {
   background: var(--danger-dim);
-  border: 1px solid var(--danger);
-  border-radius: 6px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
   color: var(--danger);
   font-size: 0.875rem;
   margin-bottom: 1rem;
@@ -261,7 +298,7 @@ body:not(.app-mode) {
 
 .drop-zone {
   border: 2px dashed var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 3rem 2rem;
   width: 100%;
   cursor: pointer;
@@ -317,7 +354,7 @@ body:not(.app-mode) {
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .password-field-wrap:focus-within {
@@ -344,7 +381,7 @@ body:not(.app-mode) {
   gap: 0.75rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   font-size: 0.875rem;
@@ -383,7 +420,7 @@ body:not(.app-mode) {
 .search-input {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   font-size: 0.875rem;
   padding: 0.4rem 0.75rem;
@@ -673,7 +710,7 @@ body:not(.app-mode) .screen-detail {
   gap: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.5rem 0.75rem;
 }
 
@@ -746,7 +783,7 @@ body:not(.app-mode) .screen-edit {
   gap: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.4rem 0.5rem;
 }
 
@@ -813,7 +850,7 @@ body:not(.app-mode) .screen-edit {
   gap: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.4rem 0.5rem;
 }
 
@@ -852,7 +889,7 @@ input.attachment-name:focus {
   gap: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.4rem 0.5rem;
 }
 
@@ -869,7 +906,7 @@ input.attachment-name:focus {
   align-self: flex-start;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 1.5rem;
   line-height: 1;
@@ -890,7 +927,7 @@ input.attachment-name:focus {
 .icon-grid-btn {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 1.4rem;
   line-height: 1;
@@ -912,6 +949,7 @@ input.attachment-name:focus {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   color: var(--text);
   min-width: 340px;
   max-width: 480px;
@@ -920,7 +958,7 @@ input.attachment-name:focus {
 }
 
 .kw-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(14, 23, 20, 0.45);
 }
 
 .dialog-header {
@@ -962,7 +1000,12 @@ input.attachment-name:focus {
 }
 
 .warning-text {
-  color: var(--danger);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  color: var(--warning);
+  padding: 0.65rem 0.85rem;
+  line-height: 1.5;
 }
 
 .dialog-body .field {
@@ -972,7 +1015,7 @@ input.attachment-name:focus {
 .dialog-body .field input {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   font-size: 0.9rem;
   padding: 0.5rem 0.75rem;
@@ -995,7 +1038,7 @@ input.attachment-name:focus {
 .generator-preview {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.6rem 0.75rem;
   font-family: monospace;
   font-size: 1rem;
