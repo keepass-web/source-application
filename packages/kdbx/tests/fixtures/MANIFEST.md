@@ -59,26 +59,10 @@ source repository except where noted below.
 | `kdbx_keyfile64.kdbx` + `keyfile64` | — | password `123` + 64-char hex keyfile | Hex-64 keyfile branch |
 | `issue-27/bogus-timestamp2.kdbx` | KDBX 3.1 | password `passwordless` | Real bug report: malformed/edge-case timestamp handling |
 | `issue-38/Database.kdbx` + `.keyx` | — | password `MyPassword` + XML keyfile v2 (hex) | Real bug report: V2 (hex) keyfile handling |
-| `kdbx_hash_test.kdbx` + `kdbx_hash_test.keyx` | — | password `123` + XML keyfile v2 with a valid `Data Hash` checksum | v2 keyfile integrity hash: correct-hash case |
-| `kdbx_hash_test.kdbx` + `kdbx_hash_test_wrong_hash.keyx` | — | password `123` + XML keyfile v2 with a **deliberately wrong** `Data Hash` | v2 keyfile integrity hash: tampered-hash case — see [tracked gap](#v2-keyfile-integrity-hash-not-yet-verified) below |
-
-### v2 keyfile integrity hash not yet verified
-
-A KeePass v2 XML keyfile's `<Data Hash="XXXXXXXX">` attribute is the first 4
-bytes of SHA-256 of the raw 32-byte key, hex-encoded, used to detect a
-corrupted/tampered keyfile independent of whether the resulting composite
-key happens to open the database. Verified against `kdbx_hash_test.keyx`:
-SHA-256 of its hex-decoded `<Data>` is `1ca151ae…`, matching `Hash="1CA151AE"`.
-
-This library's `keyFileComponent()` in [`credentials.ts`][credentials] parses
-the hex `<Data>` but never checks that hash. A tampered keyfile still fails
-safely today — it produces the wrong composite key, which the outer HMAC
-(4.x) or stream-start-bytes (3.1) check catches on load — so there's no
-security gap, just a less specific error than "keyfile is corrupt." Tracked
-as a follow-up task rather than fixed as part of this corpus work.
+| `kdbx_hash_test.kdbx` + `kdbx_hash_test.keyx` | — | password `123` + XML keyfile v2 with a valid `Data Hash` checksum | XML keyfile v2 checksum verification |
+| `kdbx_hash_test.kdbx` + `kdbx_hash_test_wrong_hash.keyx` | — | password `123` + XML keyfile v2 with a wrong `Data Hash` | A tampered XML keyfile v2 checksum is rejected |
 
 [spec]: ../../SPEC.md
-[credentials]: ../../src/credentials.ts
 [keepass-rs]: https://github.com/sseemayer/keepass-rs
 [keepass-rs-commit]: https://github.com/sseemayer/keepass-rs/tree/8c7640790a7c2be491dcf8adece36eeb9620b203
 [keepass-rs-license]: keepass-rs/LICENSE
