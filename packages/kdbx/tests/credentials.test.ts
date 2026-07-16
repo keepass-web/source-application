@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { toBase64, utf8Encode } from '../src/bytes.ts';
+import { toBase64, toHex, utf8Encode } from '../src/bytes.ts';
+import { sha256 } from '../src/crypto.ts';
 import { Credentials, keyFileComponent } from '../src/index.ts';
 
 test('rejects credentials with neither a password nor a key file', () => {
@@ -54,10 +55,26 @@ test('keyFileComponent: a disallowed control byte also falls back to SHA-256', a
   assert.equal(component.length, 32);
 });
 
-test('keyFileComponent: KeePass 2.x XML key file (hex data) is parsed', async () => {
+test('keyFileComponent: KeePass 2.x XML key file (hex data, valid checksum) is parsed', async () => {
   const rawKey = new Uint8Array(32).map((_, i) => (i * 3 + 1) & 0xff);
   const hex = Array.from(rawKey, (b) => b.toString(16).padStart(2, '0')).join('');
-  const xml = `<KeyFile><Meta><Version>2.0</Version></Meta><Key><Data Hash="abc">${hex}</Data></Key></KeyFile>`;
+  const hash = toHex((await sha256(rawKey)).slice(0, 4));
+  const xml = `<KeyFile><Meta><Version>2.0</Version></Meta><Key><Data Hash="${hash}">${hex}</Data></Key></KeyFile>`;
+  const component = await keyFileComponent(utf8Encode(xml));
+  assert.deepEqual(component, rawKey);
+});
+
+test('keyFileComponent: KeePass 2.x XML key file with a mismatched checksum is rejected', async () => {
+  const rawKey = new Uint8Array(32).map((_, i) => (i * 7 + 3) & 0xff);
+  const hex = Array.from(rawKey, (b) => b.toString(16).padStart(2, '0')).join('');
+  const xml = `<KeyFile><Meta><Version>2.0</Version></Meta><Key><Data Hash="deadbeef">${hex}</Data></Key></KeyFile>`;
+  await assert.rejects(keyFileComponent(utf8Encode(xml)), /checksum mismatch/);
+});
+
+test('keyFileComponent: KeePass 2.x XML key file without a Hash attribute skips the checksum check', async () => {
+  const rawKey = new Uint8Array(32).map((_, i) => (i * 11 + 5) & 0xff);
+  const hex = Array.from(rawKey, (b) => b.toString(16).padStart(2, '0')).join('');
+  const xml = `<KeyFile><Meta><Version>2.0</Version></Meta><Key><Data>${hex}</Data></Key></KeyFile>`;
   const component = await keyFileComponent(utf8Encode(xml));
   assert.deepEqual(component, rawKey);
 });

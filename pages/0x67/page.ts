@@ -603,9 +603,7 @@ function showEntryDetail(): void {
   }
 
   const db = must(app.db);
-  if (db.header.version.major !== 3) {
-    renderDetailAttachments(db, entry, qs('#detail-attachments'));
-  }
+  renderDetailAttachments(db, entry, qs('#detail-attachments'));
   renderDetailHistory(db, entry, qs('#detail-history'));
 
   qs('[data-action="back"]').addEventListener('click', () => {
@@ -876,23 +874,18 @@ function showEntryEdit(isNew: boolean): void {
   });
 
   const db = must(app.db);
-  if (db.header.version.major === 3) {
-    qs('#edit-attachments-section').hidden = true;
-    qs('#edit-attachments-unsupported').hidden = false;
-  } else {
-    const attachmentsList = qs('#edit-attachments');
+  const attachmentsList = qs('#edit-attachments');
+  renderEditAttachments(entry, attachmentsList);
+  qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const data = new Uint8Array(await file.arrayBuffer());
+    const ref = db.addBinary(data);
+    addEntryAttachment(entry, file.name, ref);
     renderEditAttachments(entry, attachmentsList);
-    qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
-      const input = e.target as HTMLInputElement;
-      const file = input.files?.[0];
-      if (!file) return;
-      const data = new Uint8Array(await file.arrayBuffer());
-      const ref = db.addBinary(data);
-      addEntryAttachment(entry, file.name, ref);
-      renderEditAttachments(entry, attachmentsList);
-      input.value = '';
-    });
-  }
+    input.value = '';
+  });
 
   qs('[data-action="cancel"]').addEventListener('click', () => {
     if (isNew) {

@@ -7,7 +7,7 @@
  * Windows DPAPI component are out of scope here.)
  */
 
-import { concatBytes, fromBase64, fromHex, utf8Encode } from './bytes.ts';
+import { concatBytes, fromBase64, fromHex, toHex, utf8Encode } from './bytes.ts';
 import { sha256 } from './crypto.ts';
 
 /** Inputs accepted when constructing {@link Credentials}. */
@@ -54,7 +54,7 @@ const KX_HEX_64 = /^[0-9a-fA-F]{64}$/;
 
 /** Derive the 32-byte key-file component, mirroring KeePass's detection order. */
 export async function keyFileComponent(bytes: Uint8Array): Promise<Uint8Array> {
-  const xmlKey = kx_tryParseXmlKeyFile(bytes);
+  const xmlKey = await kx_tryParseXmlKeyFile(bytes);
   if (xmlKey !== undefined) {
     return xmlKey;
   }
@@ -78,23 +78,41 @@ function kx_tryDecodeAscii(bytes: Uint8Array): string | undefined {
 }
 
 /**
- * Parse a KeePass XML key file. Version 2.x stores the key as hex (with an
- * integrity hash); version 1.x stores 32 bytes as Base64. Returns `undefined`
- * if the bytes are not an XML key file.
+ * Parse a KeePass XML key file. Version 2.x stores the key as hex, and its
+ * `<Data Hash="…">` attribute holds the first 4 bytes of SHA-256 of that key
+ * (a corruption check, independent of whether the key opens any database);
+ * version 1.x stores 32 bytes as Base64 with no such check. Returns
+ * `undefined` if the bytes are not an XML key file.
  */
-function kx_tryParseXmlKeyFile(bytes: Uint8Array): Uint8Array | undefined {
+async function kx_tryParseXmlKeyFile(bytes: Uint8Array): Promise<Uint8Array | undefined> {
   const text = kx_tryDecodeUtf8(bytes);
   if (text === undefined || !text.includes('<KeyFile')) {
     return undefined;
   }
-  const dataMatch = text.match(/<Data\b[^>]*>([\s\S]*?)<\/Data>/);
-  if (!dataMatch?.[1]) {
+  const dataMatch = text.match(/<Data\b([^>]*)>([\s\S]*?)<\/Data>/);
+  if (!dataMatch?.[2]) {
     return undefined;
   }
-  const data = dataMatch[1].replace(/\s+/g, '');
+  const data = dataMatch[2].replace(/\s+/g, '');
   const versionMatch = text.match(/<Version>\s*([^<]+?)\s*<\/Version>/);
   const version = versionMatch?.[1] ?? '1.0';
-  return version.startsWith('2') ? fromHex(data) : fromBase64(data);
+  if (!version.startsWith('2')) {
+    return fromBase64(data);
+  }
+
+  const key = fromHex(data);
+  // dataMatch[1] is the <Data ...> tag's attribute text, always captured
+  // (possibly empty) whenever dataMatch[2] matched; the cast only satisfies
+  // noUncheckedIndexedAccess.
+  const hashMatch = (dataMatch[1] as string).match(/\bHash="([0-9a-fA-F]+)"/);
+  if (hashMatch?.[1] !== undefined) {
+    const expectedHash = hashMatch[1].toLowerCase();
+    const actualHash = toHex((await sha256(key)).slice(0, 4));
+    if (actualHash !== expectedHash) {
+      throw new Error('key file is corrupt (checksum mismatch)');
+    }
+  }
+  return key;
 }
 
 function kx_tryDecodeUtf8(bytes: Uint8Array): string | undefined {

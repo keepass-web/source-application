@@ -974,8 +974,6 @@ test('0x67 app', async (t) => {
     'attachments can be added, shown on both edit and detail screens, renamed, downloaded, and removed',
     async () => {
       q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), false);
-      assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), true);
       assert.equal(q('#edit-attachments').children.length, 0);
 
       const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
@@ -1613,7 +1611,7 @@ test('an entry with Expires=True but no ExpiryTime, and no CreationTime either (
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
-test('attachments are hidden with a note on KDBX 3.1 files', async () => {
+test('attachments can be added, shown, and survive save/reload on KDBX 3.1 files', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, { version: 3, aesKdfRounds: 1000n });
   appendChild(kdbx.getRootGroup(), createEntry({ title: 'V3 Entry' }));
@@ -1635,12 +1633,25 @@ test('attachments are hidden with a note on KDBX 3.1 files', async () => {
   assert.equal(q('#detail-attachments').children.length, 0);
 
   q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-  assert.equal(q('#edit-attachments-section').hasAttribute('hidden'), true);
-  assert.equal(q('#edit-attachments-unsupported').hasAttribute('hidden'), false);
+  const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+  setFiles(attachmentInput, [makeFile('v3-notes.txt', new TextEncoder().encode('hello 3.1'))]);
+  dispatch(attachmentInput, 'change');
+  await waitFor(() => q('#edit-attachments').children.length === 1);
+  assert.equal(q<HTMLInputElement>('.attachment-name').value, 'v3-notes.txt');
 
-  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const detailRow = q('#detail-attachments .attachment-row');
+  assert.ok(detailRow, 'the attachment shows on the detail screen too');
+  assert.equal(detailRow.querySelector('.attachment-name')?.textContent, 'v3-notes.txt');
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {

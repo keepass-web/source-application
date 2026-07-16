@@ -22,6 +22,7 @@
     "kdbx/src/inner-header.js",
     "kdbx/src/kdf.js",
     "kdbx/src/model.js",
+    "kdbx/src/meta-binaries.js",
     "kdbx/src/kdbx.js",
 
     "../pages/0x67/logic.js",

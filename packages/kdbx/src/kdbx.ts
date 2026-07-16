@@ -48,6 +48,12 @@ import {
 import { aesKdf, transformWithKdfParameters } from './kdf.ts';
 import { deriveCipherKey, deriveHeaderHmacKey, deriveHmacBaseKey } from './key.ts';
 import {
+  readMetaBinaries,
+  remapEntryBinaryRefs,
+  removeMetaBinariesElement,
+  writeMetaBinaries,
+} from './meta-binaries.ts';
+import {
   applyInboundProtection,
   applyOutboundProtection,
   cloneElement,
@@ -56,6 +62,7 @@ import {
   getChild,
   getChildren,
   setAttribute,
+  walkAllEntries,
 } from './model.ts';
 import { createProtectedStreamCipher } from './protected-stream.ts';
 import type { VariantDictionary, VdValue } from './variant-dictionary.ts';
@@ -166,7 +173,11 @@ export class Kdbx {
   header: OuterHeader;
   /** The `<KeePassFile>` document root, with protected fields held as plaintext. */
   root: XmlElement;
-  /** Binary attachments (KDBX 4.x inner header). */
+  /**
+   * Binary attachments. Read from / written to the encrypted inner header
+   * (KDBX 4.x) or `Meta/Binaries` (KDBX 3.1) — see meta-binaries.ts. Either
+   * way, Ref values in the XML always address this pool by array index.
+   */
   binaries: InnerBinary[];
 
   #credentials: Credentials;
@@ -210,8 +221,7 @@ export class Kdbx {
    * (by content) rather than growing the pool without bound. Returns the
    * pool index — reference it from an entry via a
    * `<Binary><Value Ref="N"/></Binary>` child (see model.ts's
-   * addEntryAttachment). KDBX 4.x only: 3.1 stores binaries differently
-   * (Meta/Binaries in the XML), which this library doesn't support.
+   * addEntryAttachment).
    */
   addBinary(data: Uint8Array): number {
     for (let i = 0; i < this.binaries.length; i++) {
@@ -230,27 +240,23 @@ export class Kdbx {
 
   /**
    * Remove any binary pool entries no longer referenced by any entry's
-   * `<Binary>` child, and remap the survivors' Ref indices to stay
-   * contiguous. Called on every save; a no-op for KDBX 3.1, whose pool is
-   * always empty.
+   * `<Binary>` child — including History revisions, not just an entry's
+   * live state — and remap the survivors' Ref indices to stay contiguous.
+   * Called on every save; a no-op when the pool is already empty.
    */
   #pruneUnreferencedBinaries(): void {
     if (this.binaries.length === 0) return;
 
     const refs: Array<{ valueEl: XmlElement; oldRef: number }> = [];
-    const walk = (group: XmlElement): void => {
-      for (const entry of getChildren(group, 'Entry')) {
-        for (const binaryEl of getChildren(entry, 'Binary')) {
-          const valueEl = getChild(binaryEl, 'Value');
-          const refText = valueEl && getAttribute(valueEl, 'Ref');
-          if (valueEl && refText !== undefined) {
-            refs.push({ valueEl, oldRef: Number.parseInt(refText, 10) });
-          }
+    walkAllEntries(this.getRootGroup(), (entry) => {
+      for (const binaryEl of getChildren(entry, 'Binary')) {
+        const valueEl = getChild(binaryEl, 'Value');
+        const refText = valueEl && getAttribute(valueEl, 'Ref');
+        if (valueEl && refText !== undefined) {
+          refs.push({ valueEl, oldRef: Number.parseInt(refText, 10) });
         }
       }
-      for (const sub of getChildren(group, 'Group')) walk(sub);
-    };
-    walk(this.getRootGroup());
+    });
 
     const remap = new Map<number, number>();
     const kept: InnerBinary[] = [];
@@ -357,6 +363,10 @@ export class Kdbx {
     }
 
     const root = parseXml(utf8Decode(payload));
+    const { binaries, idToIndex } = await readMetaBinaries(root);
+    remapEntryBinaryRefs(root, idToIndex);
+    removeMetaBinariesElement(root);
+
     if (!header.protectedStreamKey) {
       throw new Error('KDBX 3.1 header is missing the protected stream key');
     }
@@ -367,7 +377,7 @@ export class Kdbx {
     return new Kdbx({
       header,
       root,
-      binaries: [],
+      binaries,
       credentials,
       innerStreamId: streamId,
       innerStreamKey: header.protectedStreamKey,
@@ -431,6 +441,8 @@ export class Kdbx {
   }
 
   async #save3(): Promise<Uint8Array> {
+    this.#pruneUnreferencedBinaries();
+
     const header = this.header;
     header.masterSeed = getRandomBytes(32);
     header.transformSeed = getRandomBytes(32);
@@ -446,6 +458,7 @@ export class Kdbx {
       header.protectedStreamKey,
     );
     const clonedRoot = cloneElement(this.root);
+    writeMetaBinaries(clonedRoot, this.binaries);
     applyOutboundProtection(clonedRoot, cipher);
     let xmlBytes = utf8Encode(serializeXml(clonedRoot));
     if (header.compression === Compression.GZip) {

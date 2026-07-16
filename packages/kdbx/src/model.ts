@@ -326,6 +326,24 @@ export function touchLastModified(entry: XmlElement): void {
   if (modEl) setText(modEl, kx_nowIso());
 }
 
+/**
+ * Visit every `<Entry>` under `group` — direct children of every
+ * (sub)group, plus each entry's own `History` revisions — in that order.
+ * Used wherever a binary attachment `Ref` needs to be found across the
+ * whole database, not just its live (non-history) entries.
+ */
+export function walkAllEntries(group: XmlElement, visit: (entry: XmlElement) => void): void {
+  for (const entry of getChildren(group, 'Entry')) {
+    visit(entry);
+    for (const historyEntry of getEntryHistory(entry)) {
+      visit(historyEntry);
+    }
+  }
+  for (const sub of getChildren(group, 'Group')) {
+    walkAllEntries(sub, visit);
+  }
+}
+
 /** An entry's attachment: a name paired with a Kdbx#binaries pool index. */
 export interface EntryAttachment {
   name: string;
@@ -334,8 +352,10 @@ export interface EntryAttachment {
 
 /**
  * An entry's attachments, from its `<Binary>` children
- * (`<Binary><Key>name</Key><Value Ref="N"/></Binary>`). KDBX 4.x only —
- * see {@link Kdbx.addBinary} in kdbx.ts.
+ * (`<Binary><Key>name</Key><Value Ref="N"/></Binary>`). `Ref` addresses
+ * Kdbx#binaries by pool index for both KDBX 3.1 and 4.x — see
+ * {@link Kdbx.addBinary} in kdbx.ts and meta-binaries.ts for how 3.1's
+ * on-disk `Meta/Binaries` IDs get mapped to that index on load.
  */
 export function getEntryAttachments(entry: XmlElement): EntryAttachment[] {
   const out: EntryAttachment[] = [];
