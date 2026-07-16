@@ -72,3 +72,14 @@ export function isSaveMessage(data: unknown): data is SaveMessage {
     rec.type === 'kw-save' && typeof rec.filename === 'string' && rec.bytes instanceof ArrayBuffer
   );
 }
+
+/** True if `data` is the embedded app's "safe to remove me now" reply to a
+ * `kw-close-request` — either nothing was unsaved, or the user chose to
+ * discard it. */
+export function isCloseAckMessage(data: unknown): boolean {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    (data as Record<string, unknown>).type === 'kw-close-ack'
+  );
+}

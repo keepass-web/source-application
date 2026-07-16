@@ -76,6 +76,9 @@ let currentFile: DriveFile | null = null;
 let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
 let pickerApiLoaded = false;
 let tokenClient: TokenClient | null = null;
+// Set while waiting for the embedded app to ack a kw-close-request, so
+// handleFrameMessage knows what to run once it's safe to tear the iframe down.
+let pendingClose: (() => void) | null = null;
 // Cached so the GIS script loads at most once, and concurrent callers share it.
 let gisReady: Promise<void> | null = null;
 
@@ -264,15 +267,31 @@ function showHost(file: DriveFile, bytes: ArrayBuffer): void {
   setRoot(cloneTemplate('tpl-host'));
   qs('#host-filename').textContent = file.name;
   qs('[data-action="back-to-drive"]').addEventListener('click', () => {
-    window.removeEventListener('message', handleFrameMessage);
-    currentFile = null;
-    pendingOpen = null;
-    showChooser();
+    requestCloseIframe(() => {
+      window.removeEventListener('message', handleFrameMessage);
+      currentFile = null;
+      pendingOpen = null;
+      showChooser();
+    });
   });
   window.addEventListener('message', handleFrameMessage);
   // Setting src last means the iframe's script (and its kw-ready handshake)
   // can't fire before the listener above is attached.
   qs<HTMLIFrameElement>('#app-frame').src = '0x67.html';
+}
+
+/** Ask the embedded app whether it's safe to remove the iframe — it may have
+ * unsaved edits, in which case it shows its own discard-confirmation dialog
+ * and only acks if the user agrees. `afterClose` runs once that ack arrives
+ * (see handleFrameMessage's isCloseAckMessage branch); if the user cancels,
+ * no ack ever comes and nothing happens, exactly like cancelling the same
+ * dialog standalone. */
+function requestCloseIframe(afterClose: () => void): void {
+  pendingClose = afterClose;
+  must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(
+    { type: 'kw-close-request' },
+    APP_ORIGIN,
+  );
 }
 
 function handleFrameMessage(event: MessageEvent): void {
@@ -286,6 +305,10 @@ function handleFrameMessage(event: MessageEvent): void {
     source.postMessage({ type: 'kw-open', filename: open.filename, bytes: open.bytes }, APP_ORIGIN);
   } else if (isSaveMessage(event.data)) {
     void saveToDrive(event.data.bytes, source);
+  } else if (isCloseAckMessage(event.data)) {
+    const afterClose = pendingClose;
+    pendingClose = null;
+    afterClose?.();
   }
 }
 

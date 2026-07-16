@@ -295,4 +295,35 @@ test('0x67 embedded in a host frame', async (t) => {
       assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Save failed.');
     },
   );
+
+  await t.test('kw-close-request acks immediately when nothing is dirty', () => {
+    // The last write-back above failed, but it was a retry of an edit already
+    // saved successfully earlier in this walkthrough — nothing new since then.
+    const before = hostInbox.length;
+    sendFromHost({ type: 'kw-close-request' });
+    assert.equal(hostInbox.length, before + 1);
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+    assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
+  });
+
+  await t.test(
+    'kw-close-request with unsaved changes opens the confirm dialog; confirming acks the host',
+    () => {
+      // The walkthrough above left us on the entry-detail screen (commitEdits
+      // returns there); back to the list, where a fresh edit can be made.
+      click(q('[data-action="back"]'));
+      click(q('[data-action="add-entry"]'));
+
+      const before = hostInbox.length;
+      sendFromHost({ type: 'kw-close-request' });
+      assert.equal(hostInbox.length, before, 'no ack until the user decides');
+      const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+      assert.equal(dlg.open, true);
+
+      click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+      assert.equal(dlg.open, false);
+      assert.equal(hostInbox.length, before + 1);
+      assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+    },
+  );
 });

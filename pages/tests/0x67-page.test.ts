@@ -1482,6 +1482,48 @@ test('closing with unsaved changes prompts to discard, and confirming discards t
   assert.ok(q('#drop-zone'), 'confirming discard returns to the upload screen');
 });
 
+test('beforeunload is only blocked while there are unsaved edits', async () => {
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('beforeunload-test.kdbx', dbBytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const fireBeforeUnload = (): Event => dispatch(dom.window, 'beforeunload');
+
+  assert.equal(
+    fireBeforeUnload().defaultPrevented,
+    false,
+    'nothing unsaved yet, so the tab may close freely',
+  );
+
+  q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  assert.equal(fireBeforeUnload().defaultPrevented, true, 'an unsaved edit blocks the unload');
+
+  // Return to the entry list (the close button lives in its header, not the
+  // entry-edit screen add-entry leaves us on — same recovery as the test
+  // above), then discard, leaving the app back on the upload screen as every
+  // other test here expects.
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  assert.ok(q('#drop-zone'));
+});
+
 // ============================================================
 // Edge cases: closing genuinely reachable defensive branches
 // ============================================================
