@@ -1078,6 +1078,14 @@ input.attachment-name:focus {
    layout's justify-content:center)
    ============================================================ */
 
+.sponsor-cta {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  text-align: center;
+}
+
 footer {
   flex-shrink: 0;
   padding: 0.4rem 1rem;
@@ -1092,7 +1100,17 @@ footer a {
   text-decoration: none;
 }
 
+.sponsor-cta a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
 footer a:hover {
+  text-decoration: underline;
+}
+
+.sponsor-cta a:hover {
   text-decoration: underline;
 }
 
