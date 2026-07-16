@@ -11,9 +11,11 @@ import {
   getChild,
   getChildren,
   getEntryAttachments,
+  getEntryHistory,
   getText,
   Kdbx,
   type KdbxCreateOptions,
+  pushHistorySnapshot,
   removeEntryAttachment,
   renameEntryAttachment,
   setAttribute,
@@ -184,6 +186,45 @@ test('an attachment added, saved, and reloaded round-trips its name and bytes', 
   assert.equal(attachments.length, 1);
   assert.equal(attachments[0]?.name, 'notes.txt');
   assert.deepEqual(reloaded.getBinaryData(attachments[0]?.ref as number), data);
+});
+
+test('KDBX 3.1: an attachment added, saved, and reloaded round-trips its name and bytes', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 3 }));
+  const entry = createEntry({ title: 'Has an attachment' });
+  appendChild(kdbx.getRootGroup(), entry);
+
+  const data = new TextEncoder().encode('hello 3.1 attachment');
+  const ref = kdbx.addBinary(data);
+  addEntryAttachment(entry, 'notes.txt', ref);
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  assert.equal(reloaded.header.version.major, 3);
+  const attachments = getEntryAttachments(firstEntry(reloaded));
+  assert.equal(attachments.length, 1);
+  assert.equal(attachments[0]?.name, 'notes.txt');
+  assert.deepEqual(reloaded.getBinaryData(attachments[0]?.ref as number), data);
+});
+
+test('KDBX 3.1: an attachment referenced only from a History revision survives a save/reload', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 3 }));
+  const entry = createEntry({ title: 'v1' });
+  appendChild(kdbx.getRootGroup(), entry);
+
+  const data = new TextEncoder().encode('archived attachment');
+  const ref = kdbx.addBinary(data);
+  addEntryAttachment(entry, 'old.txt', ref);
+  pushHistorySnapshot(kdbx.root, entry);
+  // The live entry no longer references the attachment; only its History does.
+  removeEntryAttachment(entry, 'old.txt');
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  const reloadedEntry = firstEntry(reloaded);
+  assert.equal(getEntryAttachments(reloadedEntry).length, 0);
+  const historyAttachments = getEntryAttachments(getEntryHistory(reloadedEntry)[0] as XmlElement);
+  assert.equal(historyAttachments.length, 1);
+  assert.deepEqual(reloaded.getBinaryData(historyAttachments[0]?.ref as number), data);
 });
 
 test('renameEntryAttachment renames the matching attachment and leaves others alone; a missing name is a no-op', () => {
