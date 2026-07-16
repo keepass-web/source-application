@@ -160,6 +160,13 @@ h1 {
   align-items: center;
 }
 
+.sponsor-cta {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  text-align: center;
+}
+
 a {
   color: var(--accent);
   text-decoration: none;
@@ -167,6 +174,10 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+.sponsor-cta a {
+  font-weight: 600;
 }
 
 footer {
