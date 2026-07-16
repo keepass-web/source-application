@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import {
   buildDriveDownloadUrl,
   buildDriveUpdateUrl,
+  isCloseAckMessage,
   isReadyMessage,
   isSaveMessage,
   must,
@@ -50,4 +51,11 @@ test('isSaveMessage requires a filename string and ArrayBuffer bytes', () => {
   assert.equal(isSaveMessage('x'), false);
   assert.equal(isSaveMessage({ type: 'kw-save', filename: 1, bytes: new ArrayBuffer(2) }), false);
   assert.equal(isSaveMessage({ type: 'kw-save', filename: 'a', bytes: 'no' }), false);
+});
+
+test('isCloseAckMessage recognises the close acknowledgement', () => {
+  assert.equal(isCloseAckMessage({ type: 'kw-close-ack' }), true);
+  assert.equal(isCloseAckMessage(null), false);
+  assert.equal(isCloseAckMessage(42), false);
+  assert.equal(isCloseAckMessage({ type: 'nope' }), false);
 });

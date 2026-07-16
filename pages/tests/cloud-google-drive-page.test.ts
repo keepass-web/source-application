@@ -343,16 +343,30 @@ test('Google Drive connector', async (t) => {
     });
   });
 
-  await t.test('a frame message after the iframe is gone is ignored', () => {
-    q<HTMLIFrameElement>('#app-frame').remove();
-    sendMessage({ type: 'kw-ready' }, { source: frameWin });
-    assert.equal(frameInbox.length, 4, 'nothing more posted');
+  await t.test('a stray kw-close-ack with nothing pending is a harmless no-op', () => {
+    const before = frameInbox.length;
+    sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
+    assert.equal(frameInbox.length, before, 'nothing posted back');
+    assert.ok(q('#app-frame'), 'still showing the host screen');
   });
 
-  await t.test('back to Drive returns to the chooser, and sign-out returns to sign-in', () => {
+  await t.test('back to Drive asks the app first, and only leaves once it acks', () => {
     click(q('[data-action="back-to-drive"]'));
-    assert.ok(q('[data-action="pick"]'));
+    assert.ok(q('#app-frame'), 'still on the host screen — waiting for the app to confirm');
+    const req = frameInbox.at(-1)?.message;
+    assert.equal(req?.type, 'kw-close-request');
 
+    sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
+    assert.ok(q('[data-action="pick"]'), 'now back at the chooser');
+  });
+
+  await t.test('a frame message after back to Drive completed is ignored', () => {
+    const before = frameInbox.length;
+    sendMessage({ type: 'kw-ready' }, { source: frameWin });
+    assert.equal(frameInbox.length, before, 'nothing more posted — the iframe is gone');
+  });
+
+  await t.test('sign-out returns to sign-in', () => {
     click(q('[data-action="signout"]'));
     assert.ok(q('[data-action="signin"]'));
   });

@@ -1434,11 +1434,13 @@ function openMoveToDialog(
 // it a vault to open and receive the edited vault back, without the app
 // reimplementing any of its own file handling.
 //
-// The protocol is four same-origin postMessage types:
+// The protocol is six same-origin postMessage types:
 //   app  → host : { type: 'kw-ready' }                     app booted, send a vault
 //   host → app  : { type: 'kw-open', filename, bytes }     open this vault (bytes: ArrayBuffer)
 //   app  → host : { type: 'kw-save', filename, bytes }     user saved; please persist (bytes: ArrayBuffer)
 //   host → app  : { type: 'kw-saved', ok, error? }         result of that persist
+//   host → app  : { type: 'kw-close-request' }             host wants to remove this iframe; may I?
+//   app  → host : { type: 'kw-close-ack' }                 yes — nothing unsaved, or the user chose to discard
 //
 // Every inbound message is checked to come from the parent frame at this
 // page's own origin; anything else is ignored. Nothing here runs unless the
@@ -1473,6 +1475,8 @@ function handleHostMessage(event: MessageEvent): void {
     showUnlock();
   } else if (data.type === 'kw-saved') {
     notifyHostSaveResult(data.ok === true, typeof data.error === 'string' ? data.error : undefined);
+  } else if (data.type === 'kw-close-request') {
+    confirmDiscardIfDirty(() => postToHost({ type: 'kw-close-ack' }));
   }
 }
 
@@ -1513,5 +1517,14 @@ if (isEmbedded()) {
   // host only sends once the listener above is definitely attached.
   postToHost({ type: 'kw-ready' });
 }
+
+// Closing the tab, reloading, or navigating away with unsaved edits would
+// otherwise discard them with no warning — there's no autosave to fall back
+// on. This is the browser's own native prompt, not a custom dialog.
+window.addEventListener('beforeunload', (e) => {
+  if (!app.dirty) return;
+  e.preventDefault();
+  e.returnValue = true;
+});
 
 showUpload();
