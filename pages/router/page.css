@@ -6,24 +6,34 @@
   padding: 0;
 }
 
+/* Elements with an explicit `display` (e.g. .btn's `display: inline-flex`)
+ * otherwise win the cascade over the UA stylesheet's `[hidden] { display:
+ * none }`, since both are same-specificity author-vs-UA rules and author
+ * always wins — so JS toggling `el.hidden` silently stops hiding anything
+ * once a class gives that element its own `display`. Force it back. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: this rule's entire job is to out-rank any other display declaration, by design */
+  display: none !important;
+}
+
 :root {
-  --bg: #0d1117;
-  --surface-2: #21262d;
-  --border: #30363d;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --accent-dim: #1f3358;
-  --danger: #f85149;
-  --danger-dim: #3d1515;
-  --success: #3fb950;
-  --success-dim: #103a1d;
+  --bg: #eef2ef;
+  --surface-2: #eaefec;
+  --border: #d8e2dc;
+  --text: #0e1714;
+  --muted: #5a6a62;
+  --accent: #0e7c5a;
+  --accent-dim: #eaf1ee;
+  --danger: #9a2b2b;
+  --danger-dim: #f2dada;
+  --success: #0e7c5a;
+  --success-dim: #eaf1ee;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: ui-monospace, monospace;
   font-size: 16px;
   line-height: 1.6;
   min-height: 100vh;
@@ -45,11 +55,44 @@ main {
 }
 
 .wordmark {
+  display: inline-flex;
+  align-items: center;
   font-size: 1.1rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 3px;
+  width: 12px;
+  height: 10px;
+  border: 2.5px solid var(--accent);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  height: 11px;
+  background: var(--accent);
+  border-radius: 3px;
 }
 
 h1 {

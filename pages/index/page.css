@@ -7,18 +7,18 @@
 }
 
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --border: #30363d;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #58a6ff;
+  --bg: #eef2ef;
+  --surface: #ffffff;
+  --border: #d8e2dc;
+  --text: #0e1714;
+  --muted: #5a6a62;
+  --accent: #0e7c5a;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: ui-monospace, monospace;
   font-size: 16px;
   line-height: 1.6;
   min-height: 100vh;
@@ -36,12 +36,45 @@ main {
 }
 
 .wordmark {
+  display: inline-flex;
+  align-items: center;
   font-size: 1.1rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 2rem;
+}
+
+.mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 3px;
+  width: 12px;
+  height: 10px;
+  border: 2.5px solid var(--accent);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  height: 11px;
+  background: var(--accent);
+  border-radius: 3px;
 }
 
 h1 {
