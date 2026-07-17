@@ -1294,6 +1294,14 @@ footer a:hover {
   text-decoration: underline;
 }
 
+/* Embedded in a host page (e.g. cloud-google-drive.html): the host already
+ * has its own footer around this iframe, so this document's copy would
+ * double it up — see the `body.embedded` toggle in page.ts's boot section. */
+body.embedded .sponsor-cta,
+body.embedded footer {
+  display: none;
+}
+
 /* ============================================================
    Printing (entry detail only — see data-action="print")
    ============================================================ */
