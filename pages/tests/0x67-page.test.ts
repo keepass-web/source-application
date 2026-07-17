@@ -284,6 +284,9 @@ test('0x67 app', async (t) => {
     assert.ok(q('#drop-zone'));
     assert.ok(q('#file-input'));
     assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
+    // Standalone (not embedded in a host frame) — the footer stays visible;
+    // see 0x67-host.test.ts for the embedded case.
+    assert.equal(dom.window.document.body.classList.contains('embedded'), false);
   });
 
   await t.test('dragover/dragleave toggle the drag-over class', () => {

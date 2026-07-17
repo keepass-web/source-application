@@ -1675,6 +1675,9 @@ function notifyHostSaveResult(ok: boolean, error?: string): void {
 // ============================================================
 
 if (isEmbedded()) {
+  // The host page (e.g. cloud-google-drive.html) has its own footer around
+  // this iframe — showing this document's copy too would double it up.
+  document.body.classList.add('embedded');
   window.addEventListener('message', handleHostMessage);
   // Announce readiness so the host knows it can send the vault. Handshaking
   // this way (rather than the host racing the iframe's load event) means the

@@ -197,6 +197,9 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(hostInbox[0]?.origin, 'https://example.com');
     // Still shows the normal upload screen underneath, untouched.
     assert.ok(q('#drop-zone'));
+    // The host page has its own footer around this iframe — this document's
+    // copy is suppressed via CSS keyed off this class (see page.css).
+    assert.ok(doc.body.classList.contains('embedded'));
   });
 
   await t.test('ignores messages that fail the origin/source/shape checks', () => {
