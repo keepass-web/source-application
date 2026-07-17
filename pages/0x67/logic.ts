@@ -31,6 +31,7 @@ import {
   createElement,
   getChild,
   getChildren,
+  getEntryAttachments,
   getEntryTags,
   getEntryTimes,
   getText,
@@ -207,6 +208,41 @@ export function sortEntries(
     .sort(
       (a, b) => entrySortKey(a.entry, field).localeCompare(entrySortKey(b.entry, field)) * sign,
     );
+}
+
+/** The entry-list table view's optional columns — Title is always shown and
+ * isn't part of this set. */
+export type EntryColumnKey =
+  | 'username'
+  | 'password'
+  | 'url'
+  | 'notes'
+  | 'attachments'
+  | 'modified'
+  | 'created';
+
+/** The raw (unformatted, unmasked) value of one table column. page.ts's table
+ * renderer formats dates and masks the password for display, but copies this
+ * value as-is on double-click — see its buildEntryTable. */
+export function entryColumnValue(entry: XmlElement, column: EntryColumnKey): string {
+  switch (column) {
+    case 'username':
+      return entryField(entry, 'UserName');
+    case 'password':
+      return entryField(entry, 'Password');
+    case 'url':
+      return entryField(entry, 'URL');
+    case 'notes':
+      return entryField(entry, 'Notes');
+    case 'attachments': {
+      const count = getEntryAttachments(entry).length;
+      return count > 0 ? String(count) : '';
+    }
+    case 'modified':
+      return getEntryTimes(entry).modified;
+    case 'created':
+      return getEntryTimes(entry).created;
+  }
 }
 
 function exportFields(entry: XmlElement, group: XmlElement): [string, string][] {

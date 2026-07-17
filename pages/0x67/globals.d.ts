@@ -135,6 +135,16 @@ declare function sortEntries(
 declare function toCsv(entries: EntryWithGroup[]): string;
 declare function toXml(entries: EntryWithGroup[]): string;
 
+type EntryColumnKey =
+  | 'username'
+  | 'password'
+  | 'url'
+  | 'notes'
+  | 'attachments'
+  | 'modified'
+  | 'created';
+declare function entryColumnValue(entry: XmlElement, column: EntryColumnKey): string;
+
 interface EditedField {
   key: string;
   value: string;

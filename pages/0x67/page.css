@@ -573,34 +573,171 @@ body:not(.app-mode) {
   padding: 0.25rem 0.4rem;
 }
 
+/* View toggle (tile / table) and the table view's column picker */
+
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.view-toggle-btn {
+  background: var(--surface);
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.view-toggle-btn + .view-toggle-btn {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.view-toggle-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.column-picker {
+  position: relative;
+}
+
+.column-picker-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  padding: 0.5rem;
+  min-width: 160px;
+  z-index: 10;
+}
+
+.column-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.column-picker-item:hover {
+  background: var(--surface-2);
+}
+
 .entry-list {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
+}
+
+/* Tile view: entry-row is the same element buildEntryRow has always built
+ * (click-to-open, non-interactive contents) — laid out here as a grid of
+ * cards instead of a stacked list. */
+
+.entry-list--tile {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  align-content: start;
+  gap: 0.75rem;
+  padding: 1rem;
 }
 
 .entry-row {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
+  padding: 1rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  text-align: center;
+  overflow: hidden;
+  transition:
+    border-color 0.1s,
+    box-shadow 0.1s;
 }
 
 .entry-row:hover {
-  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .entry-row-title {
-  font-weight: 500;
-  margin-bottom: 0.2rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entry-row-meta {
   font-size: 0.8rem;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entry-row-path {
   color: var(--accent);
+}
+
+/* Table view */
+
+.entry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.entry-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.entry-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.entry-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.entry-table-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.entry-table-protected {
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.15em;
+  color: var(--muted);
 }
 
 .entry-empty {

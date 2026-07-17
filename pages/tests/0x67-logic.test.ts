@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addEntryAttachment,
   appendChild,
   createElement,
   createEntry,
   createGroup,
   getChild,
+  getEntryTimes,
   setText,
   type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
@@ -14,6 +16,7 @@ import {
   collectAllEntries,
   defaultExpiryLocalInputValue,
   elementIconId,
+  entryColumnValue,
   entryField,
   entryTitle,
   filterEntriesByQuery,
@@ -254,6 +257,36 @@ test('sortEntries orders by LastModificationTime, and does not mutate the input 
     [older, newer],
     'the input array is untouched',
   );
+});
+
+test('entryColumnValue reads username/password/url/notes verbatim', () => {
+  const entry = createEntry({
+    title: 'GitHub',
+    username: 'octocat',
+    password: 'hunter2',
+    url: 'https://github.com',
+    notes: 'work account',
+  });
+  assert.equal(entryColumnValue(entry, 'username'), 'octocat');
+  assert.equal(entryColumnValue(entry, 'password'), 'hunter2');
+  assert.equal(entryColumnValue(entry, 'url'), 'https://github.com');
+  assert.equal(entryColumnValue(entry, 'notes'), 'work account');
+});
+
+test('entryColumnValue reports the attachment count as text, or "" when there are none', () => {
+  const entry = createEntry({ title: 'No attachments' });
+  assert.equal(entryColumnValue(entry, 'attachments'), '');
+  addEntryAttachment(entry, 'id.png', 0);
+  assert.equal(entryColumnValue(entry, 'attachments'), '1');
+  addEntryAttachment(entry, 'passport.pdf', 1);
+  assert.equal(entryColumnValue(entry, 'attachments'), '2');
+});
+
+test('entryColumnValue reads modified/created straight from entry times', () => {
+  const entry = createEntry({ title: 'Timed' });
+  const times = getEntryTimes(entry);
+  assert.equal(entryColumnValue(entry, 'modified'), times.modified);
+  assert.equal(entryColumnValue(entry, 'created'), times.created);
 });
 
 test('toCsv writes a header row, quotes fields only when needed, and joins tags with ";"', () => {

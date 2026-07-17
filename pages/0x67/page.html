@@ -120,6 +120,14 @@
           <div class="panel-header">
             <span id="panel-title" class="panel-title"></span>
             <div class="panel-header-actions">
+              <div class="view-toggle">
+                <button type="button" class="view-toggle-btn" data-action="view-tile" title="Tile view">▦</button>
+                <button type="button" class="view-toggle-btn" data-action="view-table" title="Table view">▤</button>
+              </div>
+              <div class="column-picker">
+                <button type="button" class="btn btn-secondary" id="column-picker-btn" data-action="toggle-columns" hidden>Columns</button>
+                <div id="column-picker-menu" class="column-picker-menu" hidden></div>
+              </div>
               <select id="sort-select" class="sort-select" title="Sort entries">
                 <option value="title:asc">Title (A–Z)</option>
                 <option value="title:desc">Title (Z–A)</option>
