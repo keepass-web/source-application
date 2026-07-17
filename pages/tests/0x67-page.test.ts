@@ -1883,6 +1883,163 @@ test('entry list sorting: by title, username, or modified time, in either direct
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
+test('entry list table view: default columns, masked password, column toggling, and click vs double-click', async (t) => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  appendChild(
+    rootGroup,
+    createEntry({
+      title: 'GitHub',
+      username: 'octocat',
+      password: 'hunter2',
+      url: 'https://github.com',
+      notes: 'work account',
+    }),
+  );
+  // No password: exercises entryColumnDisplayValue's "mask only when there's
+  // something to mask" branch (an unset password shows an empty cell, not a
+  // row of dots).
+  appendChild(rootGroup, createEntry({ title: 'No Password', username: 'bare' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('views.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  // Tile view is the default — the same entry-row grid every other test in
+  // this file exercises — and the table-only Columns button stays hidden.
+  assert.equal(root().querySelectorAll('.entry-row').length, 2);
+  assert.equal(q<HTMLButtonElement>('#column-picker-btn').hidden, true);
+
+  dispatch(q('[data-action="view-table"]'), 'click');
+  assert.equal(root().querySelectorAll('.entry-row').length, 0, 'tiles are gone');
+  assert.ok(q('.entry-table'), 'a table is rendered instead');
+  assert.equal(q<HTMLButtonElement>('#column-picker-btn').hidden, false);
+
+  const headerText = (): string[] =>
+    Array.from(root().querySelectorAll('.entry-table th')).map((th) => th.textContent ?? '');
+  assert.deepEqual(
+    headerText(),
+    ['Title', 'Username', 'Password', 'URL', 'Modified'],
+    'default visible columns',
+  );
+
+  const bodyCells = (): string[] =>
+    Array.from(root().querySelectorAll('.entry-table tbody td')).map((td) => td.textContent ?? '');
+  const [titleCell, usernameCell, passwordCell, urlCell] = bodyCells();
+  assert.ok(titleCell?.includes('GitHub'));
+  assert.equal(usernameCell, 'octocat');
+  assert.equal(passwordCell, '••••••••', 'password is masked on screen');
+  assert.equal(urlCell, 'https://github.com');
+
+  // An entry with no password at all shows an empty cell, not a row of dots.
+  const noPasswordRow = Array.from(root().querySelectorAll('.entry-table tbody tr')).find((tr) =>
+    tr.textContent?.includes('No Password'),
+  ) as HTMLElement;
+  assert.equal(noPasswordRow.querySelectorAll('td')[2]?.textContent, '');
+
+  // Turn on the Notes column via the picker.
+  dispatch(q('[data-action="toggle-columns"]'), 'click');
+  assert.equal(q<HTMLElement>('#column-picker-menu').hidden, false);
+  const notesCheckbox = Array.from(
+    root().querySelectorAll<HTMLInputElement>('.column-picker-item input'),
+  ).find((input) => input.closest('.column-picker-item')?.textContent?.trim() === 'Notes');
+  assert.ok(notesCheckbox, 'a Notes checkbox exists');
+  (notesCheckbox as HTMLInputElement).checked = true;
+  dispatch(notesCheckbox as HTMLInputElement, 'change');
+  assert.ok(headerText().includes('Notes'), 'Notes column now shown');
+  assert.ok(bodyCells().includes('work account'));
+
+  // A plain click on a row opens the entry, but only after a short delay —
+  // see openEntryDetailDelayed — so a real double-click has time to cancel it.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const row = q('.entry-table tbody tr') as HTMLElement;
+  dispatch(row, 'click');
+  assert.equal(q('#detail-title'), null, 'not yet — still within the delay window');
+  t.mock.timers.tick(250);
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
+
+  // Back to the entry list, table view, to exercise the double-click path.
+  dispatch(q('[data-action="back"]'), 'click');
+  dispatch(q('[data-action="view-table"]'), 'click');
+
+  clipboardWritesShouldFail = false;
+  const passwordTd = Array.from(root().querySelectorAll('.entry-table tbody td')).find(
+    (td) => td.textContent === '••••••••',
+  ) as HTMLElement;
+  dispatch(passwordTd, 'click');
+  dispatch(passwordTd, 'dblclick');
+  // The double-click's own handler cancels the pending single-click timer —
+  // advancing past its delay must not open the entry.
+  t.mock.timers.tick(250);
+  assert.equal(q('#detail-title'), null, 'the double-click cancelled the pending open');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(clipboardText, 'hunter2', 'the real password was copied, not the mask');
+
+  // Turn on Created and Attachments too — Created exercises the other half
+  // of entryColumnDisplayValue's date-formatting check, and Attachments (0,
+  // so an empty cell) exercises double-clicking a cell with nothing to copy.
+  dispatch(q('[data-action="toggle-columns"]'), 'click');
+  const checkboxFor = (label: string): HTMLInputElement =>
+    Array.from(root().querySelectorAll<HTMLInputElement>('.column-picker-item input')).find(
+      (input) => input.closest('.column-picker-item')?.textContent?.trim() === label,
+    ) as HTMLInputElement;
+  const createdCheckbox = checkboxFor('Created');
+  createdCheckbox.checked = true;
+  dispatch(createdCheckbox, 'change');
+  const attachmentsCheckbox = checkboxFor('Attachments');
+  attachmentsCheckbox.checked = true;
+  dispatch(attachmentsCheckbox, 'change');
+  assert.ok(headerText().includes('Created'));
+
+  // Double-clicking an empty cell — with no preceding click on it at all, so
+  // there's no pending open timer to cancel either — copies nothing.
+  const columnIndex = headerText().indexOf('Attachments');
+  const attachmentsTd = (q('.entry-table tbody tr') as HTMLElement).querySelectorAll('td')[
+    columnIndex
+  ] as HTMLElement;
+  assert.equal(attachmentsTd.textContent, '', 'no attachments on this entry');
+  dispatch(attachmentsTd, 'dblclick');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(
+    clipboardText,
+    'hunter2',
+    'still the last real copy — the empty cell copied nothing',
+  );
+
+  // Clicking the same row twice before the delay elapses reschedules rather
+  // than opening the entry twice.
+  const row2 = q('.entry-table tbody tr') as HTMLElement;
+  dispatch(row2, 'click');
+  dispatch(row2, 'click');
+  t.mock.timers.tick(250);
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
+  dispatch(q('[data-action="back"]'), 'click');
+
+  dispatch(q('[data-action="view-tile"]'), 'click');
+  assert.equal(root().querySelectorAll('.entry-row').length, 2);
+  assert.equal(root().querySelectorAll('.entry-table').length, 0);
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
 test('exporting entries as CSV or XML downloads an unencrypted plaintext file', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

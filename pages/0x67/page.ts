@@ -2,6 +2,8 @@
 // Application state
 // ============================================================
 
+type EntryView = 'tile' | 'table';
+
 interface AppState {
   file: ArrayBuffer | null;
   filename: string;
@@ -13,6 +15,8 @@ interface AppState {
   dirty: boolean; // unsaved edits exist
   sortField: EntrySortField;
   sortDir: EntrySortDirection;
+  entryView: EntryView;
+  columnVisibility: Record<EntryColumnKey, boolean>;
 }
 
 const app: AppState = {
@@ -26,6 +30,16 @@ const app: AppState = {
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
+  entryView: 'tile',
+  columnVisibility: {
+    username: true,
+    password: true,
+    url: true,
+    notes: false,
+    attachments: false,
+    modified: true,
+    created: false,
+  },
 };
 
 /** True once a trusted same-origin parent frame has handed this app a vault to
@@ -431,6 +445,8 @@ function renderEntryPanel(): void {
   const panelTitle = qs('#panel-title');
   const listEl = qs('#entry-list');
   listEl.innerHTML = '';
+  listEl.classList.toggle('entry-list--tile', app.entryView === 'tile');
+  listEl.classList.toggle('entry-list--table', app.entryView === 'table');
 
   let rows: EntryWithGroup[];
 
@@ -457,8 +473,12 @@ function renderEntryPanel(): void {
 
   rows = sortEntries(rows, app.sortField, app.sortDir);
 
-  for (const { entry, group } of rows) {
-    listEl.appendChild(buildEntryRow(entry, group));
+  if (app.entryView === 'table') {
+    listEl.appendChild(buildEntryTable(rows));
+  } else {
+    for (const { entry, group } of rows) {
+      listEl.appendChild(buildEntryRow(entry, group));
+    }
   }
 }
 
@@ -497,6 +517,130 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
   });
 
   return div;
+}
+
+// ============================================================
+// Entry list: table view
+// ============================================================
+
+const ENTRY_COLUMNS: ReadonlyArray<{ key: EntryColumnKey; label: string }> = [
+  { key: 'username', label: 'Username' },
+  { key: 'password', label: 'Password' },
+  { key: 'url', label: 'URL' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'attachments', label: 'Attachments' },
+  { key: 'modified', label: 'Modified' },
+  { key: 'created', label: 'Created' },
+];
+
+/** A column's display text: dates formatted, password masked. Unlike
+ * entryColumnValue (what a double-click copies), this is what the cell
+ * actually shows — see buildEntryTable. */
+function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): string {
+  const raw = entryColumnValue(entry, column);
+  if (column === 'password') return raw ? '••••••••' : '';
+  if (column === 'modified' || column === 'created') return formatDateTime(raw);
+  return raw;
+}
+
+/** A pending single-click-to-open, so a table row still opens its entry on a
+ * plain click — but a second click within the window is a double-click, and
+ * each cell's own dblclick handler cancels this timer first, so opening the
+ * entry never races ahead of the copy the double-click actually meant. */
+let entryRowOpenTimer: ReturnType<typeof setTimeout> | null = null;
+const ENTRY_ROW_OPEN_DELAY_MS = 250;
+
+function openEntryDetailDelayed(entry: XmlElement): void {
+  if (entryRowOpenTimer) clearTimeout(entryRowOpenTimer);
+  entryRowOpenTimer = setTimeout(() => {
+    entryRowOpenTimer = null;
+    app.currentEntry = entry;
+    showEntryDetail();
+  }, ENTRY_ROW_OPEN_DELAY_MS);
+}
+
+/** Double-clicking any cell copies that cell's value (the entry's title, or
+ * one of ENTRY_COLUMNS) instead of opening the entry. */
+function wireCopyOnDblClick(cell: HTMLTableCellElement, value: string): void {
+  cell.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    if (entryRowOpenTimer) {
+      clearTimeout(entryRowOpenTimer);
+      entryRowOpenTimer = null;
+    }
+    if (value) copyToClipboard(value);
+  });
+}
+
+function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
+  const table = document.createElement('table');
+  table.className = 'entry-table';
+
+  const visibleColumns = ENTRY_COLUMNS.filter((column) => app.columnVisibility[column.key]);
+
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  const titleTh = document.createElement('th');
+  titleTh.textContent = 'Title';
+  headRow.appendChild(titleTh);
+  for (const column of visibleColumns) {
+    const th = document.createElement('th');
+    th.textContent = column.label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const { entry } of rows) {
+    const tr = document.createElement('tr');
+
+    const titleTd = document.createElement('td');
+    titleTd.className = 'entry-table-title';
+    titleTd.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
+    wireCopyOnDblClick(titleTd, entryTitle(entry));
+    tr.appendChild(titleTd);
+
+    for (const column of visibleColumns) {
+      const td = document.createElement('td');
+      td.textContent = entryColumnDisplayValue(entry, column.key);
+      if (column.key === 'password') td.classList.add('entry-table-protected');
+      wireCopyOnDblClick(td, entryColumnValue(entry, column.key));
+      tr.appendChild(td);
+    }
+
+    tr.addEventListener('click', () => openEntryDetailDelayed(entry));
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
+  return table;
+}
+
+function buildColumnPickerMenu(): void {
+  const menu = qs('#column-picker-menu');
+  menu.innerHTML = '';
+  for (const column of ENTRY_COLUMNS) {
+    const label = document.createElement('label');
+    label.className = 'column-picker-item';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = app.columnVisibility[column.key];
+    checkbox.addEventListener('change', () => {
+      app.columnVisibility[column.key] = checkbox.checked;
+      renderEntryPanel();
+    });
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(` ${column.label}`));
+    menu.appendChild(label);
+  }
+}
+
+function updateViewToggleUI(): void {
+  qs('[data-action="view-tile"]').classList.toggle('active', app.entryView === 'tile');
+  qs('[data-action="view-table"]').classList.toggle('active', app.entryView === 'table');
+  qs<HTMLButtonElement>('#column-picker-btn').hidden = app.entryView !== 'table';
+  qs<HTMLElement>('#column-picker-menu').hidden = true;
 }
 
 function wireEntryListEvents(): void {
@@ -553,6 +697,26 @@ function wireEntryListEvents(): void {
   qs('[data-action="add-group"]').addEventListener('click', () => {
     openGroupDialog({ type: 'create', parent: must(app.currentGroup) }, () => showEntryList());
   });
+
+  qs('[data-action="view-tile"]').addEventListener('click', () => {
+    app.entryView = 'tile';
+    updateViewToggleUI();
+    renderEntryPanel();
+  });
+
+  qs('[data-action="view-table"]').addEventListener('click', () => {
+    app.entryView = 'table';
+    updateViewToggleUI();
+    renderEntryPanel();
+  });
+
+  qs('[data-action="toggle-columns"]').addEventListener('click', () => {
+    const menu = qs<HTMLElement>('#column-picker-menu');
+    menu.hidden = !menu.hidden;
+  });
+
+  buildColumnPickerMenu();
+  updateViewToggleUI();
 }
 
 // ============================================================
