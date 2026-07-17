@@ -33,13 +33,20 @@
   --success: #0e7c5a;
 }
 
+/* `height`, not `min-height`: the embedded-app screen's `.app-frame` iframe
+ * depends on `.screen-host { height: 100% }` resolving all the way up this
+ * chain, and a flex container only counts as having a "definite" size for
+ * that percentage-height resolution when its own size is definite — a
+ * `min-height` doesn't qualify, even though it still visually fills the
+ * viewport. Without this, the iframe collapses to the browser's ~150px
+ * default intrinsic height. */
 body {
   background: var(--bg);
   color: var(--text);
   font-family: ui-monospace, monospace;
   font-size: 15px;
+  height: 100vh;
   line-height: 1.5;
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
