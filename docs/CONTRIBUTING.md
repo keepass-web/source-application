@@ -22,9 +22,10 @@ npm run lint        # Biome, formatting and style
 npm run typecheck   # tsc --noEmit, across every package
 npm test            # every package's test suite
 npm run build       # produces dist/*.html, the same distributables a release ships
+npm run test:e2e --workspace=e2e   # real-browser tests against the dist/*.html just built
 ```
 
-All four are what CI runs on every push to `main` and pull request.
+All five are what CI runs on every push to `main` and pull request.
 
 ### Where things live
 
