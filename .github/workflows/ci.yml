@@ -120,7 +120,14 @@ jobs:
       - name: Build distributables
         run: npm run build
 
-      # Step 8 — Checksums
+      # Step 8 — End-to-end tests
+      # Real-browser coverage jsdom can't provide (no layout engine); runs
+      # against dist/*.html, not source. Calls the e2e workspace's script
+      # directly to avoid rebuilding dist/ a second time.
+      - name: End-to-end tests
+        run: npm run test:e2e --workspace=e2e
+
+      # Step 9 — Checksums
       # Surfaces each distributable's checksum in the workflow summary. For
       # tagged releases, these values are attached to the GitHub release as the
       # published checksums that third parties verify against.

@@ -284,8 +284,6 @@ test('0x67 app', async (t) => {
     assert.ok(q('#drop-zone'));
     assert.ok(q('#file-input'));
     assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
-    // Standalone (not embedded in a host frame) — the footer stays visible;
-    // see 0x67-host.test.ts for the embedded case.
     assert.equal(dom.window.document.body.classList.contains('embedded'), false);
   });
 
@@ -1906,9 +1904,6 @@ test('entry list table view: default columns, masked password, column toggling, 
       notes: 'work account',
     }),
   );
-  // No password: exercises entryColumnDisplayValue's "mask only when there's
-  // something to mask" branch (an unset password shows an empty cell, not a
-  // row of dots).
   appendChild(rootGroup, createEntry({ title: 'No Password', username: 'bare' }));
   const bytes = await kdbx.save();
 
@@ -1924,8 +1919,6 @@ test('entry list table view: default columns, masked password, column toggling, 
   dispatch(q('#unlock-form'), 'submit');
   await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
 
-  // Tile view is the default — the same entry-row grid every other test in
-  // this file exercises — and the table-only Columns button stays hidden.
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(q<HTMLButtonElement>('#column-picker-btn').hidden, true);
 
@@ -1950,13 +1943,15 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.equal(passwordCell, '••••••••', 'password is masked on screen');
   assert.equal(urlCell, 'https://github.com');
 
-  // An entry with no password at all shows an empty cell, not a row of dots.
   const noPasswordRow = Array.from(root().querySelectorAll('.entry-table tbody tr')).find((tr) =>
     tr.textContent?.includes('No Password'),
   ) as HTMLElement;
-  assert.equal(noPasswordRow.querySelectorAll('td')[2]?.textContent, '');
+  assert.equal(
+    noPasswordRow.querySelectorAll('td')[2]?.textContent,
+    '',
+    'empty, not a row of dots',
+  );
 
-  // Turn on the Notes column via the picker.
   dispatch(q('[data-action="toggle-columns"]'), 'click');
   assert.equal(q<HTMLElement>('#column-picker-menu').hidden, false);
   const notesCheckbox = Array.from(
@@ -1968,8 +1963,6 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.ok(headerText().includes('Notes'), 'Notes column now shown');
   assert.ok(bodyCells().includes('work account'));
 
-  // A plain click on a row opens the entry, but only after a short delay —
-  // see openEntryDetailDelayed — so a real double-click has time to cancel it.
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const row = q('.entry-table tbody tr') as HTMLElement;
   dispatch(row, 'click');

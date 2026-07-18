@@ -210,8 +210,7 @@ export function sortEntries(
     );
 }
 
-/** The entry-list table view's optional columns — Title is always shown and
- * isn't part of this set. */
+/** Optional table-view columns; Title is always shown and isn't one of these. */
 export type EntryColumnKey =
   | 'username'
   | 'password'
@@ -221,9 +220,8 @@ export type EntryColumnKey =
   | 'modified'
   | 'created';
 
-/** The raw (unformatted, unmasked) value of one table column. page.ts's table
- * renderer formats dates and masks the password for display, but copies this
- * value as-is on double-click — see its buildEntryTable. */
+/** Unformatted, unmasked — page.ts formats/masks for display but copies this
+ * on double-click. */
 export function entryColumnValue(entry: XmlElement, column: EntryColumnKey): string {
   switch (column) {
     case 'username':

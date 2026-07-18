@@ -643,9 +643,7 @@ body:not(.app-mode) {
   overflow: auto;
 }
 
-/* Tile view: entry-row is the same element buildEntryRow has always built
- * (click-to-open, non-interactive contents) — laid out here as a grid of
- * cards instead of a stacked list. */
+/* Tile view: same entry-row buildEntryRow always built, laid out as a grid. */
 
 .entry-list--tile {
   display: grid;
@@ -1092,6 +1090,9 @@ input.attachment-name:focus {
   max-width: 480px;
   width: 90vw;
   padding: 0;
+  /* The global margin:0 reset out-ranks the UA's dialog:modal margin:auto
+   * default (same author-beats-UA cascade as the [hidden] fix above). */
+  margin: auto;
 }
 
 .kw-dialog::backdrop {
@@ -1294,9 +1295,7 @@ footer a:hover {
   text-decoration: underline;
 }
 
-/* Embedded in a host page (e.g. cloud-google-drive.html): the host already
- * has its own footer around this iframe, so this document's copy would
- * double it up — see the `body.embedded` toggle in page.ts's boot section. */
+/* Embedded: the host page has its own footer, so hide this copy. */
 body.embedded .sponsor-cta,
 body.embedded footer {
   display: none;
