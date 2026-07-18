@@ -64,8 +64,8 @@ test('dropping a file on the router, then following its real "Open" link, boots 
   await passwordInput.type(fixture.password);
   await page.click('#unlock-btn');
 
-  await page.waitForSelector('.entry-row');
-  const titleText = await page.$eval('.entry-row-title', (el) => el.textContent);
+  await page.waitForSelector('.entry-table');
+  const titleText = await page.$eval('.entry-table-title', (el) => el.textContent);
   assert.ok(
     titleText?.includes(fixture.entryTitle),
     `unlocked vault shows the fixture entry, got "${titleText}"`,
