@@ -1092,6 +1092,12 @@ input.attachment-name:focus {
   max-width: 480px;
   width: 90vw;
   padding: 0;
+  /* The global `*, *::before, *::after { margin: 0 }` reset above is an
+   * author rule, so it silently out-ranks the UA stylesheet's own
+   * `dialog:modal { margin: auto }` default (same author-always-wins cascade
+   * rule as the [hidden] fix at the top of this file) — without this, the
+   * dialog renders pinned to the top-left corner instead of centered. */
+  margin: auto;
 }
 
 .kw-dialog::backdrop {
