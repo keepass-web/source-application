@@ -20,11 +20,12 @@
     "clean": "rm -rf build dist",
     "build:deps": "npm run build --workspace=argon2 --workspace=chacha20 --workspace=kdbx",
     "build": "npm run build:deps && npm run build --workspace=pages",
-    "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present && tsc --noEmit -p tools/serve-dist/tsconfig.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "npm run build:deps && npm run test --workspaces --if-present",
-    "test:e2e": "npm run build && npm run test:e2e --workspace=e2e"
+    "test:e2e": "npm run build && npm run test:e2e --workspace=e2e",
+    "serve": "npm run build && node --experimental-strip-types tools/serve-dist/index.ts"
   },
   "engines": {
     "node": ">=22.18.0"
