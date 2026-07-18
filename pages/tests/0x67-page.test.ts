@@ -419,6 +419,11 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
     assert.ok(q('#group-tree').querySelector('.group-btn'));
+    // Table view is the default.
+    assert.equal(root().querySelectorAll('.entry-table').length, 1);
+    // Switch to tile view, which the rest of this suite's entry-list
+    // assertions are written against.
+    dispatch(q('[data-action="view-tile"]'), 'click');
     // Root group is selected by default: four entries at the root.
     assert.equal(root().querySelectorAll('.entry-row').length, 4);
   });
@@ -1918,9 +1923,6 @@ test('entry list table view: default columns, masked password, column toggling, 
   await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
   dispatch(q('#unlock-form'), 'submit');
   await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
-
-  assert.equal(root().querySelectorAll('.entry-row').length, 2);
-  assert.equal(q<HTMLButtonElement>('#column-picker-btn').hidden, true);
 
   dispatch(q('[data-action="view-table"]'), 'click');
   assert.equal(root().querySelectorAll('.entry-row').length, 0, 'tiles are gone');

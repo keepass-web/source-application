@@ -30,7 +30,7 @@ const app: AppState = {
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
-  entryView: 'tile',
+  entryView: 'table',
   columnVisibility: {
     username: true,
     password: true,
@@ -173,8 +173,10 @@ function showUnlock(): void {
     showUpload();
   });
 
-  qs('[data-action="toggle-password"]').addEventListener('click', () => {
+  const togglePasswordBtn = qs('[data-action="toggle-password"]');
+  togglePasswordBtn.addEventListener('click', () => {
     passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+    togglePasswordBtn.textContent = passwordInput.type === 'password' ? '👁' : '🙈';
   });
 
   const keyfileInput = qs<HTMLInputElement>('#keyfile-input');
@@ -875,6 +877,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
     revealBtn.addEventListener('click', () => {
       revealed = !revealed;
       valueSpan.textContent = revealed ? value : '••••••••';
+      revealBtn.textContent = revealed ? '🙈' : '👁';
     });
     actions.appendChild(revealBtn);
   }
@@ -1134,6 +1137,7 @@ function buildEditField(
     toggle.textContent = '👁';
     toggle.addEventListener('click', () => {
       valueInput.type = valueInput.type === 'password' ? 'text' : 'password';
+      toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
     });
     row.appendChild(toggle);
   }
