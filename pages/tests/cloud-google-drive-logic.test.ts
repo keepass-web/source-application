@@ -12,6 +12,7 @@ import {
   buildDriveDownloadUrl,
   buildDriveUpdateUrl,
   isCloseAckMessage,
+  isCloseMessage,
   isReadyMessage,
   isSaveMessage,
   must,
@@ -58,4 +59,11 @@ test('isCloseAckMessage recognises the close acknowledgement', () => {
   assert.equal(isCloseAckMessage(null), false);
   assert.equal(isCloseAckMessage(42), false);
   assert.equal(isCloseAckMessage({ type: 'nope' }), false);
+});
+
+test('isCloseMessage recognises the app-initiated close', () => {
+  assert.equal(isCloseMessage({ type: 'kw-close' }), true);
+  assert.equal(isCloseMessage(null), false);
+  assert.equal(isCloseMessage(42), false);
+  assert.equal(isCloseMessage({ type: 'nope' }), false);
 });

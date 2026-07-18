@@ -377,4 +377,24 @@ test('Google Drive connector', async (t) => {
     await waitFor(() => requestCount > before);
     assert.equal(pendingScript('gsi/client'), null, 'no new GIS script was loaded');
   });
+
+  await t.test('an app-initiated close tears down the iframe without a round trip', async () => {
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok2' });
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(16),
+    });
+    await pick({ id: 'f2', name: 'vault2.kdbx' });
+    await waitFor(() => q('#app-frame') !== null);
+    Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+      value: frameWin,
+      configurable: true,
+    });
+
+    const before = frameInbox.length;
+    sendMessage({ type: 'kw-close' }, { source: frameWin });
+    assert.equal(frameInbox.length, before, 'no reply expected — the app already confirmed itself');
+    assert.ok(q('[data-action="pick"]'), 'back at the chooser, no request/ack round trip needed');
+  });
 });

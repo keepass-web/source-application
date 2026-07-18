@@ -28,6 +28,7 @@ declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
 declare function isReadyMessage(data: unknown): boolean;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isCloseAckMessage(data: unknown): boolean;
+declare function isCloseMessage(data: unknown): boolean;
 
 // --- Google SDKs (loaded at runtime from Google) ---
 // Declared loosely on purpose — these are foreign, remotely-loaded APIs, not
