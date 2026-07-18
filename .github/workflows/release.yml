@@ -110,6 +110,14 @@ jobs:
 
           printf '| `CNAME` | `sha256:%s` |\n' "$(sha256sum dist/CNAME | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
 
+      # Real-browser coverage jsdom can't provide (no layout engine); gates
+      # attestation/release/deploy. Calls the e2e workspace's script directly —
+      # the root `npm run test:e2e` would rebuild dist/ without this job's
+      # KEEPASS_WEB_COMMIT_DATE, mismatching what's actually released.
+      - name: End-to-end tests
+        if: steps.existing-release.outputs.exists != 'true'
+        run: npm run test:e2e --workspace=e2e
+
       # Independent from the release check above: attestation and release
       # creation are separate GitHub subsystems, not one atomic operation.
       # They're ordered attest-then-release in this job, so a *successful*
