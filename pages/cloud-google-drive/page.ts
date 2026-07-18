@@ -267,17 +267,19 @@ function showHost(file: DriveFile, bytes: ArrayBuffer): void {
   setRoot(cloneTemplate('tpl-host'));
   qs('#host-filename').textContent = file.name;
   qs('[data-action="back-to-drive"]').addEventListener('click', () => {
-    requestCloseIframe(() => {
-      window.removeEventListener('message', handleFrameMessage);
-      currentFile = null;
-      pendingOpen = null;
-      showChooser();
-    });
+    requestCloseIframe(tearDownIframe);
   });
   window.addEventListener('message', handleFrameMessage);
   // Setting src last means the iframe's script (and its kw-ready handshake)
   // can't fire before the listener above is attached.
   qs<HTMLIFrameElement>('#app-frame').src = '0x67.html';
+}
+
+function tearDownIframe(): void {
+  window.removeEventListener('message', handleFrameMessage);
+  currentFile = null;
+  pendingOpen = null;
+  showChooser();
 }
 
 /** Ask the embedded app whether it's safe to remove the iframe — it may have
@@ -309,6 +311,9 @@ function handleFrameMessage(event: MessageEvent): void {
     const afterClose = pendingClose;
     pendingClose = null;
     afterClose?.();
+  } else if (isCloseMessage(event.data)) {
+    // App-initiated (its own ✕ button) — no request/ack round-trip needed.
+    tearDownIframe();
   }
 }
 

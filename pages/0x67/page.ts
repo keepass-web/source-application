@@ -674,7 +674,11 @@ function wireEntryListEvents(): void {
         searchQuery: '',
         dirty: false,
       });
-      showUpload();
+      if (isEmbedded()) {
+        postToHost({ type: 'kw-close' });
+      } else {
+        showUpload();
+      }
     });
   });
 
@@ -1600,6 +1604,7 @@ function openMoveToDialog(
 //   host → app  : { type: 'kw-saved', ok, error? }         result of that persist
 //   host → app  : { type: 'kw-close-request' }             host wants to remove this iframe; may I?
 //   app  → host : { type: 'kw-close-ack' }                 yes — nothing unsaved, or the user chose to discard
+//   app  → host : { type: 'kw-close' }                     app's own ✕ was clicked; safe to remove me now
 //
 // Every inbound message is checked to come from the parent frame at this
 // page's own origin; anything else is ignored. Nothing here runs unless the

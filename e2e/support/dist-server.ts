@@ -15,7 +15,9 @@ export interface DistServer {
   close(): Promise<void>;
 }
 
-export function startDistServer(dir: string): Promise<DistServer> {
+/** `port` defaults to 0 (an OS-assigned free port, what the e2e suite wants
+ * for isolation); pass a fixed port for a long-running, addressable server. */
+export function startDistServer(dir: string, port = 0): Promise<DistServer> {
   return new Promise((resolve, reject) => {
     const server: Server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -36,7 +38,7 @@ export function startDistServer(dir: string): Promise<DistServer> {
     });
 
     server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const address = server.address();
       if (address === null || typeof address === 'string') {
         reject(new Error('dist server: could not determine listening port'));

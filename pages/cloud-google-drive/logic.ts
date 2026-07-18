@@ -83,3 +83,14 @@ export function isCloseAckMessage(data: unknown): boolean {
     (data as Record<string, unknown>).type === 'kw-close-ack'
   );
 }
+
+/** True if `data` is the embedded app's own "the user closed me" message —
+ * unprompted, unlike kw-close-ack, since the app already ran its own
+ * discard-confirmation before sending it. */
+export function isCloseMessage(data: unknown): boolean {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    (data as Record<string, unknown>).type === 'kw-close'
+  );
+}

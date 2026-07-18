@@ -327,4 +327,22 @@ test('0x67 embedded in a host frame', async (t) => {
       assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
     },
   );
+
+  await t.test("the app's own close button sends kw-close, unprompted by the host", () => {
+    // The prior test left the unsaved add-entry draft open (its own
+    // confirm-discard was for the host's kw-close-request, which doesn't
+    // navigate away) — cancel it to get back to the entry list. Cancelling a
+    // new entry doesn't clear app.dirty, so this still exercises the
+    // confirm-discard path below, same as standalone.
+    click(q('[data-action="cancel"]'));
+
+    const before = hostInbox.length;
+    click(q('[data-action="close"]'));
+    const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+    assert.equal(dlg.open, true);
+    click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+
+    assert.equal(hostInbox.length, before + 1);
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
+  });
 });
