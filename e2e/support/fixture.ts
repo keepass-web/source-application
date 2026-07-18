@@ -1,16 +1,12 @@
-/**
- * Builds a small, real KDBX v4 database and writes it to a temp file, for
- * tests that need to drive a real file input — Puppeteer's uploadFile()
- * needs a path on disk, not raw bytes.
- */
+/** Writes a real KDBX v4 file to disk — Puppeteer's uploadFile() needs a
+ * real path, not raw bytes. */
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendChild, Credentials, createEntry, Kdbx } from '../../packages/kdbx/src/index.ts';
 
-// Same fast KDF settings the jsdom suite uses (see pages/tests/*.test.ts and
-// packages/kdbx/tests) — this is a throwaway fixture, not a security-relevant
-// artifact, so there's no reason for it to pay real Argon2id cost.
+// Fast KDF settings (matches pages/tests/*.test.ts) — a throwaway fixture,
+// no reason to pay real Argon2id cost.
 const FAST_ARGON2 = { memoryBytes: 64n * 1024n, iterations: 1n, parallelism: 1 } as const;
 
 export interface KdbxFixture {

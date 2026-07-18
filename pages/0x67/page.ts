@@ -533,9 +533,8 @@ const ENTRY_COLUMNS: ReadonlyArray<{ key: EntryColumnKey; label: string }> = [
   { key: 'created', label: 'Created' },
 ];
 
-/** A column's display text: dates formatted, password masked. Unlike
- * entryColumnValue (what a double-click copies), this is what the cell
- * actually shows — see buildEntryTable. */
+/** Display text: dates formatted, password masked. entryColumnValue itself
+ * (unmasked) is what a double-click copies — see buildEntryTable. */
 function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): string {
   const raw = entryColumnValue(entry, column);
   if (column === 'password') return raw ? '••••••••' : '';
@@ -543,10 +542,8 @@ function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): str
   return raw;
 }
 
-/** A pending single-click-to-open, so a table row still opens its entry on a
- * plain click — but a second click within the window is a double-click, and
- * each cell's own dblclick handler cancels this timer first, so opening the
- * entry never races ahead of the copy the double-click actually meant. */
+// Delays opening a row so a second click (a double-click) has time to cancel
+// it via wireCopyOnDblClick, rather than racing ahead of the copy.
 let entryRowOpenTimer: ReturnType<typeof setTimeout> | null = null;
 const ENTRY_ROW_OPEN_DELAY_MS = 250;
 
@@ -559,8 +556,6 @@ function openEntryDetailDelayed(entry: XmlElement): void {
   }, ENTRY_ROW_OPEN_DELAY_MS);
 }
 
-/** Double-clicking any cell copies that cell's value (the entry's title, or
- * one of ENTRY_COLUMNS) instead of opening the entry. */
 function wireCopyOnDblClick(cell: HTMLTableCellElement, value: string): void {
   cell.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -1675,9 +1670,7 @@ function notifyHostSaveResult(ok: boolean, error?: string): void {
 // ============================================================
 
 if (isEmbedded()) {
-  // The host page (e.g. cloud-google-drive.html) has its own footer around
-  // this iframe — showing this document's copy too would double it up.
-  document.body.classList.add('embedded');
+  document.body.classList.add('embedded'); // the host page has its own footer
   window.addEventListener('message', handleHostMessage);
   // Announce readiness so the host knows it can send the vault. Handshaking
   // this way (rather than the host racing the iframe's load event) means the

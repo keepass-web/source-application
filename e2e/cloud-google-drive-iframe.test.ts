@@ -1,18 +1,7 @@
-/**
- * Regression coverage for two real-browser-only bugs jsdom's suite structurally
- * cannot see (jsdom has no layout engine): the embedded 0x67 iframe collapsing
- * to Chrome's small intrinsic default height instead of filling its container,
- * and the iframe's own footer doubling up with the host page's. Both were
- * found by hand against a real browser this session; this makes that manual
- * check permanent and automatic.
- *
- * Reaches the embedded-app screen the same way the manual check did — cloning
- * tpl-host into #root and pointing the iframe straight at 0x67.html — rather
- * than through the real Google sign-in/picker flow, which needs live OAuth
- * credentials this suite deliberately doesn't have. Stubbing that flow (via a
- * page.evaluateOnNewDocument init script, mirroring how the jsdom suite hoists
- * fake globals before importing page.ts) is future work, not needed here.
- */
+/** Regression coverage for the iframe-collapse and double-footer bugs — both
+ * invisible to jsdom, which has no layout engine. Reaches the embedded-app
+ * screen by cloning tpl-host directly rather than the real OAuth flow, which
+ * needs live credentials this suite doesn't have. */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -32,9 +21,7 @@ before(async () => {
   browser = await puppeteer.launch({
     executablePath: resolveChromePath(),
     ...resolveLaunchOptions(),
-    // Harmless on a normal machine; some CI containers need it even for a
-    // non-root user, depending on the runner's sandbox/cgroup setup.
-    args: ['--no-sandbox'],
+    args: ['--no-sandbox'], // some CI containers need this even for non-root
   });
   page = await browser.newPage();
 });
@@ -60,16 +47,10 @@ test('embedded 0x67 iframe fills its container, and its own footer stays hidden'
   assert.ok(iframeElement, 'the embedded app iframe renders');
   const iframeFrame = await iframeElement.contentFrame();
   assert.ok(iframeFrame, 'the iframe has a content frame');
-  // Wait for the embedded document to actually render its own screen, not
-  // just start loading — its mark/wordmark is present on every screen.
-  await iframeFrame.waitForSelector('.wordmark');
+  await iframeFrame.waitForSelector('.wordmark'); // confirms it actually rendered, not just started loading
 
-  // --- Height: the iframe should fill essentially all vertical space left
-  // over once every sibling that claims its own fixed space is accounted
-  // for — the host-header above it (inside #root), and the outer page's own
-  // sponsor-cta/footer below it (outside #root, per page.css's flex-shrink:0
-  // siblings). Not collapse to a browser's small intrinsic default — see
-  // cloud-google-drive/page.css's `body { height: 100vh }` fix.
+  // Should fill the space left over after every fixed-size sibling, not
+  // collapse to Chrome's small intrinsic default.
   const { frameHeight, availableHeight } = await page.evaluate(() => {
     const iframe = document.getElementById('app-frame') as HTMLIFrameElement;
     const header = document.querySelector('.host-header') as HTMLElement;
@@ -84,17 +65,13 @@ test('embedded 0x67 iframe fills its container, and its own footer stays hidden'
       availableHeight: window.innerHeight - claimedByOthers,
     };
   });
-  // A couple of pixels of slack for sub-pixel layout rounding — not for the
-  // ~110px+ gap the collapsed-iframe bug actually produced.
+  // Slack is for sub-pixel rounding, not the ~110px+ gap the bug produced.
   assert.ok(
     Math.abs(frameHeight - availableHeight) < 3,
     `iframe height (${frameHeight}px) should fill the space left over after ` +
       `the header/sponsor-cta/footer (${availableHeight}px), not collapse`,
   );
 
-  // --- Footer: the outer host page keeps its own footer visible; the
-  // embedded document's own copy must be hidden (body.embedded in
-  // 0x67/page.ts + page.css), not doubled up alongside it.
   const outerFooterVisible = await page.evaluate(() => {
     const footer = document.querySelector('footer');
     return footer !== null && footer.getBoundingClientRect().height > 0;

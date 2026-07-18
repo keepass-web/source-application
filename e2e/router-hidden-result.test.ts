@@ -1,15 +1,7 @@
-/**
- * Regression coverage for a real-browser-only bug jsdom's suite structurally
- * cannot see: on load, router.html's #result panel carries the `hidden`
- * attribute, but `.result { display: flex }` used to out-rank the browser's
- * default `[hidden] { display: none }` rule (same-specificity author-vs-UA,
- * author wins), so it rendered visible anyway despite the attribute being
- * set correctly. jsdom doesn't apply CSS at all, so a test asserting on the
- * `hidden` *attribute* (as pages/tests/router-page.test.ts does) can't see
- * this — only a real layout engine can. Fixed by an explicit
- * `[hidden] { display: none !important }` rule; this is that fix's
- * regression test.
- */
+/** Regression test: `.result { display: flex }` used to out-rank the
+ * browser's `[hidden] { display: none }` default, so #result rendered
+ * visible despite carrying the attribute — invisible to jsdom, which never
+ * applies CSS. */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';

@@ -1,12 +1,5 @@
-/**
- * Real <dialog> rendering: jsdom's HTMLDialogElement polyfill (see
- * pages/tests/0x67-page.test.ts's file header — jsdom doesn't implement
- * showModal()/close() at all) only tracks open/closed state via a plain
- * boolean. It can't verify the backdrop actually dims the page, that the
- * dialog card actually gets a shadow, or that it's actually centered on
- * screen, since jsdom has no layout engine and never runs real CSS. A real
- * browser can check all three directly.
- */
+/** Real <dialog> rendering — jsdom's polyfill only tracks open/closed state,
+ * not backdrop, shadow, or centering. */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -39,8 +32,7 @@ after(async () => {
 test('a real dialog gets an actual dimmed backdrop and a centered, shadowed card', async () => {
   await page.goto(`${server.origin}/0x67.html`, { waitUntil: 'networkidle0' });
 
-  // "Create a new database" is the shortest path to a screen with a dialog —
-  // no fixture file or upload needed.
+  // Shortest path to a screen with a dialog — no fixture file needed.
   await page.click('[data-action="create-database"]');
   await page.waitForSelector('#create-password');
   await page.type('#create-password', 'e2e-test-password');

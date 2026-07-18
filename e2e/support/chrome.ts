@@ -1,19 +1,7 @@
-/**
- * Resolves a real Chrome/Chromium executable for puppeteer-core to drive.
- *
- * puppeteer-core (unlike plain puppeteer) bundles no browser of its own and
- * has no install-time download step — that's the whole reason it's the
- * package used here: AGENTS.md's dependency policy rejects any devDependency
- * whose install script reaches outside npm's pinned, hash-verified
- * resolution (enforced by tools/build/dependency-policy/check.js), and a
- * bundled-browser downloader is exactly that. Driving a browser that's
- * already on the machine sidesteps the question entirely.
- *
- * GitHub's ubuntu-latest runner ships Google Chrome at /usr/bin/google-chrome
- * (see actions/runner-images' Ubuntu 24.04 software manifest), so CI needs no
- * extra install step either. The macOS/Windows paths below cover common
- * local dev setups.
- */
+/** Finds a Chrome/Chromium already on the machine — puppeteer-core bundles
+ * none, on purpose, to avoid the install-time download AGENTS.md's
+ * dependency policy rejects. ubuntu-latest ships Chrome at the linux path
+ * below, so CI needs no extra setup either. */
 import { existsSync } from 'node:fs';
 import { platform } from 'node:os';
 
@@ -34,12 +22,8 @@ const KNOWN_PATHS: Record<string, string[]> = {
   ],
 };
 
-/**
- * Checks CHROME_PATH first, then a short list of known install locations for
- * the current platform. Throws rather than silently skipping if none is
- * found — an e2e run that can't find a browser should fail loudly, not
- * report a false pass.
- */
+/** Throws rather than skipping if nothing is found — a false pass would be
+ * worse than a loud failure. */
 export function resolveChromePath(): string {
   const override = process.env.CHROME_PATH;
   if (override) {

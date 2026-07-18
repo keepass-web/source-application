@@ -1,18 +1,7 @@
-/**
- * Real cross-document navigation: dropping a file on router.html, following
- * its real "Open" link — an actual browser navigation triggered by a real
- * click, not a jsdom-simulated event — and confirming 0x67.html actually
- * boots on the far side.
- *
- * router.html's "Open" link is a plain `href="0x67.html"` with no handoff
- * mechanism (no query string, no sessionStorage, no postMessage) — it only
- * ever sniffs the file's first 8 bytes to decide which page can read it, per
- * router/logic.ts's identifyFormat. The file itself never crosses the
- * navigation, so the user selects it again on 0x67.html's own upload screen —
- * this test does the same, then unlocks, to confirm that boot actually works
- * once real navigation (not a fresh module import, which is what the jsdom
- * suite does for each page in isolation) has happened first.
- */
+/** Real navigation from router.html to 0x67.html via a real link click —
+ * jsdom tests each page in isolation and can't exercise this. The "Open"
+ * link carries no handoff, so the file is selected again on the far side,
+ * same as a real user would. */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -48,8 +37,7 @@ test('dropping a file on the router, then following its real "Open" link, boots 
 
   await page.goto(`${server.origin}/router.html`, { waitUntil: 'networkidle0' });
 
-  // waitForSelector infers an element type from the selector's leading tag
-  // name, which an id selector doesn't have — assert the real type by hand.
+  // waitForSelector can't infer the element type from an id selector.
   const routerFileInput = (await page.waitForSelector(
     '#file-input',
   )) as ElementHandle<HTMLInputElement>;
@@ -65,9 +53,7 @@ test('dropping a file on the router, then following its real "Open" link, boots 
 
   assert.ok(page.url().endsWith('/0x67.html'), `expected to land on 0x67.html, got ${page.url()}`);
 
-  // router.html only sniffed the header — it never handed the file itself
-  // across the navigation, so 0x67.html boots to its own upload screen and
-  // the same file is selected again here.
+  // No handoff — select the same file again on 0x67.html's own upload screen.
   const appFileInput = (await page.waitForSelector(
     '#file-input',
   )) as ElementHandle<HTMLInputElement>;
