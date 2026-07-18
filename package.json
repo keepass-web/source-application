@@ -8,7 +8,8 @@
   "workspaces": [
     "packages/*",
     "tools/build",
-    "pages"
+    "pages",
+    "e2e"
   ],
   "devDependencies": {
     "@biomejs/biome": "2.5.0",
@@ -22,7 +23,8 @@
     "typecheck": "npm run build:deps && npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "npm run build:deps && npm run test --workspaces --if-present"
+    "test": "npm run build:deps && npm run test --workspaces --if-present",
+    "test:e2e": "npm run build && npm run test:e2e --workspace=e2e"
   },
   "engines": {
     "node": ">=22.18.0"

@@ -1,0 +1,14 @@
+{
+  "name": "e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-browser end-to-end tests against the built dist/ distributables — layout, cross-document, and iframe behavior the jsdom-based pages test suite structurally can't see.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node --experimental-strip-types --test '**/*.test.ts'"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.3.0"
+  }
+}
