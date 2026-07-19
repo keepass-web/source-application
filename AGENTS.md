@@ -38,11 +38,13 @@ Keep code readable by a literate technical user in a single sitting. Prefer the 
 
 ## Quality requirements
 
-Before considering any change complete, all four must pass — this is exactly what CI runs:
+Before considering any change complete, all five must pass — this is exactly what CI runs, in this order:
 
 ```sh
-npm run lint && npm run typecheck && npm test && npm run build
+npm run lint && npm run typecheck && npm test && npm run build && npm run test:e2e --workspace=e2e
 ```
+
+The first four run against source and jsdom; the last is real-browser coverage jsdom can't provide (no layout engine) — it drives the actual built `dist/*.html` in Chrome, not source, so it needs `npm run build` to have just run first. It's easy to forget because it isn't part of `npm test`, but a change can pass every unit test and still fail here — e.g. a DOM class or selector that a jsdom test and the real page happen to agree on today but that a later change breaks in only one of them. Always run it, not just when files under `e2e/` change.
 
 New logic needs tests; the project's standing bar is 100% coverage, not "we'll add tests later." Don't silently fix unrelated pre-existing issues inside an unrelated change — note them instead, so diffs stay auditable — but do fix anything the change itself breaks. Prefer the smallest correct change, and check before touching release/deploy credentials, branch protection rulesets, or anything published or externally reachable.
 
