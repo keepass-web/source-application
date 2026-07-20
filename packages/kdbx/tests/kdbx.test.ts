@@ -103,16 +103,26 @@ for (const config of CONFIGS) {
   });
 }
 
-test('wrong credentials are rejected', async () => {
+test('wrong credentials are rejected, with a message the UI can show', async () => {
   const kdbx = await Kdbx.create(Credentials.fromPassword('right'), options({ version: 4 }));
   const saved = await kdbx.save();
-  await assert.rejects(() => Kdbx.load(saved, Credentials.fromPassword('wrong')));
+  await assert.rejects(
+    () => Kdbx.load(saved, Credentials.fromPassword('wrong')),
+    (err: Error) => err.message.length > 0,
+  );
 });
 
-test('wrong credentials are rejected (KDBX 3.1)', async () => {
+test('wrong credentials are rejected, with a message the UI can show (KDBX 3.1)', async () => {
+  // Regression test: KDBX 3.1 decrypts the outer AES-CBC payload before any
+  // "wrong credentials" check runs, and WebCrypto throws an empty-message
+  // DOMException on the resulting padding failure — page.ts's unlock screen
+  // was rendering that empty message as a blank error bar.
   const kdbx = await Kdbx.create(Credentials.fromPassword('right'), options({ version: 3 }));
   const saved = await kdbx.save();
-  await assert.rejects(() => Kdbx.load(saved, Credentials.fromPassword('wrong')));
+  await assert.rejects(
+    () => Kdbx.load(saved, Credentials.fromPassword('wrong')),
+    (err: Error) => err.message.length > 0,
+  );
 });
 
 test('multiple protected fields decrypt in document order', async () => {

@@ -82,9 +82,18 @@ export async function aesCbcDecrypt(
 ): Promise<Uint8Array> {
   const subtle = kx_getCrypto().subtle;
   const cryptoKey = await subtle.importKey('raw', kx_buf(key), 'AES-CBC', false, ['decrypt']);
-  return new Uint8Array(
-    await subtle.decrypt({ name: 'AES-CBC', iv: kx_buf(iv) }, cryptoKey, kx_buf(data)),
-  );
+  try {
+    return new Uint8Array(
+      await subtle.decrypt({ name: 'AES-CBC', iv: kx_buf(iv) }, cryptoKey, kx_buf(data)),
+    );
+  } catch {
+    // WebCrypto throws a DOMException with an empty message on a PKCS#7
+    // padding failure (deliberately, to avoid a padding-oracle side
+    // channel) — and a wrong key almost always produces invalid padding, so
+    // this is the ordinary "wrong password" case for KDBX 3.1 files, not a
+    // rare corruption edge case. Give callers something to show the user.
+    throw new Error('AES-CBC decryption failed (wrong credentials or corrupt file)');
+  }
 }
 
 /**
