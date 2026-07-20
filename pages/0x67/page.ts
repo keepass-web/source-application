@@ -30,7 +30,9 @@ const app: AppState = {
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
-  entryView: 'table',
+  // Tile view reads better than a dense table on a narrow phone screen;
+  // this only sets the initial default, the view toggle still overrides it.
+  entryView: window.innerWidth <= 700 ? 'tile' : 'table',
   columnVisibility: {
     username: true,
     password: true,
@@ -296,6 +298,13 @@ function showEntryList(): void {
   wireEntryListEvents();
 }
 
+/** No-op outside the mobile drawer layout, where the sidebar toggle and
+ * backdrop are invisible/unreachable — cheap to call unconditionally. */
+function setSidebarOpen(open: boolean): void {
+  qs('#sidebar').classList.toggle('sidebar-open', open);
+  qs<HTMLElement>('#sidebar-backdrop').hidden = !open;
+}
+
 function renderGroupTree(): void {
   const container = qs('#group-tree');
   container.innerHTML = '';
@@ -321,6 +330,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
     if (searchInput) searchInput.value = '';
     renderGroupTree();
     renderEntryPanel();
+    setSidebarOpen(false);
   });
   row.appendChild(btn);
 
@@ -638,6 +648,7 @@ function updateViewToggleUI(): void {
   qs('[data-action="view-table"]').classList.toggle('active', app.entryView === 'table');
   qs<HTMLButtonElement>('#column-picker-btn').hidden = app.entryView !== 'table';
   qs<HTMLElement>('#column-picker-menu').hidden = true;
+  qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
 }
 
 function wireEntryListEvents(): void {
@@ -714,6 +725,16 @@ function wireEntryListEvents(): void {
   qs('[data-action="toggle-columns"]').addEventListener('click', () => {
     const menu = qs<HTMLElement>('#column-picker-menu');
     menu.hidden = !menu.hidden;
+  });
+
+  qs('[data-action="toggle-sidebar"]').addEventListener('click', () => {
+    setSidebarOpen(!qs('#sidebar').classList.contains('sidebar-open'));
+  });
+
+  qs('#sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
+
+  qs('[data-action="toggle-panel-menu"]').addEventListener('click', () => {
+    qs('#panel-menu').classList.toggle('panel-menu-open');
   });
 
   buildColumnPickerMenu();
@@ -1322,6 +1343,7 @@ function openSaveDialog(): void {
   const status = must(dlg.querySelector<HTMLElement>('[data-role="save-status"]'));
   const downloadBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]'));
   const hostBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="save-host"]'));
+  const laterBtn = must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]'));
 
   status.hidden = true;
   status.textContent = '';
@@ -1330,6 +1352,7 @@ function openSaveDialog(): void {
   hostMsg.hidden = !hostSession;
   downloadBtn.hidden = hostSession;
   hostBtn.hidden = !hostSession;
+  laterBtn.textContent = 'Later';
 
   downloadBtn.onclick = async () => {
     await downloadDatabase();
@@ -1668,6 +1691,12 @@ function notifyHostSaveResult(ok: boolean, error?: string): void {
     app.dirty = false;
     status.textContent = 'Saved to Google Drive.';
     status.classList.add('ok');
+    // Retrying no longer makes sense once the save has succeeded — collapse
+    // the footer to a single acknowledgement instead of leaving stale
+    // "Later" / "Save to Drive" actions from before the save was requested.
+    const dlg = byId<HTMLDialogElement>('dlg-save');
+    must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]')).textContent = 'Close';
+    button.hidden = true;
   } else {
     status.textContent = error ? `Save failed: ${error}` : 'Save failed.';
     status.classList.add('error');

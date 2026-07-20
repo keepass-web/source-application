@@ -2038,6 +2038,77 @@ test('entry list table view: default columns, masked password, column toggling, 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
+test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('menus.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  // Sidebar drawer: hidden by default, opens via the hamburger button, and
+  // can be closed either by the backdrop or by toggling the button again.
+  const sidebar = q<HTMLElement>('#sidebar');
+  const backdrop = q<HTMLElement>('#sidebar-backdrop');
+  assert.equal(sidebar.classList.contains('sidebar-open'), false);
+  assert.equal(backdrop.hidden, true);
+
+  dispatch(q('[data-action="toggle-sidebar"]'), 'click');
+  assert.equal(sidebar.classList.contains('sidebar-open'), true);
+  assert.equal(backdrop.hidden, false);
+
+  dispatch(backdrop, 'click');
+  assert.equal(sidebar.classList.contains('sidebar-open'), false);
+  assert.equal(backdrop.hidden, true);
+
+  dispatch(q('[data-action="toggle-sidebar"]'), 'click');
+  assert.equal(sidebar.classList.contains('sidebar-open'), true);
+  dispatch(q('[data-action="toggle-sidebar"]'), 'click');
+  assert.equal(sidebar.classList.contains('sidebar-open'), false);
+
+  // Selecting a group also closes the drawer, so the entries it just
+  // switched to are immediately visible instead of hidden behind it.
+  dispatch(q('[data-action="toggle-sidebar"]'), 'click');
+  assert.equal(sidebar.classList.contains('sidebar-open'), true);
+  dispatch(q('#group-tree .group-btn') as HTMLElement, 'click');
+  assert.equal(
+    sidebar.classList.contains('sidebar-open'),
+    false,
+    'selecting a group closes the drawer',
+  );
+
+  // Panel overflow menu (sort/columns): toggles independently of the sidebar.
+  const panelMenu = q<HTMLElement>('#panel-menu');
+  assert.equal(panelMenu.classList.contains('panel-menu-open'), false);
+  dispatch(q('[data-action="toggle-panel-menu"]'), 'click');
+  assert.equal(panelMenu.classList.contains('panel-menu-open'), true);
+  dispatch(q('[data-action="toggle-panel-menu"]'), 'click');
+  assert.equal(panelMenu.classList.contains('panel-menu-open'), false);
+
+  // Switching views closes it too — every render resets it via updateViewToggleUI.
+  dispatch(q('[data-action="toggle-panel-menu"]'), 'click');
+  assert.equal(panelMenu.classList.contains('panel-menu-open'), true);
+  dispatch(q('[data-action="view-table"]'), 'click');
+  assert.equal(panelMenu.classList.contains('panel-menu-open'), false);
+
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+});
+
 test('exporting entries as CSV or XML downloads an unencrypted plaintext file', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

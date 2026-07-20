@@ -441,6 +441,7 @@ body:not(.app-mode) {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 /* Sidebar */
@@ -562,6 +563,20 @@ body:not(.app-mode) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
+}
+
+/* On desktop the menu contributes no box of its own — its children
+ * (column picker, sort select) sit directly in .panel-header-actions,
+ * same as before this was introduced. Mobile overrides this to turn
+ * it into a dropdown; see the mobile layout section below. */
+.panel-menu {
+  display: contents;
+}
+
+.sidebar-toggle-btn,
+.panel-menu-btn {
+  display: none;
 }
 
 .sort-select {
@@ -743,6 +758,95 @@ body:not(.app-mode) {
   text-align: center;
   color: var(--muted);
   font-size: 0.875rem;
+}
+
+/* ============================================================
+   Mobile layout (Entry List screen)
+   Below ~700px there isn't room to show the sidebar, full header,
+   and every panel control inline, so: the sidebar becomes a
+   slide-in drawer, the header wraps the search field onto its own
+   row, and the sort/column controls collapse into a "⋯" menu.
+   ============================================================ */
+
+@media (max-width: 700px) {
+  .app-header {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .sidebar-toggle-btn {
+    display: inline-flex;
+    order: 0;
+  }
+
+  .wordmark {
+    order: 1;
+  }
+
+  .header-actions {
+    order: 2;
+    margin-left: auto;
+  }
+
+  .search-wrap {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .sidebar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(80vw, 260px);
+    background: var(--surface);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.18);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(14, 23, 20, 0.45);
+    z-index: 15;
+  }
+
+  .panel-menu-btn {
+    display: inline-flex;
+  }
+
+  .panel-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    padding: 0.5rem;
+    z-index: 10;
+  }
+
+  .panel-menu.panel-menu-open {
+    display: flex;
+  }
+
+  #column-picker-btn,
+  .sort-select {
+    width: 100%;
+  }
 }
 
 /* ============================================================
