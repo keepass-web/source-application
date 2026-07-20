@@ -98,6 +98,7 @@
   <template id="tpl-entry-list">
     <div class="screen screen-app">
       <header class="app-header">
+        <button type="button" class="icon-btn sidebar-toggle-btn" data-action="toggle-sidebar" title="Groups" aria-label="Show groups">☰</button>
         <span class="wordmark"><span class="mark"></span>KeePass Web</span>
         <div class="search-wrap">
           <input type="search" id="search-input" class="search-input" placeholder="Search all entries…" autocomplete="off">
@@ -110,7 +111,8 @@
         </div>
       </header>
       <div class="app-body">
-        <aside class="sidebar">
+        <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+        <aside id="sidebar" class="sidebar">
           <div class="sidebar-header">
             <span class="sidebar-label">Groups</span>
             <button type="button" class="icon-btn" data-action="add-group" title="New group">+</button>
@@ -125,18 +127,21 @@
                 <button type="button" class="view-toggle-btn" data-action="view-tile" title="Tile view">▦</button>
                 <button type="button" class="view-toggle-btn" data-action="view-table" title="Table view">▤</button>
               </div>
-              <div class="column-picker">
-                <button type="button" class="btn btn-secondary" id="column-picker-btn" data-action="toggle-columns" hidden>Columns</button>
-                <div id="column-picker-menu" class="column-picker-menu" hidden></div>
+              <button type="button" class="icon-btn panel-menu-btn" data-action="toggle-panel-menu" title="More options" aria-label="More options">⋯</button>
+              <div id="panel-menu" class="panel-menu">
+                <div class="column-picker">
+                  <button type="button" class="btn btn-secondary" id="column-picker-btn" data-action="toggle-columns" hidden>Columns</button>
+                  <div id="column-picker-menu" class="column-picker-menu" hidden></div>
+                </div>
+                <select id="sort-select" class="sort-select" title="Sort entries">
+                  <option value="title:asc">Title (A–Z)</option>
+                  <option value="title:desc">Title (Z–A)</option>
+                  <option value="username:asc">Username (A–Z)</option>
+                  <option value="username:desc">Username (Z–A)</option>
+                  <option value="modified:desc">Modified (newest)</option>
+                  <option value="modified:asc">Modified (oldest)</option>
+                </select>
               </div>
-              <select id="sort-select" class="sort-select" title="Sort entries">
-                <option value="title:asc">Title (A–Z)</option>
-                <option value="title:desc">Title (Z–A)</option>
-                <option value="username:asc">Username (A–Z)</option>
-                <option value="username:desc">Username (Z–A)</option>
-                <option value="modified:desc">Modified (newest)</option>
-                <option value="modified:asc">Modified (oldest)</option>
-              </select>
               <button type="button" class="icon-btn" data-action="add-entry" title="New entry">+</button>
             </div>
           </div>
@@ -282,7 +287,7 @@
       <p class="save-status" data-role="save-status" hidden></p>
     </div>
     <div class="dialog-footer">
-      <button type="button" class="btn btn-secondary" data-action="close">Later</button>
+      <button type="button" class="btn btn-secondary" data-action="close" data-role="save-later">Later</button>
       <button type="button" class="btn btn-primary" data-action="download">Download</button>
       <button type="button" class="btn btn-primary" data-action="save-host" hidden>Save to Drive</button>
     </div>

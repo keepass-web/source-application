@@ -274,17 +274,37 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(status.textContent, 'Saved to Google Drive.');
     assert.ok(status.classList.contains('ok'));
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, false);
+    // Success collapses the footer to a single "Close" action — retrying
+    // makes no sense once the write-back has already succeeded.
+    assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, true);
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
   });
 
-  await t.test('a failed write-back with an error message is surfaced', async () => {
-    const before = hostInbox.length;
-    click(dq('[data-action="save-host"]'));
-    await waitFor(() => hostInbox.length > before);
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 403' });
-    const status = dq<HTMLElement>('[data-role="save-status"]');
-    assert.equal(status.textContent, 'Save failed: HTTP 403');
-    assert.ok(status.classList.contains('error'));
+  await t.test('reopening the save dialog for a new edit resets the footer', async () => {
+    click(dq('[data-role="save-later"]')); // labeled "Close" now; still dismisses
+    click(q('[data-action="edit"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Later');
+    assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
   });
+
+  await t.test(
+    'a failed write-back with an error message is surfaced, leaving the footer as-is for a retry',
+    async () => {
+      const before = hostInbox.length;
+      click(dq('[data-action="save-host"]'));
+      await waitFor(() => hostInbox.length > before);
+      sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 403' });
+      const status = dq<HTMLElement>('[data-role="save-status"]');
+      assert.equal(status.textContent, 'Save failed: HTTP 403');
+      assert.ok(status.classList.contains('error'));
+      assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Later');
+      assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
+    },
+  );
 
   await t.test(
     'a failed write-back with no error message falls back to a generic message',
@@ -297,9 +317,25 @@ test('0x67 embedded in a host frame', async (t) => {
     },
   );
 
+  await t.test(
+    'retrying after a failure and succeeding clears dirty and collapses the footer',
+    async () => {
+      const before = hostInbox.length;
+      click(dq('[data-action="save-host"]'));
+      await waitFor(() => hostInbox.length > before);
+      sendFromHost({ type: 'kw-saved', ok: true });
+      assert.equal(
+        dq<HTMLElement>('[data-role="save-status"]').textContent,
+        'Saved to Google Drive.',
+      );
+      assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
+      click(dq('[data-role="save-later"]'));
+    },
+  );
+
   await t.test('kw-close-request acks immediately when nothing is dirty', () => {
-    // The last write-back above failed, but it was a retry of an edit already
-    // saved successfully earlier in this walkthrough — nothing new since then.
+    // The retry above succeeded and its dialog was closed — nothing unsaved
+    // since then.
     const before = hostInbox.length;
     sendFromHost({ type: 'kw-close-request' });
     assert.equal(hostInbox.length, before + 1);
