@@ -48,6 +48,8 @@ The first four run against source and jsdom; the last is real-browser coverage j
 
 New logic needs tests; the project's standing bar is 100% coverage, not "we'll add tests later." Don't silently fix unrelated pre-existing issues inside an unrelated change — note them instead, so diffs stay auditable — but do fix anything the change itself breaks. Prefer the smallest correct change, and check before touching release/deploy credentials, branch protection rulesets, or anything published or externally reachable.
 
+New UI surface must work at phone width, not just desktop — this app has no separate mobile build, so `pages/0x67/page.css` is solely responsible for that. Resize to a narrow viewport (e.g. ~375px) and check any new screen or control before considering it done, the same way a change isn't done until its tests pass. Extend the existing `@media (max-width: 700px)` rules (collapsible sidebar drawer, wrapped header, panel overflow menu) rather than inventing a parallel pattern.
+
 ## See also
 
 - [Contributing][contributing] — how to propose a change and the local dev loop
