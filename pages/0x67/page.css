@@ -883,6 +883,20 @@ body:not(.app-mode) .screen-detail {
   gap: 0.5rem;
 }
 
+/* Edit / Move to… / Print / Trash / Delete don't all fit on one line next to
+ * "← Entries" on a phone-width screen — wrap instead of forcing the screen
+ * wider than the viewport (and a horizontal scrollbar with it). */
+@media (max-width: 700px) {
+  .detail-header {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .detail-header-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .detail-body {
   flex: 1;
   overflow-y: auto;
@@ -996,6 +1010,15 @@ body:not(.app-mode) .screen-edit {
   flex-shrink: 0;
 }
 
+/* Same fix as .detail-header: don't let a long entry title push Cancel/Save
+ * wider than a phone-width viewport. */
+@media (max-width: 700px) {
+  .edit-header {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+}
+
 .edit-title {
   font-size: 1rem;
   font-weight: 600;
@@ -1049,11 +1072,16 @@ body:not(.app-mode) .screen-edit {
 
 .edit-value {
   flex: 1;
+  /* min-width: 0 alone doesn't stop this <input> from forcing its row (and
+   * everything above it, up to the layout viewport) wider than the screen on
+   * a narrow phone — Chromium still counts its intrinsic size toward the
+   * row's automatic minimum. width: 0 makes the zero-basis stick. */
+  width: 0;
+  min-width: 0;
   background: none;
   border: none;
   color: var(--text);
   font-size: 0.9rem;
-  min-width: 0;
 }
 
 .edit-value:focus {
@@ -1190,7 +1218,10 @@ input.attachment-name:focus {
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   color: var(--text);
-  min-width: 340px;
+  /* 340px was a hard floor: on any viewport narrower than ~378px (340 / 0.9),
+   * it wins over width: 90vw and pushes the dialog wider than the screen.
+   * min() lets it shrink with the viewport instead of forcing overflow. */
+  min-width: min(340px, 92vw);
   max-width: 480px;
   width: 90vw;
   padding: 0;
