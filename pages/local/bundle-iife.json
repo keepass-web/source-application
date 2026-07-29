@@ -1,24 +1,22 @@
 {
   "packagesDir": "../../build/packages",
-  "output": "../../build/pages/cloud-google-drive/bundle.js",
+  "output": "../../build/pages/local/bundle.js",
   "files": [
     "router/src/index.js",
     "embed-protocol/src/index.js",
 
-    "../pages/cloud-google-drive/logic.js",
-    "../pages/cloud-google-drive/page.js"
+    "../pages/local/logic.js",
+    "../pages/local/page.js"
   ],
   "exports": [
     "identifyFormat",
-    "must",
-    "buildDriveDownloadUrl",
-    "buildDriveUpdateUrl",
     "isReadyMessage",
     "isSaveMessage",
     "isCloseAckMessage",
     "isCloseMessage",
     "openMessage",
     "savedMessage",
-    "closeRequestMessage"
+    "closeRequestMessage",
+    "must"
   ]
 }

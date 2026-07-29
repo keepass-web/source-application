@@ -251,7 +251,19 @@ async function openPickedFile(file: DriveFile): Promise<void> {
       setPickStatus(`Could not open ${file.name} (HTTP ${response.status}).`);
       return;
     }
-    showHost(file, await response.arrayBuffer());
+    const bytes = await response.arrayBuffer();
+    const header = new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength));
+    const result = identifyFormat(header);
+
+    if (result.kind === 'invalid') {
+      setPickStatus(`${file.name} doesn't look like a KDBX file — no recognized signature found.`);
+      return;
+    }
+    if (!result.implementation) {
+      setPickStatus(`${file.name} is ${result.label}, which isn't supported yet.`);
+      return;
+    }
+    showHost(file, bytes, result.implementation);
   } catch {
     setPickStatus(`Network error while opening ${file.name}.`);
   }
@@ -261,7 +273,7 @@ async function openPickedFile(file: DriveFile): Promise<void> {
 // Screen: Embedded app (0x67 in an iframe)
 // ============================================================
 
-function showHost(file: DriveFile, bytes: ArrayBuffer): void {
+function showHost(file: DriveFile, bytes: ArrayBuffer, implementation: string): void {
   currentFile = file;
   pendingOpen = { filename: file.name, bytes };
   setRoot(cloneTemplate('tpl-host'));
@@ -272,7 +284,7 @@ function showHost(file: DriveFile, bytes: ArrayBuffer): void {
   window.addEventListener('message', handleFrameMessage);
   // Setting src last means the iframe's script (and its kw-ready handshake)
   // can't fire before the listener above is attached.
-  qs<HTMLIFrameElement>('#app-frame').src = '0x67.html';
+  qs<HTMLIFrameElement>('#app-frame').src = implementation;
 }
 
 function tearDownIframe(): void {
@@ -291,7 +303,7 @@ function tearDownIframe(): void {
 function requestCloseIframe(afterClose: () => void): void {
   pendingClose = afterClose;
   must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(
-    { type: 'kw-close-request' },
+    closeRequestMessage(),
     APP_ORIGIN,
   );
 }
@@ -304,7 +316,7 @@ function handleFrameMessage(event: MessageEvent): void {
   const source = event.source as Window;
   if (isReadyMessage(event.data)) {
     const open = must(pendingOpen);
-    source.postMessage({ type: 'kw-open', filename: open.filename, bytes: open.bytes }, APP_ORIGIN);
+    source.postMessage(openMessage(open.filename, open.bytes), APP_ORIGIN);
   } else if (isSaveMessage(event.data)) {
     void saveToDrive(event.data.bytes, source);
   } else if (isCloseAckMessage(event.data)) {
@@ -326,15 +338,12 @@ async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
       body: bytes,
     });
     if (!response.ok) {
-      source.postMessage(
-        { type: 'kw-saved', ok: false, error: `HTTP ${response.status}` },
-        APP_ORIGIN,
-      );
+      source.postMessage(savedMessage(false, `HTTP ${response.status}`), APP_ORIGIN);
       return;
     }
-    source.postMessage({ type: 'kw-saved', ok: true }, APP_ORIGIN);
+    source.postMessage(savedMessage(true), APP_ORIGIN);
   } catch {
-    source.postMessage({ type: 'kw-saved', ok: false, error: 'network error' }, APP_ORIGIN);
+    source.postMessage(savedMessage(false, 'network error'), APP_ORIGIN);
   }
 }
 

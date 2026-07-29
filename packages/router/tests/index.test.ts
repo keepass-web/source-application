@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { identifyFormat, must } from '../router/logic.ts';
+import { identifyFormat } from '../src/index.ts';
 
 /** Build a valid 8-byte KDBX-family header with the given secondary signature byte. */
 function header(secondaryByte: number): Uint8Array {
@@ -28,12 +28,12 @@ test('identifyFormat rejects a first-signature match paired with an unrelated se
   assert.deepEqual(identifyFormat(buf), { kind: 'invalid' });
 });
 
-test('identifyFormat recognizes KDBX 3.1 / 4.x (0x67) and points at the page that reads it', () => {
+test('identifyFormat recognizes KDBX 3.1 / 4.x (0x67) and names the implementation that reads it', () => {
   assert.deepEqual(identifyFormat(header(0x67)), {
     kind: 'recognized',
     secondaryByte: 0x67,
     label: 'KDBX 3.1 / 4.x',
-    page: '0x67.html',
+    implementation: '0x67.html',
   });
 });
 
@@ -59,14 +59,4 @@ test('identifyFormat labels an unrecognized secondary signature byte generically
     secondaryByte: 0x99,
     label: 'unknown KDBX variant (secondary signature 0x99)',
   });
-});
-
-test('must passes a present value through unchanged', () => {
-  assert.equal(must(42), 42);
-  assert.equal(must('x'), 'x');
-});
-
-test('must throws for null or undefined', () => {
-  assert.throws(() => must(null), /expected element not found/);
-  assert.throws(() => must(undefined), /expected element not found/);
 });

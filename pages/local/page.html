@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeePass Web — Local file</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 7V5a3.5 3.5 0 0 1 7 0v2' fill='none' stroke='%230e7c5a' stroke-width='2' stroke-linecap='round'/%3E%3Crect x='2' y='7' width='12' height='8' rx='2' fill='%230e7c5a'/%3E%3C/svg%3E">
+  <!--STYLES-->
+</head>
+<body>
+  <!-- Live screen container -->
+  <div id="root"></div>
+
+  <!-- ============================================================
+       Screen: Choose a file
+       ============================================================ -->
+  <template id="tpl-chooser">
+    <div class="screen screen-chooser">
+      <div class="wordmark"><span class="mark"></span>KeePass Web</div>
+      <h1>Open a database from this computer</h1>
+      <p class="description">
+        Drop a database file below. It's read entirely in this browser tab —
+        nothing is uploaded anywhere.
+      </p>
+
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-icon">🔑</div>
+        <p class="drop-zone-label">Drop a database file here</p>
+        <label class="btn btn-primary">
+          Choose file
+          <input type="file" id="file-input" hidden>
+        </label>
+      </div>
+
+      <div id="result" class="result" hidden>
+        <p id="result-message"></p>
+        <button type="button" id="choose-another" class="btn btn-secondary">Choose another file</button>
+      </div>
+
+      <a class="back-link" href="index.html">← Back to KeePass Web</a>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Screen: Embedded implementation app
+       ============================================================ -->
+  <template id="tpl-host">
+    <div class="screen screen-host">
+      <header class="host-header">
+        <button type="button" class="back-link" data-action="back-to-chooser">← Choose another file</button>
+        <span id="host-filename" class="host-filename"></span>
+      </header>
+      <iframe id="app-frame" class="app-frame" title="KeePass Web app"></iframe>
+    </div>
+  </template>
+
+  <p class="sponsor-cta">
+    Like KeePass Web? <a href="https://github.com/sponsors/keepass-web" target="_blank" rel="noopener noreferrer">&hearts; Sponsor</a> its development.
+  </p>
+  <footer>MIT licensed &middot; <a href="https://github.com/keepass-web">github.com/keepass-web</a> &middot; <!--VERSION--></footer>
+
+  <!--SCRIPTS-->
+</body>
+</html>

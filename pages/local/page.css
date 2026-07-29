@@ -1,0 +1,277 @@
+/* ============================================================
+   Reset and design tokens (shared palette with 0x67 / cloud-google-drive)
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Elements with an explicit `display` (e.g. .btn's `display: inline-flex`)
+ * otherwise win the cascade over the UA stylesheet's `[hidden] { display:
+ * none }`, since both are same-specificity author-vs-UA rules and author
+ * always wins — so JS toggling `el.hidden` silently stops hiding anything
+ * once a class gives that element its own `display`. Force it back. */
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: this rule's entire job is to out-rank any other display declaration, by design */
+  display: none !important;
+}
+
+:root {
+  --bg: #eef2ef;
+  --surface: #ffffff;
+  --surface-2: #eaefec;
+  --border: #d8e2dc;
+  --text: #0e1714;
+  --muted: #5a6a62;
+  --accent: #0e7c5a;
+  --accent-dim: #eaf1ee;
+  --danger: #9a2b2b;
+  --danger-dim: #f2dada;
+  --success: #0e7c5a;
+  --success-dim: #eaf1ee;
+}
+
+/* `height`, not `min-height`: the embedded-app screen's `.app-frame` iframe
+ * depends on `.screen-host { height: 100% }` resolving all the way up this
+ * chain — see cloud-google-drive/page.css, which this is mirrored from. */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 15px;
+  height: 100vh;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 3px;
+  width: 12px;
+  height: 10px;
+  border: 2.5px solid var(--accent);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  height: 11px;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+#root {
+  flex: 1;
+  min-height: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.sponsor-cta {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  text-align: center;
+}
+
+footer {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+footer a {
+  color: var(--accent);
+}
+
+.sponsor-cta a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.description {
+  color: var(--muted);
+}
+
+/* ============================================================
+   Buttons and shared bits
+   ============================================================ */
+
+.btn {
+  display: inline-block;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.back-link {
+  display: inline-block;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--text);
+}
+
+/* ============================================================
+   Screen: Choose a file (local drop zone)
+   ============================================================ */
+
+.screen-chooser {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  width: 100%;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.drop-zone-icon {
+  font-size: 2.5rem;
+}
+
+.drop-zone-label {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.result-ok {
+  border-color: var(--success);
+  background: var(--success-dim);
+}
+
+.result-warn {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.result-error {
+  border-color: var(--danger);
+  background: var(--danger-dim);
+}
+
+/* ============================================================
+   Screen: Embedded app
+   ============================================================ */
+
+.screen-host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.host-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.host-filename {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.app-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+}

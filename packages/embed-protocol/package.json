@@ -1,0 +1,13 @@
+{
+  "name": "embed-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The same-origin postMessage protocol between a keepass-web implementation (e.g. 0x67) and whatever host page embeds it in an iframe.",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-coverage-include='src/**/*.ts' --test 'tests/**/*.test.ts'"
+  }
+}

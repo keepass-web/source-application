@@ -1,0 +1,13 @@
+{
+  "name": "router",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Format detection for keepass-web: identifies a KDBX-family file from its first 8 bytes and names the implementation that reads it.",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-coverage-include='src/**/*.ts' --test 'tests/**/*.test.ts'"
+  }
+}

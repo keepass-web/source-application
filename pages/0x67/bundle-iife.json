@@ -2,6 +2,8 @@
   "packagesDir": "../../build/packages",
   "output": "../../build/pages/0x67/bundle.js",
   "files": [
+    "embed-protocol/src/index.js",
+
     "chacha20/src/index.js",
 
     "argon2/src/blake2b.js",
@@ -79,6 +81,14 @@
     "ICON_PALETTE",
     "isoToLocalInputValue",
     "localInputValueToIso",
-    "defaultExpiryLocalInputValue"
+    "defaultExpiryLocalInputValue",
+
+    "isOpenMessage",
+    "isSavedMessage",
+    "isCloseRequestMessage",
+    "readyMessage",
+    "saveMessage",
+    "closeAckMessage",
+    "closeMessage"
   ]
 }

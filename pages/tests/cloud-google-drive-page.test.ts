@@ -14,6 +14,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import * as embedProtocol from '../../packages/embed-protocol/src/index.ts';
+import { identifyFormat } from '../../packages/router/src/index.ts';
 import * as logic from '../cloud-google-drive/logic.ts';
 
 // ============================================================
@@ -24,6 +26,15 @@ const htmlPath = fileURLToPath(new URL('../cloud-google-drive/page.html', import
 const html = readFileSync(htmlPath, 'utf8');
 const dom = new JSDOM(html, { url: 'https://example.com/keepass/', pretendToBeVisual: true });
 const APP_ORIGIN = 'https://example.com';
+
+/** A valid 8-byte KDBX 3.1/4.x header, padded to `length` bytes. */
+function kdbxBytes(length = 16): ArrayBuffer {
+  const buf = new ArrayBuffer(length);
+  const view = new DataView(buf);
+  view.setUint32(0, 0x9aa2d903, true);
+  view.setUint32(4, 0xb54bfb67, true);
+  return buf;
+}
 
 Object.defineProperty(globalThis, 'document', {
   value: dom.window.document as unknown as Document,
@@ -127,7 +138,7 @@ Object.defineProperty(globalThis, 'google', {
 });
 Object.defineProperty(globalThis, 'gapi', { value: gapiMock, configurable: true, writable: true });
 
-Object.assign(globalThis, logic);
+Object.assign(globalThis, { identifyFormat, ...embedProtocol, ...logic });
 
 await import('../cloud-google-drive/page.ts');
 
@@ -270,11 +281,43 @@ test('Google Drive connector', async (t) => {
     );
   });
 
+  await t.test('picking a file with no recognizable signature is reported', async () => {
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(8),
+    });
+    await pick({ id: 'f1', name: 'random.bin' });
+    await waitFor(() =>
+      /random.bin doesn't look like a KDBX file/.test(q('#pick-status').textContent ?? ''),
+    );
+  });
+
+  await t.test('picking a recognized-but-unsupported file (.kdb) is reported', async () => {
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => {
+        const buf = new ArrayBuffer(8);
+        const view = new DataView(buf);
+        view.setUint32(0, 0x9aa2d903, true);
+        view.setUint32(4, 0xb54bfb65, true);
+        return buf;
+      },
+    });
+    await pick({ id: 'f1', name: 'old.kdb' });
+    await waitFor(() =>
+      /old.kdb is KeePass 1\.x \(\.kdb\), which isn't supported yet/.test(
+        q('#pick-status').textContent ?? '',
+      ),
+    );
+  });
+
   await t.test('picking a file successfully embeds the app', async () => {
     handlers.download = async () => ({
       ok: true,
       status: 200,
-      arrayBuffer: async () => new ArrayBuffer(16),
+      arrayBuffer: async () => kdbxBytes(),
     });
     await pick({ id: 'f1', name: 'vault.kdbx' });
     await waitFor(() => q('#app-frame') !== null);
@@ -383,7 +426,7 @@ test('Google Drive connector', async (t) => {
     handlers.download = async () => ({
       ok: true,
       status: 200,
-      arrayBuffer: async () => new ArrayBuffer(16),
+      arrayBuffer: async () => kdbxBytes(),
     });
     await pick({ id: 'f2', name: 'vault2.kdbx' });
     await waitFor(() => q('#app-frame') !== null);

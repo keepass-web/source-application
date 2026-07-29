@@ -1,0 +1,6 @@
+{
+  "template": "page.html",
+  "styles": ["page.css"],
+  "scripts": ["../../build/pages/local/bundle.js"],
+  "output": "../../dist/local.html"
+}
