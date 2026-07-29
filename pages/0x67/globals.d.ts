@@ -1,18 +1,55 @@
 /**
  * Ambient declarations for the globals bundle.js injects into the page.
  *
- * bundle.js concatenates the kdbx library, this page's own pure logic
- * (entryField, groupPathTo, etc., extracted from page.ts into logic.ts so it
- * can be unit tested without a DOM), and page.ts's own compiled output into
- * one IIFE — see bundle-iife.json's "files" list. It also exposes these
- * names as globals via `globalThis.<name> = <name>`, one entry per name in
- * bundle-iife.json's "exports" list, matching what
+ * bundle.js concatenates the kdbx library, packages/embed-protocol, this
+ * page's own pure logic (entryField, groupPathTo, etc., extracted from
+ * page.ts into logic.ts so it can be unit tested without a DOM), and page.ts's
+ * own compiled output into one IIFE — see bundle-iife.json's "files" list. It
+ * also exposes these names as globals via `globalThis.<name> = <name>`, one
+ * entry per name in bundle-iife.json's "exports" list, matching what
  * pages/tests/0x67-page.test.ts sets up by hand.
  *
  * This file exists only so page.ts can be type-checked against that surface;
  * it declares only the members page.ts actually calls, mirroring the
- * corresponding signatures in packages/kdbx/src and in logic.ts.
+ * corresponding signatures in packages/kdbx/src, packages/embed-protocol/src,
+ * and logic.ts.
  */
+
+interface OpenMessage {
+  type: 'kw-open';
+  filename: string;
+  bytes: ArrayBuffer;
+}
+interface SaveMessage {
+  type: 'kw-save';
+  filename: string;
+  bytes: ArrayBuffer;
+}
+interface SavedMessage {
+  type: 'kw-saved';
+  ok: boolean;
+  error?: string;
+}
+interface CloseRequestMessage {
+  type: 'kw-close-request';
+}
+interface ReadyMessage {
+  type: 'kw-ready';
+}
+interface CloseAckMessage {
+  type: 'kw-close-ack';
+}
+interface CloseMessage {
+  type: 'kw-close';
+}
+
+declare function isOpenMessage(data: unknown): data is OpenMessage;
+declare function isSavedMessage(data: unknown): data is SavedMessage;
+declare function isCloseRequestMessage(data: unknown): data is CloseRequestMessage;
+declare function readyMessage(): ReadyMessage;
+declare function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage;
+declare function closeAckMessage(): CloseAckMessage;
+declare function closeMessage(): CloseMessage;
 
 interface XmlElement {
   readonly type: 'element';

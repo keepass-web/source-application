@@ -31,8 +31,8 @@ after(async () => {
   await server.close();
 });
 
-test('router.html: the #result panel is actually invisible on load, not just marked [hidden]', async () => {
-  await page.goto(`${server.origin}/router.html`, { waitUntil: 'networkidle0' });
+test('local.html: the #result panel is actually invisible on load, not just marked [hidden]', async () => {
+  await page.goto(`${server.origin}/local.html`, { waitUntil: 'networkidle0' });
 
   const { hasAttribute, renderedHeight } = await page.evaluate(() => {
     const result = document.getElementById('result') as HTMLElement;

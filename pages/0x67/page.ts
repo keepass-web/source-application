@@ -688,7 +688,7 @@ function wireEntryListEvents(): void {
         dirty: false,
       });
       if (isEmbedded()) {
-        postToHost({ type: 'kw-close' });
+        postToHost(closeMessage());
       } else {
         showUpload();
       }
@@ -1620,18 +1620,21 @@ function openMoveToDialog(
 //
 // This app is self-contained: opened directly, it never talks to another
 // window, and everything below is dormant. When it is embedded in a
-// same-origin parent frame — the cloud connector page — that parent can hand
-// it a vault to open and receive the edited vault back, without the app
-// reimplementing any of its own file handling.
+// same-origin parent frame — any chooser page, e.g. the local-file page or
+// the Google Drive connector — that parent can hand it a vault to open and
+// receive the edited vault back, without the app reimplementing any of its
+// own file handling.
 //
-// The protocol is six same-origin postMessage types:
-//   app  → host : { type: 'kw-ready' }                     app booted, send a vault
-//   host → app  : { type: 'kw-open', filename, bytes }     open this vault (bytes: ArrayBuffer)
-//   app  → host : { type: 'kw-save', filename, bytes }     user saved; please persist (bytes: ArrayBuffer)
-//   host → app  : { type: 'kw-saved', ok, error? }         result of that persist
-//   host → app  : { type: 'kw-close-request' }             host wants to remove this iframe; may I?
-//   app  → host : { type: 'kw-close-ack' }                 yes — nothing unsaved, or the user chose to discard
-//   app  → host : { type: 'kw-close' }                     app's own ✕ was clicked; safe to remove me now
+// The message shapes and guards are shared with every host in
+// packages/embed-protocol, rather than hand-checked here, so the app and host
+// side of the protocol can't drift out of sync with each other:
+//   app  → host : kw-ready          app booted, send a vault
+//   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer)
+//   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
+//   host → app  : kw-saved          result of that persist (ok, error?)
+//   host → app  : kw-close-request  host wants to remove this iframe; may I?
+//   app  → host : kw-close-ack      yes — nothing unsaved, or the user chose to discard
+//   app  → host : kw-close          app's own ✕ was clicked; safe to remove me now
 //
 // Every inbound message is checked to come from the parent frame at this
 // page's own origin; anything else is ignored. Nothing here runs unless the
@@ -1652,22 +1655,16 @@ function postToHost(message: object): void {
 
 function handleHostMessage(event: MessageEvent): void {
   if (event.origin !== HOST_ORIGIN || event.source !== window.parent) return;
-  const data = event.data as Record<string, unknown> | null;
-  if (data === null || typeof data !== 'object') return;
 
-  if (
-    data.type === 'kw-open' &&
-    typeof data.filename === 'string' &&
-    data.bytes instanceof ArrayBuffer
-  ) {
+  if (isOpenMessage(event.data)) {
     hostSession = true;
-    app.filename = data.filename;
-    app.file = data.bytes;
+    app.filename = event.data.filename;
+    app.file = event.data.bytes;
     showUnlock();
-  } else if (data.type === 'kw-saved') {
-    notifyHostSaveResult(data.ok === true, typeof data.error === 'string' ? data.error : undefined);
-  } else if (data.type === 'kw-close-request') {
-    confirmDiscardIfDirty(() => postToHost({ type: 'kw-close-ack' }));
+  } else if (isSavedMessage(event.data)) {
+    notifyHostSaveResult(event.data.ok, event.data.error);
+  } else if (isCloseRequestMessage(event.data)) {
+    confirmDiscardIfDirty(() => postToHost(closeAckMessage()));
   }
 }
 
@@ -1675,11 +1672,11 @@ async function saveToHost(status: HTMLElement, button: HTMLButtonElement): Promi
   const bytes = await must(app.db).save();
   status.hidden = false;
   status.className = 'save-status';
-  status.textContent = 'Saving to Google Drive…';
+  status.textContent = 'Saving…';
   button.disabled = true;
   pendingHostSave = { status, button };
   // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
-  postToHost({ type: 'kw-save', filename: app.filename, bytes: new Uint8Array(bytes).buffer });
+  postToHost(saveMessage(app.filename, new Uint8Array(bytes).buffer));
 }
 
 function notifyHostSaveResult(ok: boolean, error?: string): void {
@@ -1689,11 +1686,11 @@ function notifyHostSaveResult(ok: boolean, error?: string): void {
   button.disabled = false;
   if (ok) {
     app.dirty = false;
-    status.textContent = 'Saved to Google Drive.';
+    status.textContent = 'Saved.';
     status.classList.add('ok');
     // Retrying no longer makes sense once the save has succeeded — collapse
     // the footer to a single acknowledgement instead of leaving stale
-    // "Later" / "Save to Drive" actions from before the save was requested.
+    // "Later" / "Save" actions from before the save was requested.
     const dlg = byId<HTMLDialogElement>('dlg-save');
     must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]')).textContent = 'Close';
     button.hidden = true;
@@ -1713,7 +1710,7 @@ if (isEmbedded()) {
   // Announce readiness so the host knows it can send the vault. Handshaking
   // this way (rather than the host racing the iframe's load event) means the
   // host only sends once the listener above is definitely attached.
-  postToHost({ type: 'kw-ready' });
+  postToHost(readyMessage());
 }
 
 // Closing the tab, reloading, or navigating away with unsaved edits would

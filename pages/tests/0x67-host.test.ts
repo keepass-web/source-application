@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import * as embedProtocol from '../../packages/embed-protocol/src/index.ts';
 import {
   addEntryAttachment,
   appendChild,
@@ -121,6 +122,7 @@ Object.assign(globalThis, {
   pushHistorySnapshot,
   restoreHistoryEntry,
   deleteHistoryEntry,
+  ...embedProtocol,
   ...logic,
 });
 
@@ -235,7 +237,7 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(q<HTMLElement>('#db-filename').textContent, 'from-drive.kdbx');
   });
 
-  await t.test('unlocks, and the save dialog offers Drive write-back, not download', async () => {
+  await t.test('unlocks, and the save dialog offers host write-back, not download', async () => {
     q<HTMLInputElement>('#master-password').value = PASSWORD;
     q('#unlock-form').dispatchEvent(
       new dom.window.Event('submit', { bubbles: true, cancelable: true }),
@@ -254,7 +256,7 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(dq<HTMLButtonElement>('[data-action="download"]').hidden, true);
   });
 
-  await t.test('Save to Drive posts kw-save, then reports success on kw-saved', async () => {
+  await t.test('Save posts kw-save to the host, then reports success on kw-saved', async () => {
     const before = hostInbox.length;
     click(dq('[data-action="save-host"]'));
     await waitFor(() => hostInbox.length > before);
@@ -263,15 +265,12 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(msg.type, 'kw-save');
     assert.equal(msg.filename, 'from-drive.kdbx');
     assert.ok(msg.bytes instanceof ArrayBuffer && msg.bytes.byteLength > 0);
-    assert.equal(
-      dq<HTMLElement>('[data-role="save-status"]').textContent,
-      'Saving to Google Drive…',
-    );
+    assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Saving…');
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, true);
 
     sendFromHost({ type: 'kw-saved', ok: true });
     const status = dq<HTMLElement>('[data-role="save-status"]');
-    assert.equal(status.textContent, 'Saved to Google Drive.');
+    assert.equal(status.textContent, 'Saved.');
     assert.ok(status.classList.contains('ok'));
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, false);
     // Success collapses the footer to a single "Close" action — retrying
@@ -324,10 +323,7 @@ test('0x67 embedded in a host frame', async (t) => {
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
       sendFromHost({ type: 'kw-saved', ok: true });
-      assert.equal(
-        dq<HTMLElement>('[data-role="save-status"]').textContent,
-        'Saved to Google Drive.',
-      );
+      assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Saved.');
       assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
       click(dq('[data-role="save-later"]'));
     },

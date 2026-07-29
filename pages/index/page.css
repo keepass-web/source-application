@@ -130,12 +130,6 @@ a:hover {
   color: var(--text);
 }
 
-.open .note {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: -0.25rem;
-}
-
 .trust {
   border: 1px solid var(--border);
   border-radius: 0.5rem;

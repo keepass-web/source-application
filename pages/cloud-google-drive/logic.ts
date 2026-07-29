@@ -1,13 +1,15 @@
 /**
  * Pure logic for the Google Drive connector: Drive REST URL construction and
- * postMessage shape guards. None of it touches the DOM, the network, or
- * module-level browser state, so — like router/logic.ts and 0x67/logic.ts — it
- * is unit tested directly under plain Node (see
- * tests/cloud-google-drive-logic.test.ts).
+ * the must()-style "fail loudly on a missing DOM node" guard page.ts needs.
+ * None of it touches the DOM, the network, or module-level browser state, so
+ * — like local's and 0x67's logic.ts — it is unit tested directly under
+ * plain Node (see tests/cloud-google-drive-logic.test.ts).
  *
  * Sign-in and file browsing are delegated to Google's own SDKs (GIS token
  * client and the Picker), loaded at runtime by page.ts, so there is no OAuth or
- * file-listing logic here.
+ * file-listing logic here. Format detection (packages/router) and the
+ * embedded-app message protocol (packages/embed-protocol) are shared with
+ * every other chooser page rather than duplicated here.
  *
  * This is a real ES module. For the browser build, bundle-iife strips the
  * `export` keywords and hoists these names onto globalThis alongside page.ts —
@@ -23,17 +25,10 @@ export interface DriveFile {
   name: string;
 }
 
-/** The message the embedded 0x67 app posts when the user saves. */
-export interface SaveMessage {
-  type: 'kw-save';
-  filename: string;
-  bytes: ArrayBuffer;
-}
-
 /**
  * Unwrap a possibly-missing DOM lookup, or fail loudly. page.ts's markup is
  * hand-authored, so a missing element means a real bug, not a state to handle
- * gracefully. Lives here (rather than in page.ts) for the same reason router's
+ * gracefully. Lives here (rather than in page.ts) for the same reason local's
  * does: so its throw branch is exercisable directly from a logic test.
  */
 export function must<T>(value: T | null | undefined): T {
@@ -51,46 +46,4 @@ export function buildDriveDownloadUrl(apiBase: string, id: string): string {
 /** Build the media-update URL that overwrites a file's content in place. */
 export function buildDriveUpdateUrl(uploadBase: string, id: string): string {
   return `${uploadBase}/files/${encodeURIComponent(id)}?uploadType=media`;
-}
-
-/** True if `data` is the embedded app's "I'm ready for a vault" handshake. */
-export function isReadyMessage(data: unknown): boolean {
-  return (
-    data !== null &&
-    typeof data === 'object' &&
-    (data as Record<string, unknown>).type === 'kw-ready'
-  );
-}
-
-/** True if `data` is the embedded app's "please persist these bytes" message. */
-export function isSaveMessage(data: unknown): data is SaveMessage {
-  if (data === null || typeof data !== 'object') {
-    return false;
-  }
-  const rec = data as Record<string, unknown>;
-  return (
-    rec.type === 'kw-save' && typeof rec.filename === 'string' && rec.bytes instanceof ArrayBuffer
-  );
-}
-
-/** True if `data` is the embedded app's "safe to remove me now" reply to a
- * `kw-close-request` — either nothing was unsaved, or the user chose to
- * discard it. */
-export function isCloseAckMessage(data: unknown): boolean {
-  return (
-    data !== null &&
-    typeof data === 'object' &&
-    (data as Record<string, unknown>).type === 'kw-close-ack'
-  );
-}
-
-/** True if `data` is the embedded app's own "the user closed me" message —
- * unprompted, unlike kw-close-ack, since the app already ran its own
- * discard-confirmation before sending it. */
-export function isCloseMessage(data: unknown): boolean {
-  return (
-    data !== null &&
-    typeof data === 'object' &&
-    (data as Record<string, unknown>).type === 'kw-close'
-  );
 }

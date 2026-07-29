@@ -1,14 +1,16 @@
 /**
  * Ambient declarations for the globals bundle.js injects into the connector
- * page. bundle-iife concatenates this page's pure logic (logic.ts) and page.ts
- * into one IIFE and hoists logic's exports onto globalThis, one per name in
- * bundle-iife.json's "exports" list — mirroring what
- * tests/cloud-google-drive-page.test.ts sets up by hand.
+ * page. bundle-iife concatenates packages/router, packages/embed-protocol,
+ * this page's pure logic (logic.ts), and page.ts into one IIFE and hoists the
+ * names below onto globalThis, one per name in bundle-iife.json's "exports"
+ * list — mirroring what tests/cloud-google-drive-page.test.ts sets up by
+ * hand.
  *
  * This file exists only so page.ts can be type-checked against that surface; it
  * declares just the members page.ts actually calls, mirroring the signatures in
- * logic.ts. The Google SDK globals that page.ts also uses (GIS token client and
- * the Picker, both loaded at runtime from Google) are declared at the bottom.
+ * packages/router/src, packages/embed-protocol/src, and logic.ts. The Google SDK
+ * globals that page.ts also uses (GIS token client and the Picker, both loaded
+ * at runtime from Google) are declared at the bottom.
  */
 
 interface DriveFile {
@@ -16,19 +18,50 @@ interface DriveFile {
   name: string;
 }
 
+declare function identifyFormat(
+  header: Uint8Array,
+):
+  | { kind: 'invalid' }
+  | { kind: 'recognized'; secondaryByte: number; label: string; implementation?: string };
+
+interface ReadyMessage {
+  type: 'kw-ready';
+}
+interface OpenMessage {
+  type: 'kw-open';
+  filename: string;
+  bytes: ArrayBuffer;
+}
 interface SaveMessage {
   type: 'kw-save';
   filename: string;
   bytes: ArrayBuffer;
 }
+interface SavedMessage {
+  type: 'kw-saved';
+  ok: boolean;
+  error?: string;
+}
+interface CloseRequestMessage {
+  type: 'kw-close-request';
+}
+interface CloseAckMessage {
+  type: 'kw-close-ack';
+}
+interface CloseMessage {
+  type: 'kw-close';
+}
 
 declare function must<T>(value: T | null | undefined): T;
 declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
-declare function isReadyMessage(data: unknown): boolean;
+declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
-declare function isCloseAckMessage(data: unknown): boolean;
-declare function isCloseMessage(data: unknown): boolean;
+declare function isCloseAckMessage(data: unknown): data is CloseAckMessage;
+declare function isCloseMessage(data: unknown): data is CloseMessage;
+declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
+declare function savedMessage(ok: boolean, error?: string): SavedMessage;
+declare function closeRequestMessage(): CloseRequestMessage;
 
 // --- Google SDKs (loaded at runtime from Google) ---
 // Declared loosely on purpose — these are foreign, remotely-loaded APIs, not
