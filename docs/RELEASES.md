@@ -5,7 +5,7 @@
 | File | Purpose |
 |------|---------|
 | `index.html` | Landing page |
-| `router.html` | Identifies a database's KDBX format and links to the right app version |
+| `local.html` | Identifies a local database's KDBX format and embeds the right app version in an iframe |
 | `0x67.html` | The app itself, for KDBX 3.1 and 4.x database support |
 | `cloud-google-drive.html` | Connector that opens and saves a database in the user's Google Drive, embedding `0x67.html` in an iframe |
 | `CNAME` | The custom domain GitHub Pages serves the deploy from |

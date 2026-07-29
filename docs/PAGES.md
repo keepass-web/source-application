@@ -7,7 +7,7 @@ This document maps `pages/` — what each page does and how a visitor moves betw
 | Page | Availability | Description |
 |---|---|---|
 | `index.html` | GA | Landing page. The entry point; links to every other page. |
-| `router.html` | GA | Detects a database's KDBX format and provides a link to the matching app page. |
+| `local.html` | GA | Local-file connector: reads a dropped file, detects its KDBX format, and embeds the matching app page in an iframe. |
 | `0x67.html` | GA | The app — parses, decrypts, and edits KDBX 3.1 and 4.x databases. |
 | `cloud-google-drive.html` | GA | Connector for Google Drive. |
 | `cloud-microsoft-onedrive.html` | Future | Connector for OneDrive. |
@@ -19,9 +19,8 @@ This document maps `pages/` — what each page does and how a visitor moves betw
 flowchart TD
     INDEX["index.html<br/>Landing page"]
 
-    INDEX -->|"Link to upload a local database of unknown version"| ROUTER["router.html<br/>Detects KDBX format"]
-    INDEX -->|"Link to upload a local KDBX 3.1/4.x database"| APP["0x67.html<br/>Parses and decrypts"]
-    ROUTER -->|"Identified as KDBX 3.1/4.x,<br/>link to upload KDBX 3.1/4.x database"| APP
+    INDEX -->|"Link to open a local database"| LOCAL["local.html<br/>① read the file, detect KDBX format<br/>② embed the matching app in an iframe"]
+    LOCAL -->|"Identified as KDBX 3.1/4.x,<br/>embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP["0x67.html<br/>Parses and decrypts"]
 
     INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in (GIS token popup)<br/>② pick a file, fetch bytes"]
     INDEX -->|"Link to open from OneDrive"| ONEDRIVE["cloud-microsoft-onedrive.html<br/>① Microsoft sign-in<br/>② pick a file, fetch bytes"]
@@ -31,6 +30,12 @@ flowchart TD
     ONEDRIVE -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
     DROPBOX -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
 ```
+
+## How the local-file connector works
+
+`local.html` reads a dropped or chosen file's bytes once, right there in the tab — nothing is uploaded. It identifies the KDBX format from the file's first 8 bytes via the shared `packages/router` package (the same format-detection logic every chooser page uses, so which implementation reads a given format is decided in exactly one place), then embeds the matching implementation (currently only `0x67.html`) in an iframe and hands it the bytes it already read, over the same same-origin message protocol (`packages/embed-protocol`) the cloud connectors use. There is no second file picker: the file is never re-selected on the embedded app's own upload screen, because the app never shows one when opened this way. A file that's recognized but has no implementation yet (KeePass 1.x `.kdb`, a KDBX pre-release) is reported inline instead of embedding anything; a completely unrecognized file gets the same treatment.
+
+On save, since there is nowhere to write back to, the local connector downloads the updated bytes the same way `0x67.html` would if opened standalone — the only piece of this connector that's genuinely local-specific.
 
 ## How the Google Drive connector works
 
@@ -42,7 +47,7 @@ flowchart TD
 
 ## Local storage
 
-Opening a database from local disk needs nothing but the file itself: no account, no sign-in, no network connection. `router.html` and `0x67.html` work completely offline, so a vault on a USB drive or a personal laptop opens the same way whether there's an internet connection or not. Nothing about the file goes anywhere — there's no vendor, no OAuth exchange, and no service to trust beyond the browser itself. Opening a local file needs no account of any kind and is open to every visitor.
+Opening a database from local disk needs nothing but the file itself: no account, no sign-in, no network connection. `local.html` and `0x67.html` work completely offline, so a vault on a USB drive or a personal laptop opens the same way whether there's an internet connection or not. Nothing about the file goes anywhere — there's no vendor, no OAuth exchange, and no service to trust beyond the browser itself. Opening a local file needs no account of any kind and is open to every visitor.
 
 ## Cloud storage providers
 
