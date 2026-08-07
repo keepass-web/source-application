@@ -186,6 +186,16 @@ export class ByteReader {
   }
 
   #require(count: number): void {
+    // A negative count (e.g. from a maliciously-crafted Int32 length field in
+    // a TLV-framed structure — the outer/inner header and VariantDictionary
+    // parsers all read attacker-controlled lengths this way) would otherwise
+    // pass the check below, since offset + a negative count is always less
+    // than offset. readBytes would then walk #offset *backward* instead of
+    // throwing, which a crafted file can use to pin the cursor at a fixed
+    // position and loop forever.
+    if (count < 0) {
+      throw new RangeError(`byte count must not be negative, got ${count}`);
+    }
     if (this.#offset + count > this.#bytes.length) {
       throw new RangeError(
         `unexpected end of data: needed ${count} byte(s) at offset ${this.#offset}`,

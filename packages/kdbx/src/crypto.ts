@@ -97,6 +97,19 @@ export async function aesCbcDecrypt(
 }
 
 /**
+ * Sanity ceiling on AES-KDF's `rounds` parameter, which for KDBX 3.1 (and the
+ * AES-KDF choice in KDBX 4.x KDF parameters) comes straight from the file's
+ * own, not-yet-authenticated header. `transformHalf` below allocates a
+ * `16 * rounds`-byte plaintext buffer per half, so an unchecked value near
+ * Number.MAX_SAFE_INTEGER (the previous ceiling) would attempt a many-exabyte
+ * allocation just from opening a crafted file, before any credentials are
+ * checked. This value is far above any real KeePass configuration (this
+ * project's own default is 60,000) while keeping a worst-case unlock attempt
+ * bounded to something a browser tab can actually survive.
+ */
+const KX_MAX_AES_KDF_ROUNDS = 100_000_000n;
+
+/**
  * AES-KDF transformation (the KDBX 3.1 / legacy key derivation function).
  *
  * The composite key is split into two 16-byte halves; each half is encrypted
@@ -116,8 +129,10 @@ export async function aesKdfTransform(
   if (rounds <= 0n) {
     throw new RangeError('AES-KDF rounds must be positive');
   }
-  if (rounds > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError('AES-KDF rounds exceed the supported maximum');
+  if (rounds > KX_MAX_AES_KDF_ROUNDS) {
+    throw new RangeError(
+      `AES-KDF rounds (${rounds}) exceed the maximum this app will run (${KX_MAX_AES_KDF_ROUNDS})`,
+    );
   }
   const n = Number(rounds);
   const subtle = kx_getCrypto().subtle;

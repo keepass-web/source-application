@@ -255,13 +255,26 @@ function exportFields(entry: XmlElement, group: XmlElement): [string, string][] 
   ];
 }
 
+/** A leading `=`, `+`, `-`, `@`, tab, or CR makes Excel, Sheets, and
+ * LibreOffice Calc treat a CSV field as a formula rather than literal text —
+ * CWE-1236. Entry data (a Title, URL, or Notes field) is attacker-reachable
+ * in a way a spreadsheet's own cells normally aren't, so it can't be assumed
+ * safe. */
+const CSV_FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
 /** Quote a CSV field only when it needs it (contains a comma, quote, or
- * newline), doubling any internal quotes — RFC 4180. */
+ * newline), doubling any internal quotes — RFC 4180. RFC 4180 quoting alone
+ * does not stop a spreadsheet application from evaluating a quoted field's
+ * content as a formula, so a leading formula-trigger character is neutralized
+ * first by prefixing a literal apostrophe — the standard mitigation every
+ * mainstream spreadsheet app already treats as "force text" (the same effect
+ * as typing `'123` into a cell by hand). */
 function csvField(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+  const safe = CSV_FORMULA_TRIGGER.test(value) ? `'${value}` : value;
+  if (/[",\r\n]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return value;
+  return safe;
 }
 
 /** Serialize entries (Group, Title, UserName, Password, URL, Notes, Tags) as
