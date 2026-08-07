@@ -957,13 +957,19 @@ body:not(.app-mode) .screen-detail {
   color: var(--muted);
 }
 
-.detail-value-wrap {
+.detail-value-wrap,
+.edit-field,
+.attachment-row,
+.history-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.detail-value-wrap {
   padding: 0.5rem 0.75rem;
 }
 
@@ -1039,13 +1045,9 @@ body:not(.app-mode) .screen-edit {
   gap: 0.5rem;
 }
 
-.edit-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+.edit-field,
+.attachment-row,
+.history-row {
   padding: 0.4rem 0.5rem;
 }
 
@@ -1111,16 +1113,6 @@ body:not(.app-mode) .screen-edit {
   gap: 0.4rem;
 }
 
-.attachment-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.4rem 0.5rem;
-}
-
 .attachment-name {
   flex: 1;
   min-width: 0;
@@ -1148,16 +1140,6 @@ input.attachment-name:focus {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-}
-
-.history-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.4rem 0.5rem;
 }
 
 .history-label {

@@ -84,6 +84,32 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
   return must(byId('root').querySelector<T>(selector));
 }
 
+/** Build a `type="button"` icon button: this app's dozen-plus small,
+ * icon-only controls (rename/move/delete, reveal/copy, download, etc.) all
+ * share this exact shape, so it's built once here instead of by hand at
+ * every call site. */
+function makeIconButton(
+  className: string,
+  title: string,
+  glyph: string,
+  onClick: (event: MouseEvent) => void,
+): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+  btn.title = title;
+  btn.textContent = glyph;
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+/** Wire a dialog's `[data-action="close"]` button (its header ✕) to close it.
+ * Called once per `openXDialog` function, replacing what would otherwise be
+ * the same query-and-assign line repeated in each one. */
+function wireClose(dlg: HTMLDialogElement): void {
+  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+}
+
 // ============================================================
 // kdbx XML model helpers
 // (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
@@ -359,12 +385,7 @@ function buildGroupActions(group: XmlElement): HTMLDivElement {
   const actions = document.createElement('div');
   actions.className = 'group-actions';
 
-  const renameBtn = document.createElement('button');
-  renameBtn.type = 'button';
-  renameBtn.className = 'icon-btn group-action-btn';
-  renameBtn.title = 'Rename group';
-  renameBtn.textContent = '✏️';
-  renameBtn.addEventListener('click', () => {
+  const renameBtn = makeIconButton('icon-btn group-action-btn', 'Rename group', '✏️', () => {
     openGroupDialog({ type: 'rename', group }, () => {
       renderGroupTree();
       renderEntryPanel();
@@ -372,12 +393,7 @@ function buildGroupActions(group: XmlElement): HTMLDivElement {
   });
   actions.appendChild(renameBtn);
 
-  const moveBtn = document.createElement('button');
-  moveBtn.type = 'button';
-  moveBtn.className = 'icon-btn group-action-btn';
-  moveBtn.title = 'Move group';
-  moveBtn.textContent = '📂';
-  moveBtn.addEventListener('click', () => {
+  const moveBtn = makeIconButton('icon-btn group-action-btn', 'Move group', '📂', () => {
     openMoveToDialog(
       'Move group to…',
       (candidate) => !isDescendantGroup(group, candidate),
@@ -386,12 +402,7 @@ function buildGroupActions(group: XmlElement): HTMLDivElement {
   });
   actions.appendChild(moveBtn);
 
-  const deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'icon-btn group-action-btn';
-  deleteBtn.title = 'Delete group';
-  deleteBtn.textContent = '🗑';
-  deleteBtn.addEventListener('click', () => {
+  const deleteBtn = makeIconButton('icon-btn group-action-btn', 'Delete group', '🗑', () => {
     deleteGroupAction(group);
   });
   actions.appendChild(deleteBtn);
@@ -889,13 +900,8 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   actions.className = 'detail-actions';
 
   if (isProtected) {
-    const revealBtn = document.createElement('button');
-    revealBtn.type = 'button';
-    revealBtn.className = 'icon-btn';
-    revealBtn.title = 'Show / hide';
-    revealBtn.textContent = '👁';
     let revealed = false;
-    revealBtn.addEventListener('click', () => {
+    const revealBtn = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
       revealed = !revealed;
       valueSpan.textContent = revealed ? value : '••••••••';
       revealBtn.textContent = revealed ? '🙈' : '👁';
@@ -903,12 +909,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
     actions.appendChild(revealBtn);
   }
 
-  const copyBtn = document.createElement('button');
-  copyBtn.type = 'button';
-  copyBtn.className = 'icon-btn';
-  copyBtn.title = 'Copy';
-  copyBtn.textContent = '📋';
-  copyBtn.addEventListener('click', async () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
     await copyToClipboard(value);
     copyBtn.textContent = '✓';
     setTimeout(() => {
@@ -934,12 +935,7 @@ function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLEle
     label.className = 'attachment-name';
     label.textContent = attachment.name;
 
-    const downloadBtn = document.createElement('button');
-    downloadBtn.type = 'button';
-    downloadBtn.className = 'icon-btn';
-    downloadBtn.title = 'Download';
-    downloadBtn.textContent = '⬇';
-    downloadBtn.addEventListener('click', () => {
+    const downloadBtn = makeIconButton('icon-btn', 'Download', '⬇', () => {
       const data = db.getBinaryData(attachment.ref);
       if (!data) return;
       const blob = new Blob([new Uint8Array(data)]);
@@ -971,23 +967,13 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
     const times = getEntryTimes(snapshot);
     label.textContent = `${formatDateTime(times.modified)} — ${entryTitle(snapshot)}`;
 
-    const restoreBtn = document.createElement('button');
-    restoreBtn.type = 'button';
-    restoreBtn.className = 'icon-btn';
-    restoreBtn.title = 'Restore this version';
-    restoreBtn.textContent = '↩';
-    restoreBtn.addEventListener('click', () => {
+    const restoreBtn = makeIconButton('icon-btn', 'Restore this version', '↩', () => {
       restoreHistoryEntry(db.root, entry, snapshot);
       app.dirty = true;
       showEntryDetail();
     });
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.type = 'button';
-    deleteBtn.className = 'icon-btn';
-    deleteBtn.title = 'Delete this version';
-    deleteBtn.textContent = '🗑';
-    deleteBtn.addEventListener('click', () => {
+    const deleteBtn = makeIconButton('icon-btn', 'Delete this version', '🗑', () => {
       deleteHistoryEntry(entry, snapshot);
       app.dirty = true;
       renderDetailHistory(db, entry, container);
@@ -1108,12 +1094,7 @@ function renderEditAttachments(entry: XmlElement, container: HTMLElement): void 
       renderEditAttachments(entry, container);
     });
 
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'icon-btn';
-    removeBtn.title = 'Remove attachment';
-    removeBtn.textContent = '✕';
-    removeBtn.addEventListener('click', () => {
+    const removeBtn = makeIconButton('icon-btn', 'Remove attachment', '✕', () => {
       removeEntryAttachment(entry, attachment.name);
       renderEditAttachments(entry, container);
     });
@@ -1151,24 +1132,14 @@ function buildEditField(
   row.appendChild(valueInput);
 
   if (isProtected) {
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'icon-btn';
-    toggle.title = 'Show / hide';
-    toggle.textContent = '👁';
-    toggle.addEventListener('click', () => {
+    const toggle = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
       valueInput.type = valueInput.type === 'password' ? 'text' : 'password';
       toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
     });
     row.appendChild(toggle);
   }
 
-  const copyBtn = document.createElement('button');
-  copyBtn.type = 'button';
-  copyBtn.className = 'icon-btn';
-  copyBtn.title = 'Copy';
-  copyBtn.textContent = '📋';
-  copyBtn.addEventListener('click', async () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
     await copyToClipboard(valueInput.value);
@@ -1180,12 +1151,7 @@ function buildEditField(
   row.appendChild(copyBtn);
 
   if (key === 'Password') {
-    const generateBtn = document.createElement('button');
-    generateBtn.type = 'button';
-    generateBtn.className = 'icon-btn';
-    generateBtn.title = 'Generate password';
-    generateBtn.textContent = '🎲';
-    generateBtn.addEventListener('click', () => {
+    const generateBtn = makeIconButton('icon-btn', 'Generate password', '🎲', () => {
       openPasswordGenerator((password) => {
         valueInput.value = password;
       });
@@ -1194,13 +1160,8 @@ function buildEditField(
   }
 
   if (removable) {
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'icon-btn';
-    removeBtn.title = 'Remove field';
-    removeBtn.textContent = '✕';
+    const removeBtn = makeIconButton('icon-btn', 'Remove field', '✕', () => row.remove());
     removeBtn.style.color = 'var(--danger)';
-    removeBtn.addEventListener('click', () => row.remove());
     row.appendChild(removeBtn);
   }
 
@@ -1290,7 +1251,7 @@ function openSettings(): void {
 
     dlg.close();
   };
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
   dlg.showModal();
 }
 
@@ -1324,7 +1285,7 @@ function openExportDialog(): void {
     downloadTextFile(toXml(entries), `${baseName}.xml`, 'application/xml');
     dlg.close();
   };
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
   dlg.showModal();
 }
 
@@ -1425,7 +1386,7 @@ function openPasswordGenerator(onUse: (password: string) => void): void {
     onUse(preview.textContent);
     dlg.close();
   };
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
 
   regenerate();
   dlg.showModal();
@@ -1495,7 +1456,7 @@ function openIconPicker(onPick: (iconId: number) => void): void {
     grid.appendChild(btn);
   }
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
   dlg.showModal();
 }
 
@@ -1557,7 +1518,7 @@ function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-group"]')).onclick = () =>
     dlg.close();
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
 
   // Allow Enter to submit
   nameInput.onkeydown = (e) => {
@@ -1609,7 +1570,7 @@ function openMoveToDialog(
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-move"]')).onclick = () =>
     dlg.close();
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
+  wireClose(dlg);
 
   dlg.showModal();
 }
