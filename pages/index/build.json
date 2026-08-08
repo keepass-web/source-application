@@ -1,7 +1,7 @@
 {
   "template": "page.html",
   "styles": ["../shared/footer.css", "page.css"],
-  "scripts": [],
+  "scripts": ["../../build/pages/index/bundle.js"],
   "footer": "../shared/footer.html",
   "output": "../../dist/index.html"
 }

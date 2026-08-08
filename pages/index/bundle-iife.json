@@ -1,0 +1,6 @@
+{
+  "packagesDir": "../../build/packages",
+  "output": "../../build/pages/index/bundle.js",
+  "files": ["../pages/index/logic.js", "../pages/index/page.js"],
+  "exports": []
+}
