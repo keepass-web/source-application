@@ -1,6 +1,6 @@
 # KeePass Web
 
-A password manager that reads and writes [KDBX][kdbx] database files entirely in your browser. A multi-page application of single-purpose HTML pages — no native application install, no web server, and no network: just your KeePass database file viewed and edited in your browser tab's memory. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds each page into its own distributable HTML file. The app and every offline page use no external dependencies at all; the optional cloud connectors are the sole exception, and only to load the sign-in provider's own SDK — see [Trust](#trust).
+A password manager with no backend: each page is a single, self-contained HTML file that reads and writes [KDBX][kdbx] database files directly in your browser tab, with no native application install, no web server, and no network in the loop. This repo is the source for the whole thing: the crypto primitives, the KDBX parser, the browser app, and the tooling that builds each page into its own distributable HTML file. The app and every offline page use no external dependencies at all; the optional cloud connectors are the sole exception, and only to load the sign-in provider's own SDK — see [Trust](#trust).
 
 ## Contents
 
@@ -25,7 +25,7 @@ The whole point of shipping as a multi-page application of un-minified HTML page
 
 See [Contributing][contributing] for how to report a bug, propose a change, and build/test/lint locally. See each package's own `README.md`/`SPEC.md` (`packages/argon2`, `packages/chacha20`, `packages/kdbx`) for the algorithms implemented and why.
 
-This project is MIT-licensed and entirely free — including the connectors that open your database from your own cloud storage provider — and open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] funds ongoing development and security audits; it is an invitation, never a paywall. See [Licensing][licensing] for how that works.
+This project is MIT-licensed and entirely free — including the connectors that open your database from your own cloud storage provider — and open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] is how people who find it valuable can support the people building it; it is an invitation, never a paywall. See [Licensing][licensing] for how that works.
 
 ## License
 

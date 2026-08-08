@@ -45,7 +45,7 @@ On save, since there is nowhere to write back to, the local connector downloads 
 
 **Handoff and save.** The connector and the embedded app exchange same-origin messages: the connector hands the app the file's bytes, and on save the app hands the edited bytes back for the connector to write to Drive. The local-download option is hidden while embedded. Opened on its own, `0x67.html` receives no such messages and behaves exactly as it does standalone.
 
-## Local storage
+## Opening from local disk
 
 Opening a database from local disk needs nothing but the file itself: no account, no sign-in, no network connection. `local.html` and `0x67.html` work completely offline, so a vault on a USB drive or a personal laptop opens the same way whether there's an internet connection or not. Nothing about the file goes anywhere — there's no vendor, no OAuth exchange, and no service to trust beyond the browser itself. Opening a local file needs no account of any kind and is open to every visitor.
 
@@ -53,7 +53,7 @@ Opening a database from local disk needs nothing but the file itself: no account
 
 Anyone can open and save a database directly from Google Drive and other cloud storage providers (as demand drives adoption), without ever downloading it to disk. The file's bytes go straight into browser memory, get edited there, and are written straight back to the provider; on-disk storage is never part of the round trip. That's more convenient than the download-edit-reupload cycle a local file requires, and it's more secure. On a computer whose disk can't be accessed, trusted, or written to like a public library terminal, a locked-down kiosk, a borrowed laptop, there's nothing on that disk to worry about, because the vault was never on it.
 
-The cloud connectors are open to every visitor: there is no sponsorship gate, and opening a cloud vault requires only your own provider's sign-in and the master password — never a GitHub login. KeePass Web provides no storage of its own; it connects to a provider you already have. Building and maintaining these connectors, along with the project's security audits, is funded voluntarily through [GitHub Sponsors][sponsors]. The app invites sponsorship but never requires it.
+The cloud connectors are open to every visitor: there is no sponsorship gate, and opening a cloud vault requires only your own provider's sign-in and the master password — never a GitHub login. KeePass Web provides no storage of its own; it connects to a provider you already have. [GitHub Sponsors][sponsors] is how people who find the connectors valuable can support the people building them. The app invites sponsorship but never requires it.
 
 [sponsors]: https://github.com/sponsors/keepass-web
 [picker]: https://developers.google.com/workspace/drive/picker/guides/overview
