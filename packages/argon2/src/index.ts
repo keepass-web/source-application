@@ -1,10 +1,5 @@
-/**
- * `argon2` — Argon2d and Argon2id key derivation per
- * [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106).
- *
- * Argon2i is intentionally not implemented (see README.md); RFC 9106 requires
- * only Argon2id, and KDBX 4.x uses Argon2d or Argon2id.
- */
+/** `argon2` — Argon2d/Argon2id per RFC 9106. Argon2i isn't implemented (see
+README.md): RFC 9106 only requires Argon2id, and that's all KDBX 4.x uses. */
 
 import { ARGON2_D, ARGON2_ID, ARGON2_VERSION_13, argon2Core } from './argon2.ts';
 
@@ -12,34 +7,34 @@ const A2_MAX_U24 = 0xffffff;
 const A2_MAX_U32 = 0xffffffff;
 const A2_EMPTY = new Uint8Array(0);
 
-/** Argon2 variant. */
+// Argon2 variant.
 export type Argon2Type = 'argon2d' | 'argon2id';
 
-/** Options for {@link argon2}. Parameter names and bounds follow RFC 9106. */
+// Options for {@link argon2}. Parameter names and bounds follow RFC 9106.
 export interface Argon2Options {
-  /** Message P. For KDBX this is the composite key. */
+  // Message P. For KDBX this is the composite key.
   password: Uint8Array;
-  /** Nonce S (salt). */
+  // Nonce S (salt).
   salt: Uint8Array;
-  /** Degree of parallelism p (lanes), an integer in 1..2^24-1. */
+  // Degree of parallelism p (lanes), an integer in 1..2^24-1.
   parallelism: number;
-  /** Memory size m in KiB, an integer in 8*parallelism..2^32-1. */
+  // Memory size m in KiB, an integer in 8*parallelism..2^32-1.
   memory: number;
-  /** Number of passes t, an integer in 1..2^32-1. */
+  // Number of passes t, an integer in 1..2^32-1.
   iterations: number;
-  /** Desired tag length T in bytes, an integer in 4..2^32-1. */
+  // Desired tag length T in bytes, an integer in 4..2^32-1.
   tagLength: number;
-  /** Variant to use. */
+  // Variant to use.
   type: Argon2Type;
-  /** Optional secret value K. */
+  // Optional secret value K.
   secret?: Uint8Array;
-  /** Optional associated data X. */
+  // Optional associated data X.
   associatedData?: Uint8Array;
-  /** Version number; defaults to 0x13 (the current version). */
+  // Version number; defaults to 0x13 (the current version).
   version?: number;
 }
 
-/** Options for {@link argon2d} / {@link argon2id} (no `type` field). */
+// Options for {@link argon2d} / {@link argon2id} (no `type` field).
 export type Argon2VariantOptions = Omit<Argon2Options, 'type'>;
 
 function a2_requireInteger(name: string, value: number, min: number, max: number): void {

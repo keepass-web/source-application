@@ -1,25 +1,12 @@
-/**
- * `chacha20` — ChaCha20 (RFC 8439) and Salsa20 (D. J. Bernstein) stream
- * ciphers.
- *
- * Scope is intentionally limited to the raw stream ciphers. Poly1305 and the
- * ChaCha20-Poly1305 AEAD construction from RFC 8439 are NOT implemented: KDBX
- * authenticates with HMAC-SHA256, so the AEAD is not needed by keepass-web.
- *
- * Both ciphers expose three layers:
- *   - a pure 64-byte block function (`chacha20Block` / `salsa20Block`);
- *   - a one-shot helper (`chacha20` / `salsa20`) for whole buffers;
- *   - a stateful class (`ChaCha20` / `Salsa20`) whose `encrypt`/`decrypt`
- *     consume a single continuous keystream across successive calls. The
- *     stateful form is what KDBX inner-stream (protected-field) processing
- *     needs, since protected values are XORed against one running keystream in
- *     document order.
- */
+/** `chacha20` — ChaCha20 (RFC 8439) and Salsa20 stream ciphers. No
+Poly1305/AEAD: KDBX authenticates with HMAC-SHA256 instead. Each exposes
+a block function, a one-shot helper, and a stateful class sharing one
+running keystream across calls — what inner-stream processing needs. */
 
-/** A 32-bit unsigned word. */
+// A 32-bit unsigned word.
 type Word = number;
 
-/** Result of a quarter round: four updated 32-bit words. */
+// Result of a quarter round: four updated 32-bit words.
 type QuarterRound = [Word, Word, Word, Word];
 
 const CC_KEY_BYTES = 32;
@@ -27,12 +14,12 @@ const CC_BLOCK_BYTES = 64;
 const CC_CHACHA_NONCE_BYTES = 12;
 const CC_SALSA_NONCE_BYTES = 8;
 
-/** "expand 32-byte k" as four little-endian 32-bit words. */
+// "expand 32-byte k" as four little-endian 32-bit words.
 const CC_SIGMA: readonly [Word, Word, Word, Word] = [
   0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
 ];
 
-/** Left-rotate a 32-bit word by `n` bits. */
+// Left-rotate a 32-bit word by `n` bits.
 const cc_rotl = (x: Word, n: number): Word => ((x << n) | (x >>> (32 - n))) >>> 0;
 
 function cc_assertLength(bytes: Uint8Array, expected: number, name: string): void {

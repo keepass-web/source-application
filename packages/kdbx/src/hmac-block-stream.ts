@@ -1,18 +1,12 @@
-/**
- * HMAC-protected block stream (KDBX 4.x).
- *
- * The (encrypted) payload is split into blocks; each stored block is
- *   HMAC-SHA-256(index_u64le ‖ size_i32le ‖ data) ‖ size_i32le ‖ data
- * where the per-block HMAC key depends on the block index. The stream ends with
- * a block whose size is 0. Verification uses an Encrypt-then-MAC scheme, so the
- * integrity/authenticity check happens before decryption.
- */
+/** KDBX 4.x HMAC block stream: blocks of `HMAC-SHA-256(index‖size‖data)‖
+size‖data`, keyed per block index, ending with a size-0 block.
+Encrypt-then-MAC — integrity is checked before decryption. */
 
 import { ByteReader, ByteWriter, bytesEqualConstantTime, concatBytes } from './bytes.ts';
 import { hmacSha256 } from './crypto.ts';
 import { deriveBlockHmacKey } from './key.ts';
 
-/** Block size used when writing (KeePass uses 1 MiB for all but the last block). */
+// Block size used when writing (KeePass uses 1 MiB for all but the last block).
 const KX_HMS_BLOCK_SIZE = 1024 * 1024;
 
 async function kx_blockMac(
@@ -26,7 +20,7 @@ async function kx_blockMac(
   return hmacSha256(blockKey, concatBytes(indexBytes, sizeBytes, data));
 }
 
-/** Verify and concatenate an HMAC-protected block stream into its payload. */
+// Verify and concatenate an HMAC-protected block stream into its payload.
 export async function readHmacBlockStream(
   data: Uint8Array,
   hmacBaseKey: Uint8Array,
@@ -54,7 +48,7 @@ export async function readHmacBlockStream(
   return concatBytes(...chunks);
 }
 
-/** Frame a payload as an HMAC-protected block stream. */
+// Frame a payload as an HMAC-protected block stream.
 export async function writeHmacBlockStream(
   payload: Uint8Array,
   hmacBaseKey: Uint8Array,

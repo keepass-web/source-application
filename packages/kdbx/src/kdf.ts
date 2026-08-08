@@ -1,11 +1,5 @@
-/**
- * Key derivation functions used by KDBX to transform the composite key.
- *
- * - KDBX 3.1 always uses AES-KDF, parameterized by the outer-header transform
- *   seed and round count.
- * - KDBX 4.x stores the KDF choice and parameters in a VariantDictionary; the
- *   built-in functions are AES-KDF, Argon2d, and Argon2id.
- */
+/** KDFs for the composite key: KDBX 3.1 always uses AES-KDF; 4.x picks
+AES-KDF, Argon2d, or Argon2id via a VariantDictionary. */
 
 import { type Argon2Type, argon2 } from '../../../build/packages/argon2/src/index.js';
 import { bytesEqual } from './bytes.ts';
@@ -16,24 +10,14 @@ import { type VariantDictionary, vdRequireBytes, vdRequireInt } from './variant-
 const KX_ARGON2_TAG_LENGTH = 32;
 const KX_BYTES_PER_KIB = 1024n;
 
-/**
- * Sanity ceiling on Argon2 cost parameters read from a file's (untrusted,
- * pre-authentication) KDF parameters. RFC 9106's own legal ranges — enforced
- * separately by the argon2 package itself — allow up to 2^32-1 KiB (~4 TiB)
- * of memory and 2^32-1 iterations, since that package has no opinion on what
- * a caller finds reasonable. Left unchecked here, a crafted file could force
- * an attempted multi-gigabyte-or-larger allocation, or a computation that
- * never realistically finishes, just by being opened — with any password
- * attempt, since the KDF runs before the file's authenticity is verified.
- * These values are generous relative to any real-world KDBX configuration
- * (KeePass's own defaults are far below them) while keeping a worst-case
- * unlock attempt bounded to something a browser tab can actually survive.
- */
+/** Ceiling on Argon2 cost params read from the file before auth. RFC 9106
+allows up to ~4TiB memory / 2^32-1 iterations; unchecked, a crafted file
+could force a huge allocation before any password is even checked. */
 const KX_MAX_ARGON2_MEMORY_KIB = 2 * 1024 * 1024; // 2 GiB
 const KX_MAX_ARGON2_ITERATIONS = 64;
 const KX_MAX_ARGON2_PARALLELISM = 64;
 
-/** Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF). */
+// Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF).
 export async function aesKdf(
   compositeKey: Uint8Array,
   seed: Uint8Array,
@@ -42,10 +26,7 @@ export async function aesKdf(
   return aesKdfTransform(compositeKey, seed, rounds);
 }
 
-/**
- * Transform a composite key using the KDF described by a KDBX 4.x KDF-parameter
- * VariantDictionary.
- */
+// Transform a composite key using the KDF named in a KDBX 4.x KDF-parameter VariantDictionary.
 export async function transformWithKdfParameters(
   compositeKey: Uint8Array,
   params: VariantDictionary,

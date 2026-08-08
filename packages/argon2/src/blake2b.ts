@@ -1,15 +1,9 @@
-/**
- * BLAKE2b ([RFC 7693](https://www.rfc-editor.org/rfc/rfc7693)), the underlying
- * hash function `H` used by Argon2 (RFC 9106, Section 3.2).
- *
- * This is an unkeyed implementation with a variable output length of 1..64
- * bytes, which is all Argon2 requires. The 64-bit arithmetic is implemented
- * with `bigint` for correctness; see SPEC.md for the optimization trade-off.
- */
+/** BLAKE2b (RFC 7693), Argon2's H (RFC 9106 §3.2) — unkeyed, 1..64-byte
+output. 64-bit math uses bigint; see SPEC.md for the trade-off. */
 
 const B2_MASK64 = (1n << 64n) - 1n;
 
-/** BLAKE2b initialization vector (RFC 7693, Section 2.6). */
+// BLAKE2b initialization vector (RFC 7693, Section 2.6).
 const B2_IV: readonly bigint[] = [
   0x6a09e667f3bcc908n,
   0xbb67ae8584caa73bn,
@@ -21,7 +15,7 @@ const B2_IV: readonly bigint[] = [
   0x5be0cd19137e2179n,
 ];
 
-/** Message word schedule per round (RFC 7693, Section 2.7). */
+// Message word schedule per round (RFC 7693, Section 2.7).
 const B2_SIGMA: readonly (readonly number[])[] = [
   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
@@ -41,7 +35,7 @@ function b2_rotr64(x: bigint, n: bigint): bigint {
   return ((x >> n) | (x << (64n - n))) & B2_MASK64;
 }
 
-/** The BLAKE2b mixing function G (RFC 7693, Section 3.1). */
+// The BLAKE2b mixing function G (RFC 7693, Section 3.1).
 function b2_mix(
   v: bigint[],
   a: number,
@@ -69,7 +63,7 @@ function b2_mix(
   v[d] = vd;
 }
 
-/** The BLAKE2b compression function F (RFC 7693, Section 3.2). */
+// The BLAKE2b compression function F (RFC 7693, Section 3.2).
 function b2_compress(h: bigint[], m: bigint[], counter: bigint, last: boolean): void {
   const v = new Array<bigint>(16);
   for (let i = 0; i < 8; i++) {
@@ -98,12 +92,9 @@ function b2_compress(h: bigint[], m: bigint[], counter: bigint, last: boolean): 
   }
 }
 
-/**
- * Compute the unkeyed BLAKE2b digest of `input`.
- *
- * @param outLength desired digest length in bytes, 1..64.
- * @param input message to hash.
- */
+/** Unkeyed BLAKE2b digest of `input`.
+@param outLength digest length in bytes, 1..64.
+@param input message to hash. */
 export function blake2b(outLength: number, input: Uint8Array): Uint8Array {
   if (!Number.isInteger(outLength) || outLength < 1 || outLength > 64) {
     throw new RangeError(`BLAKE2b output length must be an integer in 1..64, got ${outLength}`);

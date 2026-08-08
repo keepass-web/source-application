@@ -1,13 +1,6 @@
-/**
- * The outer (unencrypted) KDBX header: signatures, format version, and the
- * type-length-value fields that describe how to decrypt the payload.
- *
- * KDBX 3.1 and 4.x share the field IDs but differ in two ways handled here:
- *   - the field length is a UInt16 in 3.1 and an Int32 in 4.x;
- *   - 3.1 keeps KDF settings and the inner-stream key/ID in the outer header,
- *     whereas 4.x moves the KDF settings into a VariantDictionary and the
- *     inner-stream key/ID into the (encrypted) inner header.
- */
+/** Outer, unencrypted KDBX header: signatures, version, and the TLV fields
+describing how to decrypt the payload. 3.1 and 4.x share field IDs but
+differ in length encoding (UInt16 vs Int32) and where KDF/stream settings live. */
 
 import { ByteReader, ByteWriter } from './bytes.ts';
 import {
@@ -23,13 +16,13 @@ import {
   writeVariantDictionary,
 } from './variant-dictionary.ts';
 
-/** Parsed KDBX format version. */
+// Parsed KDBX format version.
 export interface KdbxVersion {
   major: number;
   minor: number;
 }
 
-/** A decoded outer header. Fields that do not apply to a version are absent. */
+// A decoded outer header. Fields that do not apply to a version are absent.
 export interface OuterHeader {
   version: KdbxVersion;
   cipherId: Uint8Array;
@@ -48,12 +41,12 @@ export interface OuterHeader {
   publicCustomData?: VariantDictionary;
 }
 
-/** Result of reading the outer header from a buffer. */
+// Result of reading the outer header from a buffer.
 export interface ParsedOuterHeader {
   header: OuterHeader;
-  /** Exact header bytes (signatures through end-of-header), for hashing/HMAC. */
+  // Exact header bytes (signatures through end-of-header), for hashing/HMAC.
   rawHeader: Uint8Array;
-  /** Offset in the source buffer at which the post-header data begins. */
+  // Offset in the source buffer at which the post-header data begins.
   offset: number;
 }
 
@@ -61,7 +54,7 @@ function kx_isKdbx4(major: number): boolean {
   return major >= 4;
 }
 
-/** Parse the outer header from the start of a KDBX buffer. */
+// Parse the outer header from the start of a KDBX buffer.
 export function readOuterHeader(data: Uint8Array): ParsedOuterHeader {
   const reader = new ByteReader(data);
   if (reader.readU32() !== SIGNATURE_1 || reader.readU32() !== SIGNATURE_2) {

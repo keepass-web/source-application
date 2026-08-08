@@ -1,27 +1,17 @@
-/**
- * The inner random stream that protects sensitive fields (e.g. passwords) in
- * the KDBX XML document.
- *
- * KDBX 3.1 uses Salsa20 with a fixed nonce and a key of SHA-256(streamKey).
- * KDBX 4.x uses ChaCha20 with key/nonce derived from SHA-512(streamKey). In
- * both cases the cipher produces one continuous keystream; protected values are
- * XORed against it in document order, so the order of processing matters.
- */
+/** Inner random stream protecting sensitive fields: 3.1 uses Salsa20
+(key = SHA-256(streamKey)); 4.x uses ChaCha20 (from SHA-512(streamKey)).
+One continuous keystream XORed in document order — order matters. */
 
 import { ChaCha20, Salsa20 } from '../../../build/packages/chacha20/src/index.js';
 import { InnerStreamCipher, SALSA20_NONCE } from './constants.ts';
 import { sha256, sha512 } from './crypto.ts';
 
-/** A stateful XOR transform over the inner random stream's keystream. */
+// A stateful XOR transform over the inner random stream's keystream.
 export interface ProtectedStreamCipher {
   process(data: Uint8Array): Uint8Array;
 }
 
-/**
- * Create the inner random stream cipher for the given stream ID and key. A
- * fresh cipher must be created for each full read or write pass, since the
- * keystream is consumed in order across all protected values.
- */
+// A fresh cipher is needed per full pass, since the keystream is consumed in order.
 export async function createProtectedStreamCipher(
   streamId: number,
   streamKey: Uint8Array,

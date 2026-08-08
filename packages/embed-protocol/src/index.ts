@@ -1,25 +1,8 @@
-/**
- * `embed-protocol` — the same-origin postMessage contract between a
- * keepass-web implementation (currently only `0x67`) and whatever host page
- * embeds it in an iframe (the local-file chooser, the Google Drive
- * connector, and future sources).
- *
- * Message shapes and guards used to be hand-written twice: once inline in
- * 0x67/page.ts (the app side) and once in each host's own logic.ts (the host
- * side). Nothing but manual care kept those two hand-written copies in sync.
- * Centralizing both the guards *and* the builders here means the two ends of
- * the protocol are provably using the same wire format, not just similarly
- * shaped code.
- *
- * Six message types, each read by exactly one side and built by the other:
- *   app  → host : kw-ready          (built by the app, read by the host)
- *   host → app  : kw-open           (built by the host, read by the app)
- *   app  → host : kw-save           (built by the app, read by the host)
- *   host → app  : kw-saved          (built by the host, read by the app)
- *   host → app  : kw-close-request  (built by the host, read by the app)
- *   app  → host : kw-close-ack      (built by the app, read by the host)
- *   app  → host : kw-close          (built by the app, read by the host)
- */
+/** `embed-protocol` — the same-origin postMessage contract between a
+keepass-web implementation and whatever host embeds it in an iframe.
+Centralizes shapes/guards/builders (previously duplicated per side) so
+both ends provably agree on the wire format: kw-ready, kw-open, kw-save,
+kw-saved, kw-close-request, kw-close-ack, kw-close. */
 
 export interface ReadyMessage {
   type: 'kw-ready';

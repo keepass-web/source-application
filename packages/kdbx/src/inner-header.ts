@@ -1,35 +1,29 @@
-/**
- * The inner (encrypted) header — KDBX 4.x only.
- *
- * It precedes the XML document inside the decrypted, decompressed payload and
- * carries the inner random stream cipher ID and key (used to protect sensitive
- * fields) plus any binary attachments referenced by the XML.
- */
+// Inner header (4.x only): the stream cipher ID/key, plus binaries referenced by the XML.
 
 import { ByteReader, ByteWriter, concatBytes } from './bytes.ts';
 import { InnerHeaderFieldId, InnerStreamCipher } from './constants.ts';
 
-/** A binary attachment stored in the inner header. */
+// A binary attachment stored in the inner header.
 export interface InnerBinary {
-  /** Flags byte; 0x01 marks content that should be memory-protected. */
+  // Flags byte; 0x01 marks content that should be memory-protected.
   flags: number;
   data: Uint8Array;
 }
 
-/** Decoded inner header. */
+// Decoded inner header.
 export interface InnerHeader {
   innerRandomStreamId: number;
   innerRandomStreamKey: Uint8Array;
   binaries: InnerBinary[];
 }
 
-/** Result of reading the inner header: the header plus the XML bytes that follow. */
+// Result of reading the inner header: the header plus the XML bytes that follow.
 export interface ParsedInnerHeader {
   inner: InnerHeader;
   xml: Uint8Array;
 }
 
-/** Parse the inner header from the start of a decrypted, decompressed payload. */
+// Parse the inner header from the start of a decrypted, decompressed payload.
 export function readInnerHeader(payload: Uint8Array): ParsedInnerHeader {
   const reader = new ByteReader(payload);
   const binaries: InnerBinary[] = [];
@@ -64,7 +58,7 @@ export function readInnerHeader(payload: Uint8Array): ParsedInnerHeader {
   };
 }
 
-/** Serialize an inner header to its byte encoding. */
+// Serialize an inner header to its byte encoding.
 export function writeInnerHeader(inner: InnerHeader): Uint8Array {
   const writer = new ByteWriter();
   const writeField = (id: number, value: Uint8Array): void => {

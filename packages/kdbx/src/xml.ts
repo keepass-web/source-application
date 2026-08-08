@@ -1,23 +1,16 @@
-/**
- * A small XML parser and serializer covering the subset of XML that KeePass
- * produces: elements, attributes, text, CDATA sections, comments, and the XML
- * declaration. It does not support namespaces, DTD validation, or processing
- * instructions beyond the declaration — none of which appear in KDBX documents.
- *
- * `DOMParser`/`XMLSerializer` are not available outside browsers, so this keeps
- * the package isomorphic and dependency-free.
- */
+/** Minimal XML parser/serializer for what KeePass actually produces (no
+namespaces/DTD/PIs) — keeps this isomorphic without DOMParser/XMLSerializer. */
 
-/** A parsed XML element. */
+// A parsed XML element.
 export interface XmlElement {
   readonly type: 'element';
   name: string;
-  /** Attributes in document order. */
+  // Attributes in document order.
   attributes: Array<[string, string]>;
   children: XmlNode[];
 }
 
-/** A parsed run of text (possibly originating from a CDATA section). */
+// A parsed run of text (possibly originating from a CDATA section).
 export interface XmlText {
   readonly type: 'text';
   value: string;
@@ -98,10 +91,7 @@ class KX_XmlParser {
 
   #readName(): string {
     const start = this.#i;
-    // The `&&` short-circuits on `this.#i < this.#s.length`, so `this.#i` is
-    // always in range whenever the index is read; the cast (rather than
-    // `?? ''`) only satisfies noUncheckedIndexedAccess and doesn't change
-    // behavior.
+    // The && already guarantees this.#i is in range; the cast only satisfies noUncheckedIndexedAccess.
     while (this.#i < this.#s.length && !KX_NAME_END.has(this.#s[this.#i] as string)) {
       this.#i += 1;
     }

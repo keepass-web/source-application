@@ -1,14 +1,4 @@
-/**
- * High-level KDBX database: parsing (`load`), serialization (`save`), and
- * creation (`create`) for KDBX 3.1 and 4.x.
- *
- * The flow mirrors the specification's overall structure:
- *   load — read outer header, verify header SHA-256/HMAC (4.x) → de-chunk →
- *          decrypt → decompress → read inner header (4.x) → parse XML →
- *          unprotect fields.
- *   save — protect fields → serialize XML → prepend inner header (4.x) →
- *          compress → encrypt → chunk → prepend header + SHA-256 + HMAC (4.x).
- */
+// High-level KDBX database: load/save/create for KDBX 3.1/4.x, per the spec's structure.
 
 import { ChaCha20 } from '../../../build/packages/chacha20/src/index.js';
 import {
@@ -68,30 +58,30 @@ import { createProtectedStreamCipher } from './protected-stream.ts';
 import type { VariantDictionary, VdValue } from './variant-dictionary.ts';
 import { parseXml, serializeXml, type XmlElement } from './xml.ts';
 
-/** Outer cipher choices. */
+// Outer cipher choices.
 export type KdbxCipher = 'aes' | 'chacha20';
-/** Key derivation function choices (KDBX 4.x). */
+// Key derivation function choices (KDBX 4.x).
 export type KdbxKdf = 'argon2id' | 'argon2d' | 'aes';
 
-/** Options for {@link Kdbx.create}. */
+// Options for {@link Kdbx.create}.
 export interface KdbxCreateOptions {
   databaseName?: string;
-  /** Format version family: 3 (KDBX 3.1) or 4 (KDBX 4.x). Default 4. */
+  // Format version family: 3 (KDBX 3.1) or 4 (KDBX 4.x). Default 4.
   version?: 3 | 4;
-  /** Outer cipher. Default `chacha20` for v4; AES is forced for v3. */
+  // Outer cipher. Default `chacha20` for v4; AES is forced for v3.
   cipher?: KdbxCipher;
-  /** KDF. Default `argon2id` for v4; AES-KDF is forced for v3. */
+  // KDF. Default `argon2id` for v4; AES-KDF is forced for v3.
   kdf?: KdbxKdf;
-  /** GZip-compress the payload. Default true. */
+  // GZip-compress the payload. Default true.
   compression?: boolean;
-  /** Argon2 tuning (KDBX 4.x). */
+  // Argon2 tuning (KDBX 4.x).
   argon2?: {
     memoryBytes?: bigint;
     iterations?: bigint;
     parallelism?: number;
     version?: number;
   };
-  /** AES-KDF rounds. */
+  // AES-KDF rounds.
   aesKdfRounds?: bigint;
 }
 
@@ -107,16 +97,7 @@ function kx_bytes(value: Uint8Array): VdValue {
   return { type: 'bytes', value };
 }
 
-/**
- * Classify a cipher ID, or throw if it names neither outer cipher this
- * package supports. This is the single point where "supported outer cipher"
- * is defined; `kx_ivLengthFor`/`kx_encryptPayload`/`kx_decryptPayload` all
- * dispatch through it rather than each re-checking the same two IDs, so
- * there's exactly one "unsupported outer cipher" error site instead of three
- * copies (which, in kx_encryptPayload's case, could never actually be
- * reached: the only caller, `#save4`, always calls `kx_ivLengthFor` on the
- * same `cipherId` first and would already have thrown by then).
- */
+// Classify a cipher ID, or throw — the single place "supported cipher" is decided.
 function kx_cipherKind(cipherId: Uint8Array): 'aes' | 'chacha20' {
   if (bytesEqual(cipherId, CipherId.Aes256)) {
     return 'aes';
@@ -153,7 +134,7 @@ async function kx_decryptPayload(
     : new ChaCha20(cipherKey, iv).decrypt(data);
 }
 
-/** Transform the composite key according to the header's KDF settings. */
+// Transform the composite key according to the header's KDF settings.
 async function kx_transformKey(header: OuterHeader, compositeKey: Uint8Array): Promise<Uint8Array> {
   if (header.version.major >= 4) {
     if (!header.kdfParameters) {
@@ -167,22 +148,18 @@ async function kx_transformKey(header: OuterHeader, compositeKey: Uint8Array): P
   return aesKdf(compositeKey, header.transformSeed, header.transformRounds);
 }
 
-/** An in-memory KDBX database. */
+// An in-memory KDBX database.
 export class Kdbx {
-  /** The outer header. Random fields (seeds, IVs, salts) are regenerated on save. */
+  // The outer header. Random fields (seeds, IVs, salts) are regenerated on save.
   header: OuterHeader;
-  /** The `<KeePassFile>` document root, with protected fields held as plaintext. */
+  // The `<KeePassFile>` document root, with protected fields held as plaintext.
   root: XmlElement;
-  /**
-   * Binary attachments. Read from / written to the encrypted inner header
-   * (KDBX 4.x) or `Meta/Binaries` (KDBX 3.1) — see meta-binaries.ts. Either
-   * way, Ref values in the XML always address this pool by array index.
-   */
+  // Binary attachments. XML `Ref` values index this pool (see meta-binaries.ts for KDBX 3.1).
   binaries: InnerBinary[];
 
   #credentials: Credentials;
   #innerStreamId: number;
-  /** Inner random stream key (KDBX 4.x); for 3.1 the protected-stream key is in the header. */
+  // Inner random stream key (KDBX 4.x); for 3.1 the protected-stream key is in the header.
   #innerStreamKey: Uint8Array;
 
   private constructor(init: {
@@ -201,7 +178,7 @@ export class Kdbx {
     this.#innerStreamKey = init.innerStreamKey;
   }
 
-  /** The root `<Group>` element under `<Root>`. */
+  // The root `<Group>` element under `<Root>`.
   getRootGroup(): XmlElement {
     const rootElement = getChild(this.root, 'Root');
     const group = rootElement ? getChild(rootElement, 'Group') : undefined;
@@ -211,39 +188,27 @@ export class Kdbx {
     return group;
   }
 
-  /** Replace the credentials used when the database is next saved. */
+  // Replace the credentials used when the database is next saved.
   setCredentials(credentials: Credentials): void {
     this.#credentials = credentials;
   }
 
-  /**
-   * Add a binary attachment to the pool, reusing an existing identical one
-   * (by content) rather than growing the pool without bound. Returns the
-   * pool index — reference it from an entry via a
-   * `<Binary><Value Ref="N"/></Binary>` child (see model.ts's
-   * addEntryAttachment).
-   */
+  // Add a binary attachment, reusing an identical one if present; returns its pool index.
   addBinary(data: Uint8Array): number {
     for (let i = 0; i < this.binaries.length; i++) {
-      // i < this.binaries.length, so this index is always populated; the
-      // cast only satisfies noUncheckedIndexedAccess.
+      // Index is always in range here; the cast only satisfies noUncheckedIndexedAccess.
       if (bytesEqual((this.binaries[i] as InnerBinary).data, data)) return i;
     }
     this.binaries.push({ flags: 0, data });
     return this.binaries.length - 1;
   }
 
-  /** The bytes for a pool index, or undefined if out of range. */
+  // The bytes for a pool index, or undefined if out of range.
   getBinaryData(ref: number): Uint8Array | undefined {
     return this.binaries[ref]?.data;
   }
 
-  /**
-   * Remove any binary pool entries no longer referenced by any entry's
-   * `<Binary>` child — including History revisions, not just an entry's
-   * live state — and remap the survivors' Ref indices to stay contiguous.
-   * Called on every save; a no-op when the pool is already empty.
-   */
+  // Remove unreferenced binaries (incl. History) and remap survivors' Refs; runs on every save.
   #pruneUnreferencedBinaries(): void {
     if (this.binaries.length === 0) return;
 
@@ -276,7 +241,7 @@ export class Kdbx {
     this.binaries = kept;
   }
 
-  /** Parse a KDBX database from bytes. */
+  // Parse a KDBX database from bytes.
   static async load(data: Uint8Array, credentials: Credentials): Promise<Kdbx> {
     const { header, rawHeader, offset } = readOuterHeader(data);
     const compositeKey = await credentials.getCompositeKey();
@@ -384,7 +349,7 @@ export class Kdbx {
     });
   }
 
-  /** Serialize the database to KDBX bytes (regenerating all random material). */
+  // Serialize the database to KDBX bytes (regenerating all random material).
   async save(): Promise<Uint8Array> {
     return this.header.version.major >= 4 ? this.#save4() : this.#save3();
   }
@@ -480,7 +445,7 @@ export class Kdbx {
     return concatBytes(rawHeader, encrypted);
   }
 
-  /** Create a new, empty database with the given credentials. */
+  // Create a new, empty database with the given credentials.
   static async create(credentials: Credentials, options: KdbxCreateOptions = {}): Promise<Kdbx> {
     const version = options.version ?? 4;
     const databaseName = options.databaseName ?? 'Database';

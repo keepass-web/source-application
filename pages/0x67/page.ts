@@ -1,6 +1,4 @@
-// ============================================================
 // Application state
-// ============================================================
 
 type EntryView = 'tile' | 'table';
 
@@ -30,8 +28,7 @@ const app: AppState = {
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
-  // Tile view reads better than a dense table on a narrow phone screen;
-  // this only sets the initial default, the view toggle still overrides it.
+  // Tile view reads better on narrow phones; this only sets the initial default.
   entryView: window.innerWidth <= 700 ? 'tile' : 'table',
   columnVisibility: {
     username: true,
@@ -44,18 +41,12 @@ const app: AppState = {
   },
 };
 
-/** True once a trusted same-origin parent frame has handed this app a vault to
- * open (see the "Host integration" section). Stays false in standalone use, so
- * every screen behaves exactly as it does without a host. */
+// True once a trusted parent frame has handed this app a vault (see "Host integration").
 let hostSession = false;
 
-// ============================================================
 // DOM helpers
-// ============================================================
 
-/** Unwrap a possibly-missing lookup, or fail loudly. The app's screens are
- * generated from its own templates, so a missing element means a real bug,
- * not a state to handle gracefully. */
+// Unwrap a possibly-missing lookup, or fail loudly — a missing element means a real bug.
 function must<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
     throw new Error('expected element not found');
@@ -67,27 +58,24 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return must(document.getElementById(id) as T | null);
 }
 
-/** Clone a <template> and return the DocumentFragment. */
+// Clone a <template> and return the DocumentFragment.
 function cloneTemplate(id: string): DocumentFragment {
   return byId<HTMLTemplateElement>(id).content.cloneNode(true) as DocumentFragment;
 }
 
-/** Replace the #root content with the given fragment. */
+// Replace the #root content with the given fragment.
 function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
   root.appendChild(fragment);
 }
 
-/** Shorthand querySelector on #root. */
+// Shorthand querySelector on #root.
 function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
   return must(byId('root').querySelector<T>(selector));
 }
 
-/** Build a `type="button"` icon button: this app's dozen-plus small,
- * icon-only controls (rename/move/delete, reveal/copy, download, etc.) all
- * share this exact shape, so it's built once here instead of by hand at
- * every call site. */
+// Icon button helper: this app's many small icon-only controls all share this exact shape.
 function makeIconButton(
   className: string,
   title: string,
@@ -103,27 +91,15 @@ function makeIconButton(
   return btn;
 }
 
-/** Wire a dialog's `[data-action="close"]` button (its header ✕) to close it.
- * Called once per `openXDialog` function, replacing what would otherwise be
- * the same query-and-assign line repeated in each one. */
+// Wire a dialog's ✕ button to close it, replacing a repeated line in every openXDialog.
 function wireClose(dlg: HTMLDialogElement): void {
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
 }
 
-// ============================================================
-// kdbx XML model helpers
-// (getChildren, getChild, getText, etc. are declared in globals.d.ts and are
-//  in scope because bundle-iife concatenates this file with the kdbx library
-//  into one script — see bundle-iife.json. entryField, entryTitle, groupName,
-//  findEntryParent, collectAllEntries, groupPathTo, filterEntriesByQuery,
-//  applyEntryEdits, isCustomField, and isValidClipboardTimeout are pure logic
-//  and live in logic.ts instead, so they can be unit tested without a DOM;
-//  they're likewise declared in globals.d.ts and concatenated in the same way.)
-// ============================================================
+/** kdbx XML helpers and this file's own pure logic (entryField, etc. — see
+logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
-// ============================================================
 // Clipboard
-// ============================================================
 
 let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -140,9 +116,7 @@ async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
-// ============================================================
 // Screen: Upload
-// ============================================================
 
 function showUpload(): void {
   document.body.classList.remove('app-mode');
@@ -181,9 +155,7 @@ async function handleFile(file: File): Promise<void> {
   showUnlock();
 }
 
-// ============================================================
 // Screen: Unlock
-// ============================================================
 
 function showUnlock(): void {
   document.body.classList.remove('app-mode');
@@ -244,9 +216,7 @@ function showUnlock(): void {
   });
 }
 
-// ============================================================
 // Screen: Create Database
-// ============================================================
 
 function showCreateDatabase(): void {
   document.body.classList.remove('app-mode');

@@ -1,18 +1,7 @@
-/**
- * Binary attachments for KDBX 3.1.
- *
- * 3.1 stores attachment content inline in `Meta/Binaries` as Base64 (each
- * entry optionally individually gzip-compressed, marked `Compressed="True"`),
- * referenced from entries by a `Meta/Binaries/Binary`'s `ID` attribute. KDBX
- * 4.x instead stores content in the encrypted inner header, referenced by
- * pool position (see inner-header.ts). Both versions use the same entry-side
- * shape — `<Binary><Key>name</Key><Value Ref="N"/></Binary>` — so the only
- * difference this module needs to bridge is where the content lives and how
- * it's addressed: on load, on-disk IDs are remapped to pool indices so the
- * rest of this library (Kdbx#binaries, the attachment helpers in model.ts)
- * can treat both versions identically; on save, indices are written back out
- * as IDs.
- */
+/** KDBX 3.1 binary attachments: stored inline in `Meta/Binaries` as Base64
+(optionally gzipped), referenced by ID (4.x instead uses the inner header,
+referenced by pool position). Both share the same entry-side `<Binary>`
+shape, so this module just remaps IDs to pool indices on load, and back on save. */
 
 import { fromBase64, toBase64 } from './bytes.ts';
 import { gunzip } from './crypto.ts';
@@ -29,17 +18,13 @@ import {
 } from './model.ts';
 import type { XmlElement } from './xml.ts';
 
-/** Result of reading `Meta/Binaries`: the pool, plus how on-disk IDs map to it. */
+// Result of reading `Meta/Binaries`: the pool, plus how on-disk IDs map to it.
 export interface ParsedMetaBinaries {
   binaries: InnerBinary[];
   idToIndex: Map<number, number>;
 }
 
-/**
- * Read `Meta/Binaries`, decoding each `<Binary>` (Base64, gunzipped if
- * marked `Compressed="True"`) into the pool in document order. Does not
- * modify `root` — see {@link removeMetaBinariesElement}.
- */
+// Read Meta/Binaries into the pool, gunzipping if Compressed="True"; doesn't modify root.
 export async function readMetaBinaries(root: XmlElement): Promise<ParsedMetaBinaries> {
   const binaries: InnerBinary[] = [];
   const idToIndex = new Map<number, number>();
@@ -66,7 +51,7 @@ export async function readMetaBinaries(root: XmlElement): Promise<ParsedMetaBina
   return { binaries, idToIndex };
 }
 
-/** Remove `Meta/Binaries` from the tree — its content now lives in the pool. */
+// Remove `Meta/Binaries` from the tree — its content now lives in the pool.
 export function removeMetaBinariesElement(root: XmlElement): void {
   const meta = getChild(root, 'Meta');
   if (!meta) {
@@ -77,11 +62,7 @@ export function removeMetaBinariesElement(root: XmlElement): void {
   );
 }
 
-/**
- * Rewrite every entry's (including History revisions') `<Binary><Value
- * Ref="…">` from the on-disk ID in `idToIndex` to the pool index it maps to.
- * A `Ref` with no matching ID (a stale/malformed reference) is left as-is.
- */
+// Remap every Binary Ref (incl. History) from on-disk ID to pool index; leaves unmatched Refs as-is.
 export function remapEntryBinaryRefs(root: XmlElement, idToIndex: Map<number, number>): void {
   const rootElement = getChild(root, 'Root');
   const rootGroup = rootElement && getChild(rootElement, 'Group');
@@ -104,14 +85,8 @@ export function remapEntryBinaryRefs(root: XmlElement, idToIndex: Map<number, nu
   });
 }
 
-/**
- * Build (or replace) `Meta/Binaries` from the pool, keyed by array index.
- * Always writes uncompressed — one encoding on write keeps this simple;
- * {@link readMetaBinaries} still accepts `Compressed="True"` content written
- * by other implementations. A no-op — beyond removing any existing element —
- * when the pool is empty, matching how a database with no attachments has no
- * Binaries element at all.
- */
+/** Build/replace `Meta/Binaries` from the pool, always uncompressed (still
+reads `Compressed="True"` from others). No-op when the pool is empty. */
 export function writeMetaBinaries(root: XmlElement, binaries: InnerBinary[]): void {
   removeMetaBinariesElement(root);
   if (binaries.length === 0) {
