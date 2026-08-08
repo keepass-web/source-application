@@ -1,30 +1,10 @@
-/**
- * Pure logic for the 0x67 app: field/name lookups, tree traversal, entry
- * search, and entry-edit commit, all over a decoded KDBX document. None of
- * these touch the DOM, so unlike page.ts they can be — and are — unit
- * tested directly under plain Node (see tests/0x67-logic.test.ts).
- *
- * This is a real ES module (imports kdbx's build output, same convention
- * used between argon2/chacha20/kdbx themselves — see e.g. kdbx/src/kdf.ts)
- * so it can be exercised with ordinary imports in tests. For the browser
- * build, bundle-iife strips the import below and hoists this file's exports
- * onto globalThis, right alongside the kdbx library itself — this file is
- * one of the concatenated "files" in 0x67/bundle-iife.json. page.ts consumes
- * these functions as globals, not via import — see globals.d.ts.
- *
- * Imports go directly to kdbx's model.ts/xml.ts build output, not its
- * index.ts barrel, on purpose: the barrel re-exports the whole library,
- * including kdbx.ts, whose own cross-package import of chacha20's build
- * output is written relative to *its source* location and breaks (resolves
- * one directory too shallow) when actually resolved from *its build*
- * location — a real, latent bug, undiscovered until now because nothing
- * previously resolved kdbx's build output as a genuine, executed import
- * chain (kdbx's own tests run its source; bundle-iife only text-strips
- * import lines, never resolves them). model.ts/xml.ts have no such
- * dependency, so importing them directly sidesteps the bug rather than
- * fixing it here, which would mean touching already-shipped crypto wiring
- * for an unrelated change — noted, not routed around silently.
- */
+/** Pure logic for 0x67: field/tree lookups, search, and edit-commit over a
+decoded KDBX doc — no DOM, so unit-tested directly. A real ES module;
+bundle-iife hoists its exports onto globalThis alongside kdbx.
+
+Imports kdbx's model.ts/xml.ts directly, not the index.ts barrel, to
+sidestep a latent bug: kdbx.ts's own chacha20 import resolves relative to
+source, not build, and breaks when actually run from build output. */
 
 import {
   appendChild,
@@ -57,19 +37,14 @@ export function groupName(group: XmlElement): string {
   return n ? getText(n) : '(unnamed)';
 }
 
-/** An entry or group's IconID, as text — direct children, not String fields. */
+// An entry or group's IconID, as text — direct children, not String fields.
 export function elementIconId(element: XmlElement): string {
   const iconEl = getChild(element, 'IconID');
   return iconEl ? getText(iconEl) : '0';
 }
 
-/**
- * A small curated set of icons for entries and groups — an internal palette,
- * not KeePass's own bitmap icon spritesheet, which this text-only app has no
- * reason to vendor. IDs 0 and 49 match createEntry/createGroup's defaults.
- * A file whose IconID isn't in this palette (e.g. one edited by real
- * KeePass) still round-trips fine — it just falls back to a generic icon.
- */
+/** Curated icon palette (not KeePass's bitmap spritesheet). IDs 0/49 match
+createEntry/createGroup's defaults; unknown IDs round-trip via a generic icon. */
 export const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }> = [
   { id: 0, emoji: '🔑', label: 'Key' },
   { id: 1, emoji: '🌐', label: 'Web' },
@@ -96,13 +71,13 @@ export const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: str
 
 const ICON_FALLBACK = '❔';
 
-/** The emoji for a given IconID text value, or a generic fallback. */
+// The emoji for a given IconID text value, or a generic fallback.
 export function iconEmoji(iconId: string): string {
   const id = Number.parseInt(iconId, 10);
   return ICON_PALETTE.find((icon) => icon.id === id)?.emoji ?? ICON_FALLBACK;
 }
 
-/** Find the group that directly contains the given entry. */
+// Find the group that directly contains the given entry.
 export function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlElement | null {
   for (const e of getChildren(rootGroup, 'Entry')) {
     if (e === entry) return rootGroup;
@@ -114,8 +89,7 @@ export function findEntryParent(rootGroup: XmlElement, entry: XmlElement): XmlEl
   return null;
 }
 
-/** Find the group that directly contains the given subgroup, or null if
- * `group` is `rootGroup` itself (which has no parent). */
+// Find the group directly containing the given subgroup, or null for rootGroup itself.
 export function findGroupParent(rootGroup: XmlElement, group: XmlElement): XmlElement | null {
   for (const sub of getChildren(rootGroup, 'Group')) {
     if (sub === group) return rootGroup;
@@ -125,8 +99,7 @@ export function findGroupParent(rootGroup: XmlElement, group: XmlElement): XmlEl
   return null;
 }
 
-/** True if `candidate` is `ancestor` itself, or nested anywhere inside it —
- * used to block moving a group into its own subtree. */
+// True if candidate is ancestor itself or nested inside it (blocks moving a group into itself).
 export function isDescendantGroup(ancestor: XmlElement, candidate: XmlElement): boolean {
   if (ancestor === candidate) return true;
   return getChildren(ancestor, 'Group').some((sub) => isDescendantGroup(sub, candidate));
@@ -137,7 +110,7 @@ export interface EntryWithGroup {
   group: XmlElement;
 }
 
-/** Collect every entry in the tree, paired with its containing group. */
+// Collect every entry in the tree, paired with its containing group.
 export function collectAllEntries(
   group: XmlElement,
   results: EntryWithGroup[] = [],
@@ -151,7 +124,7 @@ export function collectAllEntries(
   return results;
 }
 
-/** Return the group path from rootGroup to target as an array of names. */
+// Return the group path from rootGroup to target as an array of names.
 export function groupPathTo(
   rootGroup: XmlElement,
   target: XmlElement,
@@ -166,10 +139,7 @@ export function groupPathTo(
   return null;
 }
 
-/**
- * Keep only entries with a String field or tag whose value contains the
- * query, case-insensitively.
- */
+// Keep only entries with a String field or tag matching the query, case-insensitively.
 export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[] {
   const q = query.toLowerCase();
   return entries.filter(({ entry }) => {
@@ -195,8 +165,7 @@ function entrySortKey(entry: XmlElement, field: EntrySortField): string {
   }
 }
 
-/** Sort entries by title, username, or last-modified time. Ties keep their
- * original relative order (Array#sort is stable). */
+// Sort by title, username, or modified time; ties keep original order (stable sort).
 export function sortEntries(
   entries: EntryWithGroup[],
   field: EntrySortField,
@@ -210,7 +179,7 @@ export function sortEntries(
     );
 }
 
-/** Optional table-view columns; Title is always shown and isn't one of these. */
+// Optional table-view columns; Title is always shown and isn't one of these.
 export type EntryColumnKey =
   | 'username'
   | 'password'
@@ -220,8 +189,7 @@ export type EntryColumnKey =
   | 'modified'
   | 'created';
 
-/** Unformatted, unmasked — page.ts formats/masks for display but copies this
- * on double-click. */
+// Unformatted/unmasked — page.ts formats for display but copies this raw value.
 export function entryColumnValue(entry: XmlElement, column: EntryColumnKey): string {
   switch (column) {
     case 'username':
@@ -255,20 +223,13 @@ function exportFields(entry: XmlElement, group: XmlElement): [string, string][] 
   ];
 }
 
-/** A leading `=`, `+`, `-`, `@`, tab, or CR makes Excel, Sheets, and
- * LibreOffice Calc treat a CSV field as a formula rather than literal text —
- * CWE-1236. Entry data (a Title, URL, or Notes field) is attacker-reachable
- * in a way a spreadsheet's own cells normally aren't, so it can't be assumed
- * safe. */
+/** A leading =, +, -, @, tab, or CR makes spreadsheets treat a CSV field
+as a formula (CWE-1236); entry data is attacker-controlled here. */
 const CSV_FORMULA_TRIGGER = /^[=+\-@\t\r]/;
 
-/** Quote a CSV field only when it needs it (contains a comma, quote, or
- * newline), doubling any internal quotes — RFC 4180. RFC 4180 quoting alone
- * does not stop a spreadsheet application from evaluating a quoted field's
- * content as a formula, so a leading formula-trigger character is neutralized
- * first by prefixing a literal apostrophe — the standard mitigation every
- * mainstream spreadsheet app already treats as "force text" (the same effect
- * as typing `'123` into a cell by hand). */
+/** Quote a CSV field only when needed (RFC 4180), doubling internal quotes.
+A leading formula-trigger char is also neutralized with a leading
+apostrophe — the standard "force text" mitigation spreadsheets honor. */
 function csvField(value: string): string {
   const safe = CSV_FORMULA_TRIGGER.test(value) ? `'${value}` : value;
   if (/[",\r\n]/.test(safe)) {
@@ -277,9 +238,7 @@ function csvField(value: string): string {
   return safe;
 }
 
-/** Serialize entries (Group, Title, UserName, Password, URL, Notes, Tags) as
- * plaintext CSV — see the caller for the "this is unencrypted" warning this
- * always needs. */
+// Serialize entries as plaintext CSV — see the caller for the required "unencrypted" warning.
 export function toCsv(entries: EntryWithGroup[]): string {
   const header = ['Group', 'Title', 'UserName', 'Password', 'URL', 'Notes', 'Tags'];
   const lines = [header.join(',')];
@@ -302,8 +261,7 @@ function xmlEscape(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/** Serialize entries as plaintext XML — same fields and the same "this is
- * unencrypted" caveat as {@link toCsv}. Not a KDBX document. */
+// Serialize entries as plaintext XML, same caveat as toCsv; not a KDBX document.
 export function toXml(entries: EntryWithGroup[]): string {
   const rows = entries.map(({ entry, group }) => {
     const body = exportFields(entry, group)

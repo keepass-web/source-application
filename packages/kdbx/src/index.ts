@@ -1,11 +1,5 @@
-/**
- * `kdbx` — a KDBX 3.1 and 4.x parser and serializer.
- *
- * The entry points are {@link Kdbx} (load/save/create) and {@link Credentials}
- * (composite key). Lower-level building blocks (headers, block streams, the XML
- * tree, VariantDictionary, crypto helpers) are also exported for callers that
- * need to work below the database abstraction.
- */
+/** `kdbx` — a KDBX 3.1/4.x parser and serializer. Entry points: `Kdbx`
+and `Credentials`; lower-level pieces are exported too for callers that need them. */
 
 export {
   ByteReader,

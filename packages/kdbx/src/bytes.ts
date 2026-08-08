@@ -1,25 +1,19 @@
-/**
- * Byte-level primitives shared by the KDBX reader and writer.
- *
- * The KDBX format stores all integers in little-endian byte order; the readers
- * and writers below honour that. 64-bit integers are surfaced as `bigint` so
- * that values above 2^53 (e.g. large KDF iteration counts) round-trip exactly.
- */
+// Byte primitives for KDBX (little-endian); 64-bit ints use bigint to round-trip exactly.
 
 const kx_textEncoder = new TextEncoder();
 const kx_textDecoder = new TextDecoder('utf-8', { fatal: false });
 
-/** Encode a string as UTF-8 bytes (no BOM, no null terminator). */
+// Encode a string as UTF-8 bytes (no BOM, no null terminator).
 export function utf8Encode(value: string): Uint8Array {
   return kx_textEncoder.encode(value);
 }
 
-/** Decode UTF-8 bytes to a string. */
+// Decode UTF-8 bytes to a string.
 export function utf8Decode(bytes: Uint8Array): string {
   return kx_textDecoder.decode(bytes);
 }
 
-/** Concatenate byte arrays into a single new array. */
+// Concatenate byte arrays into a single new array.
 export function concatBytes(...parts: Uint8Array[]): Uint8Array {
   let total = 0;
   for (const part of parts) {
@@ -34,7 +28,7 @@ export function concatBytes(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** Whether two byte arrays have identical contents. */
+// Whether two byte arrays have identical contents.
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) {
     return false;
@@ -47,27 +41,20 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/**
- * Constant-time comparison of two byte arrays of equal length.
- *
- * Used for verifying HMAC tags, where short-circuiting on the first differing
- * byte would leak timing information.
- */
+// Constant-time compare, for HMAC verification where short-circuiting would leak timing.
 export function bytesEqualConstantTime(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) {
     return false;
   }
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) {
-    // Both arrays were just confirmed to be the same length as a.length, so
-    // index i is always in range for both; the cast only satisfies
-    // noUncheckedIndexedAccess and doesn't change behavior.
+    // Lengths are already confirmed equal; the cast only satisfies noUncheckedIndexedAccess.
     diff |= (a[i] as number) ^ (b[i] as number);
   }
   return diff === 0;
 }
 
-/** Lowercase hexadecimal encoding. */
+// Lowercase hexadecimal encoding.
 export function toHex(bytes: Uint8Array): string {
   let out = '';
   for (const byte of bytes) {
@@ -76,7 +63,7 @@ export function toHex(bytes: Uint8Array): string {
   return out;
 }
 
-/** Decode a hexadecimal string (whitespace is ignored). */
+// Decode a hexadecimal string (whitespace is ignored).
 export function fromHex(hex: string): Uint8Array {
   const clean = hex.replace(/\s+/g, '');
   if (clean.length % 2 !== 0) {
@@ -102,17 +89,12 @@ const KX_BASE64_LOOKUP: Int16Array = (() => {
   return table;
 })();
 
-/**
- * Standard Base64 encoding (RFC 4648). Implemented directly so that the same
- * code runs in browsers and in Node without depending on `btoa`/`Buffer`.
- */
+// Standard Base64 (RFC 4648), implemented directly to run identically in browsers and Node.
 export function toBase64(bytes: Uint8Array): string {
   const c = (index: number): string => KX_BASE64_CHARS.charAt(index);
   let out = '';
   let i = 0;
-  // Every index used below is guaranteed in range by the loop condition or
-  // the `remaining` check that selects it, so the casts (rather than `?? 0`)
-  // only satisfy noUncheckedIndexedAccess and don't change behavior.
+  // Indices below are already guaranteed in range; casts only satisfy noUncheckedIndexedAccess.
   for (; i + 2 < bytes.length; i += 3) {
     const n =
       ((bytes[i] as number) << 16) | ((bytes[i + 1] as number) << 8) | (bytes[i + 2] as number);

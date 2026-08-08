@@ -1,39 +1,17 @@
-// ============================================================
-// Local file connector
-// ============================================================
-//
-// Opens a KeePass database from this computer: the user drops or chooses a
-// file, its bytes are read once, right here in this tab, and packages/router
-// decides which implementation understands them. On a match, that
-// implementation (currently only 0x67) is embedded in an iframe and handed
-// the bytes over the same postMessage protocol the Google Drive connector
-// uses (see packages/embed-protocol) — no second file picker, no re-reading
-// the file, and nothing ever leaves the browser.
-//
-// The only way this differs from the Drive connector is what "save" means:
-// Drive persists back to the Drive API, whereas here there is nowhere to
-// persist to — save means downloading the updated bytes, exactly like 0x67's
-// own standalone save flow already does. That is the one piece of this
-// connector that is genuinely local-specific; everything else (the iframe
-// lifecycle, the message guards, the close handshake) is shared with Drive.
-//
-// (must is declared in globals.d.ts and supplied at runtime by logic.ts;
-//  identifyFormat comes from packages/router and the kw-* message helpers
-//  from packages/embed-protocol — bundle-iife concatenates all of them
-//  alongside this file. See globals.d.ts.)
+/** Opens a database from this computer: reads the file once, routes it via
+packages/router to the matching implementation (0x67.html), embeds it,
+and hands over the bytes (packages/embed-protocol) — nothing leaves the
+browser. Differs from Drive only in what "save" means: here, a download. */
 
 const APP_ORIGIN = window.location.origin;
 
 // --- In-memory state (never persisted) -------------------------------------
 
 let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
-// Set while waiting for the embedded app to ack a kw-close-request, so
-// handleFrameMessage knows what to run once it's safe to tear the iframe down.
+// Set while waiting for a kw-close-ack, so handleFrameMessage knows what to run once safe.
 let pendingClose: (() => void) | null = null;
 
-// ============================================================
 // DOM helpers
-// ============================================================
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return must(document.getElementById(id) as T | null);
@@ -53,9 +31,7 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
   return must(byId('root').querySelector<T>(selector));
 }
 
-// ============================================================
 // Screen: Choose a file
-// ============================================================
 
 function showChooser(): void {
   setRoot(cloneTemplate('tpl-chooser'));
@@ -118,9 +94,7 @@ async function handleFile(file: File): Promise<void> {
   showHost(file.name, bytes, result.implementation);
 }
 
-// ============================================================
 // Screen: Embedded implementation app
-// ============================================================
 
 function showHost(filename: string, bytes: ArrayBuffer, implementation: string): void {
   pendingOpen = { filename, bytes };
@@ -130,8 +104,7 @@ function showHost(filename: string, bytes: ArrayBuffer, implementation: string):
     requestCloseIframe(tearDownIframe);
   });
   window.addEventListener('message', handleFrameMessage);
-  // Setting src last means the iframe's script (and its kw-ready handshake)
-  // can't fire before the listener above is attached.
+  // src is set last so the iframe's kw-ready can't fire before the listener attaches.
   qs<HTMLIFrameElement>('#app-frame').src = implementation;
 }
 
@@ -141,9 +114,7 @@ function tearDownIframe(): void {
   showChooser();
 }
 
-/** Ask the embedded app whether it's safe to remove the iframe — it may have
- * unsaved edits, in which case it shows its own discard-confirmation dialog
- * and only acks if the user agrees. */
+// Ask the embedded app if it's safe to remove the iframe (it may confirm discard first).
 function requestCloseIframe(afterClose: () => void): void {
   pendingClose = afterClose;
   must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(
@@ -173,11 +144,8 @@ function handleFrameMessage(event: MessageEvent): void {
   }
 }
 
-/** Local "save" is a download: there is no remembered location to write back
- * to, so the closest equivalent to Drive's write-back is the same
- * Blob-download 0x67 already does standalone. This always succeeds unless the
- * browser itself refuses the download, so — unlike Drive's saveToDrive —
- * there is no error path to report back. */
+/** Local "save" is a download — nowhere else to write to. Always succeeds
+unless the browser itself refuses it (no error path, unlike Drive). */
 function downloadAndAck(filename: string, bytes: ArrayBuffer, source: Window): void {
   const blob = new Blob([bytes]);
   const url = URL.createObjectURL(blob);
@@ -191,8 +159,6 @@ function downloadAndAck(filename: string, bytes: ArrayBuffer, source: Window): v
   source.postMessage(savedMessage(true), APP_ORIGIN);
 }
 
-// ============================================================
 // Boot
-// ============================================================
 
 showChooser();

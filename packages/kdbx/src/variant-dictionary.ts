@@ -1,16 +1,10 @@
-/**
- * VariantDictionary — the name/value container used by KDBX 4.x for KDF
- * parameters (header field 11) and public custom data (header field 12).
- *
- * Layout (all integers little-endian):
- *   UInt16 version (current 0x0100; the high byte is the critical major version)
- *   zero or more items, each: type byte ‖ Int32 name size ‖ name ‖ Int32 value size ‖ value
- *   a terminating null byte (0x00)
- */
+/** VariantDictionary — KDBX 4.x's name/value container for KDF params
+(field 11) and custom data (field 12). Little-endian layout: UInt16
+version; items of type‖namesize‖name‖valuesize‖value; terminating 0x00. */
 
 import { ByteReader, ByteWriter, utf8Decode, utf8Encode } from './bytes.ts';
 
-/** VariantDictionary value type tags. */
+// VariantDictionary value type tags.
 export const VdType = {
   UInt32: 0x04,
   UInt64: 0x05,
@@ -21,7 +15,7 @@ export const VdType = {
   Bytes: 0x42,
 } as const;
 
-/** A tagged VariantDictionary value. */
+// A tagged VariantDictionary value.
 export type VdValue =
   | { readonly type: 'uint32'; readonly value: number }
   | { readonly type: 'uint64'; readonly value: bigint }
@@ -31,13 +25,13 @@ export type VdValue =
   | { readonly type: 'string'; readonly value: string }
   | { readonly type: 'bytes'; readonly value: Uint8Array };
 
-/** A VariantDictionary, preserving insertion order. */
+// A VariantDictionary, preserving insertion order.
 export type VariantDictionary = Map<string, VdValue>;
 
 const KX_CURRENT_MAJOR = 1;
 const KX_CURRENT_VERSION = 0x0100;
 
-/** Parse a VariantDictionary from its byte encoding. */
+// Parse a VariantDictionary from its byte encoding.
 export function readVariantDictionary(bytes: Uint8Array): VariantDictionary {
   const reader = new ByteReader(bytes);
   const version = reader.readU16();

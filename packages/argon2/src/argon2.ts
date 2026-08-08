@@ -1,21 +1,16 @@
-/**
- * Argon2d and Argon2id, implemented per
- * [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106). See SPEC.md.
- *
- * This module holds the algorithm core; the public, validated entry points
- * live in `index.ts`. The 64-bit arithmetic uses `bigint` for correctness.
- */
+/** Argon2d/Argon2id per RFC 9106 (see SPEC.md). Algorithm core only —
+validated public entry points live in index.ts; 64-bit math uses bigint. */
 
 import { blake2b } from './blake2b.ts';
 
 const A2_M32 = 0xffffffffn;
 const A2_M64 = (1n << 64n) - 1n;
 
-/** Argon2 type code: 0 = Argon2d, 2 = Argon2id (RFC 9106, Section 3.1). */
+// Argon2 type code: 0 = Argon2d, 2 = Argon2id (RFC 9106, Section 3.1).
 export const ARGON2_D = 0;
 export const ARGON2_ID = 2;
 
-/** Argon2 version numbers (RFC 9106). 0x13 (19) is current. */
+// Argon2 version numbers (RFC 9106). 0x13 (19) is current.
 export const ARGON2_VERSION_10 = 0x10;
 export const ARGON2_VERSION_13 = 0x13;
 
@@ -29,12 +24,12 @@ export interface CoreParams {
   secret: Uint8Array;
   associatedData: Uint8Array;
   parallelism: number;
-  /** Memory size in KiB. */
+  // Memory size in KiB.
   memory: number;
   iterations: number;
   tagLength: number;
   version: number;
-  /** 0 for Argon2d, 2 for Argon2id. */
+  // 0 for Argon2d, 2 for Argon2id.
   type: number;
 }
 
@@ -86,9 +81,7 @@ function a2_blockToBytes(block: BigUint64Array): Uint8Array {
   return out;
 }
 
-/**
- * Variable-length hash function H' (RFC 9106, Section 3.3), built on BLAKE2b.
- */
+// Variable-length hash H' (RFC 9106 §3.3), built on BLAKE2b.
 function a2_hPrime(outLength: number, input: Uint8Array): Uint8Array {
   if (outLength <= 64) {
     return blake2b(outLength, a2_concatBytes(a2_le32(outLength), input));
@@ -107,9 +100,7 @@ function a2_hPrime(outLength: number, input: Uint8Array): Uint8Array {
   return out;
 }
 
-// Index patterns for the BLAKE2b permutation P over a 1024-byte block, viewed
-// as an 8x8 matrix of 16-byte registers (RFC 9106, Section 3.5). Rows are 16
-// consecutive words; columns stride through the block.
+// P's index patterns over the 1024-byte block as an 8x8 register matrix (RFC 9106 §3.5).
 const A2_ROWS: number[][] = [];
 const A2_COLS: number[][] = [];
 for (let r = 0; r < 8; r++) {
@@ -126,7 +117,7 @@ for (let r = 0; r < 8; r++) {
   A2_COLS.push(col);
 }
 
-/** GB, the modified BLAKE2b mixing function with multiplications (Section 3.6). */
+// GB, the modified BLAKE2b mixing function with multiplications (Section 3.6).
 function a2_gb(v: BigUint64Array, a: number, b: number, c: number, d: number): void {
   let va = v[a] as bigint;
   let vb = v[b] as bigint;
@@ -146,7 +137,7 @@ function a2_gb(v: BigUint64Array, a: number, b: number, c: number, d: number): v
   v[d] = vd;
 }
 
-/** Permutation P applied to the 16 words named by `q` (RFC 9106, Section 3.6). */
+// Permutation P applied to the 16 words named by `q` (RFC 9106, Section 3.6).
 function a2_permute(v: BigUint64Array, q: number[]): void {
   const i = (k: number): number => q[k] as number;
   a2_gb(v, i(0), i(4), i(8), i(12));
@@ -159,11 +150,7 @@ function a2_permute(v: BigUint64Array, q: number[]): void {
   a2_gb(v, i(3), i(4), i(9), i(14));
 }
 
-/**
- * Compression function G (RFC 9106, Section 3.5):
- * `next = (with_xor ? next : 0) XOR R XOR P_columns(P_rows(R))`,
- * where `R = ref XOR prev`.
- */
+// G (RFC 9106 §3.5): next = (with_xor?next:0) XOR R XOR P_columns(P_rows(R)), where R=ref XOR prev.
 function a2_fillBlock(
   prev: BigUint64Array,
   ref: BigUint64Array,
@@ -193,10 +180,7 @@ function a2_fillBlock(
   }
 }
 
-/**
- * Map a pseudo-random value to a reference block index within a lane
- * (RFC 9106, Section 3.4.2; reference implementation `index_alpha`).
- */
+// Map a pseudo-random value to a reference block index in a lane (RFC 9106 §3.4.2, index_alpha).
 function a2_indexAlpha(
   pass: number,
   slice: number,
@@ -232,7 +216,7 @@ function a2_indexAlpha(
   return Number((BigInt(startPosition) + relative) % BigInt(laneLength));
 }
 
-/** Run the full Argon2 operation and return the tag. */
+// Run the full Argon2 operation and return the tag.
 export function argon2Core(params: CoreParams): Uint8Array {
   const { password, salt, secret, associatedData } = params;
   const lanes = params.parallelism;
