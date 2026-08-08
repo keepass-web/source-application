@@ -54,11 +54,11 @@ test('embedded 0x67 iframe fills its container, and its own footer stays hidden'
   const { frameHeight, availableHeight } = await page.evaluate(() => {
     const iframe = document.getElementById('app-frame') as HTMLIFrameElement;
     const header = document.querySelector('.host-header') as HTMLElement;
-    const sponsorCta = document.querySelector('.sponsor-cta') as HTMLElement;
+    const footerLinks = document.querySelector('.footer-links') as HTMLElement;
     const footer = document.querySelector('footer') as HTMLElement;
     const claimedByOthers =
       header.getBoundingClientRect().height +
-      sponsorCta.getBoundingClientRect().height +
+      footerLinks.getBoundingClientRect().height +
       footer.getBoundingClientRect().height;
     return {
       frameHeight: iframe.getBoundingClientRect().height,
@@ -69,7 +69,7 @@ test('embedded 0x67 iframe fills its container, and its own footer stays hidden'
   assert.ok(
     Math.abs(frameHeight - availableHeight) < 3,
     `iframe height (${frameHeight}px) should fill the space left over after ` +
-      `the header/sponsor-cta/footer (${availableHeight}px), not collapse`,
+      `the header/footer-links/footer (${availableHeight}px), not collapse`,
   );
 
   const outerFooterVisible = await page.evaluate(() => {

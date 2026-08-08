@@ -139,25 +139,3 @@ a:hover {
   margin-bottom: 2rem;
   text-align: left;
 }
-
-.links {
-  display: flex;
-  gap: 1.5rem;
-  justify-content: center;
-}
-
-.sponsor-cta {
-  margin-top: 2rem;
-  font-size: 0.9rem;
-  color: var(--text);
-}
-
-.sponsor-cta a {
-  font-weight: 600;
-}
-
-footer {
-  margin-top: 4rem;
-  font-size: 0.8rem;
-  color: var(--border);
-}

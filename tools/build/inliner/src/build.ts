@@ -6,14 +6,16 @@ import { computeVersionLabel, renderVersionFragment } from './version-label.ts';
 
 const STYLES_SENTINEL = '<!--STYLES-->';
 const SCRIPTS_SENTINEL = '<!--SCRIPTS-->';
+const FOOTER_SENTINEL = '<!--FOOTER-->';
 const VERSION_SENTINEL = '<!--VERSION-->';
 
 /**
- * Reads the manifest at `manifestPath`, inlines all styles and scripts into the
- * HTML template in the order listed, writes the output file, and returns its
- * SHA-256 checksum (hex-encoded) alongside the resolved output path.
+ * Reads the manifest at `manifestPath`, inlines all styles and scripts plus the
+ * shared footer partial into the HTML template in the order listed, writes the
+ * output file, and returns its SHA-256 checksum (hex-encoded) alongside the
+ * resolved output path.
  *
- * Throws if either sentinel is absent from the template, or if any listed file
+ * Throws if any sentinel is absent from the template, or if any listed file
  * cannot be read.
  */
 export function build(manifestPath: string): { checksum: string; outputPath: string } {
@@ -28,12 +30,26 @@ export function build(manifestPath: string): { checksum: string; outputPath: str
   if (!template.includes(SCRIPTS_SENTINEL)) {
     throw new Error(`Template is missing the required sentinel: ${SCRIPTS_SENTINEL}`);
   }
-  if (!template.includes(VERSION_SENTINEL)) {
-    throw new Error(`Template is missing the required sentinel: ${VERSION_SENTINEL}`);
+  if (!template.includes(FOOTER_SENTINEL)) {
+    throw new Error(`Template is missing the required sentinel: ${FOOTER_SENTINEL}`);
   }
 
   const css = manifest.styles.map((f) => readFileSync(join(base, f), 'utf8')).join('\n');
   const js = manifest.scripts.map((f) => readFileSync(join(base, f), 'utf8')).join('\n');
+  const footer = readFileSync(join(base, manifest.footer), 'utf8');
+
+  const withFooter = template
+    .replace(STYLES_SENTINEL, `<style>\n${css}\n</style>`)
+    .replace(SCRIPTS_SENTINEL, `<script>\n${js}\n</script>`)
+    .replace(FOOTER_SENTINEL, footer);
+
+  // VERSION may live directly in the template or inside the just-inlined
+  // footer partial (the real page templates only carry it via the footer),
+  // so this check runs after FOOTER inlining rather than alongside the rest.
+  if (!withFooter.includes(VERSION_SENTINEL)) {
+    throw new Error(`Template is missing the required sentinel: ${VERSION_SENTINEL}`);
+  }
+
   const version = renderVersionFragment(
     computeVersionLabel({
       refType: process.env.GITHUB_REF_TYPE,
@@ -43,10 +59,7 @@ export function build(manifestPath: string): { checksum: string; outputPath: str
     process.env.KEEPASS_WEB_COMMIT_DATE,
   );
 
-  const html = template
-    .replace(STYLES_SENTINEL, `<style>\n${css}\n</style>`)
-    .replace(SCRIPTS_SENTINEL, `<script>\n${js}\n</script>`)
-    .replace(VERSION_SENTINEL, version);
+  const html = withFooter.replace(VERSION_SENTINEL, version);
 
   const outputPath = join(base, manifest.output);
   mkdirSync(dirname(outputPath), { recursive: true });

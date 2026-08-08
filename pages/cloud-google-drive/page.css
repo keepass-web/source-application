@@ -98,32 +98,6 @@ body {
   min-height: 0;
 }
 
-.sponsor-cta {
-  flex-shrink: 0;
-  padding: 0.4rem 1rem 0;
-  font-size: 0.85rem;
-  color: var(--text);
-  text-align: center;
-}
-
-footer {
-  flex-shrink: 0;
-  padding: 0.4rem 1rem;
-  border-top: 1px solid var(--border);
-  font-size: 0.8rem;
-  color: var(--muted);
-  text-align: center;
-}
-
-footer a {
-  color: var(--accent);
-}
-
-.sponsor-cta a {
-  color: var(--accent);
-  font-weight: 600;
-}
-
 /* ============================================================
    Buttons and shared bits
    ============================================================ */

@@ -1,6 +1,7 @@
 {
   "template": "page.html",
-  "styles": ["page.css"],
+  "styles": ["../shared/footer.css", "page.css"],
   "scripts": [],
+  "footer": "../shared/footer.html",
   "output": "../../dist/index.html"
 }
