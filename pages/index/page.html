@@ -22,9 +22,12 @@
     </div>
 
     <div class="trust">
-      <strong>This file is identical to what is served at keepass-web.app.</strong>
-      Every file on the hosted site is a verbatim copy of a published release artifact.
-      Download the release, verify the published checksum, and trust what you audit.
+      <details>
+        <summary><strong>Verify before you trust.</strong> Tampering would leave a public, permanent trace.</summary>
+        <p>Every release is cryptographically attested and logged to a public transparency log (Sigstore). Verify any downloaded file was built by this project's Release workflow, not hand-assembled:</p>
+        <pre><code>gh attestation verify &lt;file&gt; --repo keepass-web/source-application</code></pre>
+        <p>Requires the <a href="https://cli.github.com/">GitHub CLI</a>. Prefer to build it yourself from source instead? See <a href="https://github.com/keepass-web/source-application/blob/main/docs/REPRODUCING.md">Reproducing a Build</a>.</p>
+      </details>
     </div>
   </main>
   <!--FOOTER-->
