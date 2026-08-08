@@ -139,3 +139,31 @@ a:hover {
   margin-bottom: 2rem;
   text-align: left;
 }
+
+.trust summary {
+  cursor: pointer;
+}
+
+.trust summary::marker {
+  color: var(--accent);
+}
+
+.trust summary:hover {
+  text-decoration: underline;
+}
+
+.trust details p {
+  margin-top: 0.6rem;
+}
+
+.trust pre {
+  margin: 0.6rem 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
