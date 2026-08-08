@@ -68,3 +68,37 @@ test('Argon2 ignores a secret/associated-data parameter stored as the wrong type
   const key2 = await transformWithKdfParameters(new Uint8Array(32), plain);
   assert.deepEqual(key1, key2); // the malformed secret param was ignored
 });
+
+// A file's KDF parameters are read before its authenticity is checked (the
+// derived key is needed to verify the HMAC in the first place), so an
+// untrusted file can request any cost it likes. These three guard against
+// that being used to force a multi-gigabyte allocation or a computation that
+// never finishes just by being opened, regardless of the password typed.
+
+test('Argon2 rejects a parallelism above the sanity ceiling', async () => {
+  const params = argon2Params([[KdfParam.Argon2Parallelism, { type: 'uint32', value: 65 }]]);
+  await assert.rejects(
+    () => transformWithKdfParameters(new Uint8Array(32), params),
+    /parallelism.*exceeds the maximum/,
+  );
+});
+
+test('Argon2 rejects an iteration count above the sanity ceiling', async () => {
+  const params = argon2Params([[KdfParam.Argon2Iterations, { type: 'uint64', value: 65n }]]);
+  await assert.rejects(
+    () => transformWithKdfParameters(new Uint8Array(32), params),
+    /iterations.*exceeds the maximum/,
+  );
+});
+
+test('Argon2 rejects a memory cost above the sanity ceiling', async () => {
+  // KDBX stores memory in bytes; one KiB over the 2 GiB ceiling, rejected
+  // before any allocation is attempted.
+  const params = argon2Params([
+    [KdfParam.Argon2Memory, { type: 'uint64', value: 2n * 1024n * 1024n * 1024n + 1024n }],
+  ]);
+  await assert.rejects(
+    () => transformWithKdfParameters(new Uint8Array(32), params),
+    /memory.*exceeds the maximum/,
+  );
+});

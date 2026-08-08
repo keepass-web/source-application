@@ -54,3 +54,15 @@ test('aesKdfTransform validates input', async () => {
     RangeError,
   );
 });
+
+test('aesKdfTransform rejects a rounds count above the sanity ceiling without attempting it', async () => {
+  // rounds comes straight from a file's own (not-yet-authenticated) header;
+  // this must reject immediately rather than actually attempting anywhere
+  // near this many AES rounds, or the test would never finish either.
+  const key = new Uint8Array(32);
+  const seed = new Uint8Array(32);
+  await assert.rejects(
+    () => aesKdfTransform(key, seed, 100_000_001n),
+    /rounds.*exceed the maximum/,
+  );
+});

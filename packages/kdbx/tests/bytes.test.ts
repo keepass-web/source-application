@@ -72,6 +72,18 @@ test('ByteReader throws past the end', () => {
   assert.throws(() => new ByteReader(new Uint8Array(2)).readU32(), RangeError);
 });
 
+test('ByteReader rejects a negative byte count instead of seeking backward', () => {
+  // A crafted TLV length field (e.g. a header field's Int32 size) can be
+  // negative. Without a check, offset + count still passes the "not past the
+  // end" bound, and the offset would walk backward instead of erroring —
+  // letting a malicious file pin the cursor in place and loop forever.
+  const reader = new ByteReader(new Uint8Array(16));
+  reader.readBytes(8); // advance the cursor away from 0 first
+  assert.throws(() => reader.readBytes(-1), /byte count must not be negative/);
+  // The failed read must not have moved the cursor.
+  assert.equal(reader.offset, 8);
+});
+
 test('concatBytes and bytesEqual', () => {
   assert.deepEqual(
     concatBytes(new Uint8Array([1]), new Uint8Array([2, 3])),

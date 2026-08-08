@@ -16,6 +16,23 @@ import { type VariantDictionary, vdRequireBytes, vdRequireInt } from './variant-
 const KX_ARGON2_TAG_LENGTH = 32;
 const KX_BYTES_PER_KIB = 1024n;
 
+/**
+ * Sanity ceiling on Argon2 cost parameters read from a file's (untrusted,
+ * pre-authentication) KDF parameters. RFC 9106's own legal ranges — enforced
+ * separately by the argon2 package itself — allow up to 2^32-1 KiB (~4 TiB)
+ * of memory and 2^32-1 iterations, since that package has no opinion on what
+ * a caller finds reasonable. Left unchecked here, a crafted file could force
+ * an attempted multi-gigabyte-or-larger allocation, or a computation that
+ * never realistically finishes, just by being opened — with any password
+ * attempt, since the KDF runs before the file's authenticity is verified.
+ * These values are generous relative to any real-world KDBX configuration
+ * (KeePass's own defaults are far below them) while keeping a worst-case
+ * unlock attempt bounded to something a browser tab can actually survive.
+ */
+const KX_MAX_ARGON2_MEMORY_KIB = 2 * 1024 * 1024; // 2 GiB
+const KX_MAX_ARGON2_ITERATIONS = 64;
+const KX_MAX_ARGON2_PARALLELISM = 64;
+
 /** Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF). */
 export async function aesKdf(
   compositeKey: Uint8Array,
@@ -70,6 +87,22 @@ function kx_runArgon2(
   // KDBX stores memory in bytes; RFC 9106 / the argon2 package take KiB.
   const memoryBytes = vdRequireInt(params, KdfParam.Argon2Memory);
   const memory = Number(memoryBytes / KX_BYTES_PER_KIB);
+
+  if (parallelism > KX_MAX_ARGON2_PARALLELISM) {
+    throw new Error(
+      `Argon2 parallelism (${parallelism}) exceeds the maximum this app will run (${KX_MAX_ARGON2_PARALLELISM})`,
+    );
+  }
+  if (iterations > KX_MAX_ARGON2_ITERATIONS) {
+    throw new Error(
+      `Argon2 iterations (${iterations}) exceeds the maximum this app will run (${KX_MAX_ARGON2_ITERATIONS})`,
+    );
+  }
+  if (memory > KX_MAX_ARGON2_MEMORY_KIB) {
+    throw new Error(
+      `Argon2 memory (${memory} KiB) exceeds the maximum this app will run (${KX_MAX_ARGON2_MEMORY_KIB} KiB)`,
+    );
+  }
 
   const versionParam = params.get(KdfParam.Argon2Version);
   const version =
