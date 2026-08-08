@@ -98,31 +98,60 @@ function runCLI(
   });
 }
 
-const SENTINELS = '<!--STYLES--><!--SCRIPTS--><!--VERSION-->';
+const SENTINELS = '<!--STYLES--><!--SCRIPTS--><!--FOOTER--><!--VERSION-->';
+
+// Every successful build now needs a footer partial on disk and a `footer`
+// manifest field pointing at it — this writes both with placeholder content.
+function writeDefaultFooter(dir: string): void {
+  write(dir, 'footer.html', '<footer>site footer</footer>');
+}
 
 // ---------------------------------------------------------------------------
 // build()
 // ---------------------------------------------------------------------------
 
-test('inlines style and script into the template', () => {
+test('inlines style, script, and footer into the template', () => {
   const dir = tempDir();
   write(dir, 'template.html', `<html>${SENTINELS}</html>`);
   write(dir, 'style.css', 'body { color: red; }');
   write(dir, 'script.js', 'console.log(1);');
+  writeDefaultFooter(dir);
   manifest(dir, {
     template: 'template.html',
     styles: ['style.css'],
     scripts: ['script.js'],
+    footer: 'footer.html',
     output: 'out.html',
   });
 
   const { checksum, outputPath } = withVersionEnv({}, () => build(join(dir, 'build.json')));
 
   const expected =
-    '<html><style>\nbody { color: red; }\n</style><script>\nconsole.log(1);\n</script>development build</html>';
+    '<html><style>\nbody { color: red; }\n</style><script>\nconsole.log(1);\n</script><footer>site footer</footer>development build</html>';
   assert.equal(readFileSync(join(dir, 'out.html'), 'utf8'), expected);
   assert.equal(checksum, sha256(expected));
   assert.equal(outputPath, join(dir, 'out.html'));
+});
+
+test('the footer partial may supply the only <!--VERSION--> sentinel', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', '<!--STYLES--><!--SCRIPTS--><!--FOOTER-->');
+  write(dir, 'footer.html', '<footer><!--VERSION--></footer>');
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
+
+  withVersionEnv({}, () => build(join(dir, 'build.json')));
+
+  const result = readFileSync(join(dir, 'out.html'), 'utf8');
+  assert.equal(
+    result,
+    '<style>\n\n</style><script>\n\n</script><footer>development build</footer>',
+  );
 });
 
 test('concatenates multiple CSS files in manifest order', () => {
@@ -130,10 +159,12 @@ test('concatenates multiple CSS files in manifest order', () => {
   write(dir, 'template.html', SENTINELS);
   write(dir, 'a.css', '.a {}');
   write(dir, 'b.css', '.b {}');
+  writeDefaultFooter(dir);
   manifest(dir, {
     template: 'template.html',
     styles: ['a.css', 'b.css'],
     scripts: [],
+    footer: 'footer.html',
     output: 'out.html',
   });
 
@@ -148,10 +179,12 @@ test('concatenates multiple JS files in manifest order', () => {
   write(dir, 'template.html', SENTINELS);
   write(dir, 'a.js', 'const a = 1;');
   write(dir, 'b.js', 'const b = 2;');
+  writeDefaultFooter(dir);
   manifest(dir, {
     template: 'template.html',
     styles: [],
     scripts: ['a.js', 'b.js'],
+    footer: 'footer.html',
     output: 'out.html',
   });
 
@@ -164,10 +197,12 @@ test('concatenates multiple JS files in manifest order', () => {
 test('creates the output directory when it does not exist', () => {
   const dir = tempDir();
   write(dir, 'template.html', SENTINELS);
+  writeDefaultFooter(dir);
   manifest(dir, {
     template: 'template.html',
     styles: [],
     scripts: [],
+    footer: 'footer.html',
     output: 'deep/nested/out.html',
   });
 
@@ -197,10 +232,28 @@ test('throws when the SCRIPTS sentinel is absent from the template', () => {
   );
 });
 
-test('throws when the VERSION sentinel is absent from the template', () => {
+test('throws when the FOOTER sentinel is absent from the template', () => {
   const dir = tempDir();
-  write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--></html>');
+  write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--><!--VERSION--></html>');
   manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+
+  assert.throws(
+    () => build(join(dir, 'build.json')),
+    /missing the required sentinel: <!--FOOTER-->/,
+  );
+});
+
+test('throws when the VERSION sentinel is absent from both the template and the footer partial', () => {
+  const dir = tempDir();
+  write(dir, 'template.html', '<html><!--STYLES--><!--SCRIPTS--><!--FOOTER--></html>');
+  write(dir, 'footer.html', '<footer>no version here</footer>');
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
 
   assert.throws(
     () => build(join(dir, 'build.json')),
@@ -211,7 +264,14 @@ test('throws when the VERSION sentinel is absent from the template', () => {
 test('VERSION sentinel: renders a linked tag and locale-formatting script when built from a tag', () => {
   const dir = tempDir();
   write(dir, 'template.html', SENTINELS);
-  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+  writeDefaultFooter(dir);
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
 
   withVersionEnv(
     {
@@ -238,7 +298,14 @@ test('VERSION sentinel: renders a linked tag and locale-formatting script when b
 test('VERSION sentinel: falls back to a linked short sha when there is no exact tag', () => {
   const dir = tempDir();
   write(dir, 'template.html', SENTINELS);
-  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+  writeDefaultFooter(dir);
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
 
   const sha = `${'b'.repeat(39)}c`;
   withVersionEnv({ GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'main', GITHUB_SHA: sha }, () =>
@@ -257,7 +324,14 @@ test('VERSION sentinel: falls back to a linked short sha when there is no exact 
 test('VERSION sentinel: renders an unlinked "development build" with no env vars set', () => {
   const dir = tempDir();
   write(dir, 'template.html', SENTINELS);
-  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+  writeDefaultFooter(dir);
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
 
   withVersionEnv({}, () => build(join(dir, 'build.json')));
 
@@ -279,7 +353,14 @@ test('CLI: exits 1 and prints usage when no manifest path is given', async () =>
 test('CLI: exits 0 and prints sha256 checksum and output path on success', async () => {
   const dir = tempDir();
   write(dir, 'template.html', SENTINELS);
-  manifest(dir, { template: 'template.html', styles: [], scripts: [], output: 'out.html' });
+  writeDefaultFooter(dir);
+  manifest(dir, {
+    template: 'template.html',
+    styles: [],
+    scripts: [],
+    footer: 'footer.html',
+    output: 'out.html',
+  });
 
   const { code, stdout } = await runCLI([join(dir, 'build.json')]);
   assert.equal(code, 0);
