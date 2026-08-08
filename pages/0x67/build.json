@@ -1,6 +1,7 @@
 {
   "template": "page.html",
-  "styles": ["page.css"],
+  "styles": ["../shared/footer.css", "page.css"],
   "scripts": ["../../build/pages/0x67/bundle.js"],
+  "footer": "../shared/footer.html",
   "output": "../../dist/0x67.html"
 }

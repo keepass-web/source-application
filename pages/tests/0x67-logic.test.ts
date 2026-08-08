@@ -309,6 +309,45 @@ test('toCsv writes just the header row for an empty entry list', () => {
   assert.equal(toCsv([]), 'Group,Title,UserName,Password,URL,Notes,Tags');
 });
 
+test('toCsv neutralizes a leading formula-trigger character (CSV/Excel formula injection)', () => {
+  const root = createGroup('Personal');
+  const entry = createEntry({
+    title: '=1+1',
+    username: '+15555550100',
+    password: '-hunter2',
+    url: '@example.com',
+  });
+  appendChild(root, entry);
+
+  const csv = toCsv(collectAllEntries(root));
+  const lines = csv.split('\r\n');
+  assert.equal(lines[1], "Personal,'=1+1,'+15555550100,'-hunter2,'@example.com,,");
+});
+
+test('toCsv combines formula neutralization with RFC 4180 quoting when a field needs both', () => {
+  const root = createGroup('Personal');
+  const entry = createEntry({ title: '=SUM(A1,"x")' });
+  appendChild(root, entry);
+
+  const csv = toCsv(collectAllEntries(root));
+  const lines = csv.split('\r\n');
+  // The apostrophe is added first; the (now longer) value still contains a
+  // comma and a quote, so it's also RFC 4180 quoted, same as any other field.
+  assert.equal(lines[1], `Personal,"'=SUM(A1,""x"")",,,,,`);
+});
+
+test('toCsv leaves a field with no leading formula-trigger character untouched', () => {
+  const root = createGroup('Personal');
+  // '@' appears, but not leading — only a *leading* trigger character is
+  // dangerous to a spreadsheet, so this must not be prefixed.
+  const entry = createEntry({ username: 'plain@example.com' });
+  appendChild(root, entry);
+
+  const csv = toCsv(collectAllEntries(root));
+  const lines = csv.split('\r\n');
+  assert.equal(lines[1], 'Personal,(no title),plain@example.com,,,,');
+});
+
 test('toXml escapes XML-significant characters and wraps entries in <Entries>', () => {
   const root = createGroup('Root');
   const entry = createEntry({ title: 'A & B <script> "quote" \'apos\'' });

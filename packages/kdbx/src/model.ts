@@ -1,12 +1,6 @@
-/**
- * Convenience helpers over the KDBX XML tree: element navigation, protected
- * values, the document-order protection walk, and builders for creating a new
- * database, groups, and entries.
- *
- * The canonical state of a database is its XML tree. Sensitive `<Value>`
- * elements are marked `Protected="True"`; in memory they hold plaintext, and
- * they are (re-)encrypted against the inner random stream only when saving.
- */
+/** Helpers over the KDBX XML tree: navigation, protected-value (de)cryption,
+and builders for new databases, groups, and entries. `Protected="True"`
+values hold plaintext in memory and are encrypted only on save. */
 
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from './bytes.ts';
 import { getRandomBytes } from './crypto.ts';
@@ -16,7 +10,7 @@ import type { XmlElement, XmlNode } from './xml.ts';
 const KX_PROTECTED_ATTRIBUTE = 'Protected';
 const KX_GENERATOR = 'keepass-web';
 
-/** A value that is encrypted by the inner random stream when stored on disk. */
+// A value that is encrypted by the inner random stream when stored on disk.
 export class ProtectedValue {
   readonly #text: string;
 
@@ -39,7 +33,7 @@ export class ProtectedValue {
 
 // --- Element construction and navigation ------------------------------------
 
-/** Create an element, optionally with a single text child. */
+// Create an element, optionally with a single text child.
 export function createElement(name: string, text?: string): XmlElement {
   const element: XmlElement = { type: 'element', name, attributes: [], children: [] };
   if (text !== undefined) {
@@ -48,7 +42,7 @@ export function createElement(name: string, text?: string): XmlElement {
   return element;
 }
 
-/** First direct child element with the given name. */
+// First direct child element with the given name.
 export function getChild(element: XmlElement, name: string): XmlElement | undefined {
   for (const child of element.children) {
     if (child.type === 'element' && child.name === name) {
@@ -58,7 +52,7 @@ export function getChild(element: XmlElement, name: string): XmlElement | undefi
   return undefined;
 }
 
-/** All direct child elements with the given name. */
+// All direct child elements with the given name.
 export function getChildren(element: XmlElement, name: string): XmlElement[] {
   const out: XmlElement[] = [];
   for (const child of element.children) {
@@ -69,7 +63,7 @@ export function getChildren(element: XmlElement, name: string): XmlElement[] {
   return out;
 }
 
-/** Concatenated text content of an element. */
+// Concatenated text content of an element.
 export function getText(element: XmlElement): string {
   let text = '';
   for (const child of element.children) {
@@ -80,12 +74,12 @@ export function getText(element: XmlElement): string {
   return text;
 }
 
-/** Replace an element's children with a single text node. */
+// Replace an element's children with a single text node.
 export function setText(element: XmlElement, text: string): void {
   element.children = [{ type: 'text', value: text, cdata: false }];
 }
 
-/** Value of a named attribute, or `undefined`. */
+// Value of a named attribute, or `undefined`.
 export function getAttribute(element: XmlElement, name: string): string | undefined {
   for (const [attr, value] of element.attributes) {
     if (attr === name) {
@@ -95,7 +89,7 @@ export function getAttribute(element: XmlElement, name: string): string | undefi
   return undefined;
 }
 
-/** Set (or replace) a named attribute. */
+// Set (or replace) a named attribute.
 export function setAttribute(element: XmlElement, name: string, value: string): void {
   for (const pair of element.attributes) {
     if (pair[0] === name) {
@@ -106,13 +100,13 @@ export function setAttribute(element: XmlElement, name: string, value: string): 
   element.attributes.push([name, value]);
 }
 
-/** Append a child node and return the parent. */
+// Append a child node and return the parent.
 export function appendChild(parent: XmlElement, child: XmlNode): XmlElement {
   parent.children.push(child);
   return parent;
 }
 
-/** Deep-clone an element tree. */
+// Deep-clone an element tree.
 export function cloneElement(element: XmlElement): XmlElement {
   return {
     type: 'element',
@@ -137,10 +131,8 @@ function kx_walkProtected(element: XmlElement, visit: (el: XmlElement) => void):
   }
 }
 
-/**
- * Decrypt every `Protected="True"` value in document order, replacing the
- * Base64 ciphertext with plaintext (the marker attribute is kept).
- */
+/** Decrypt every `Protected="True"` value in document order, replacing the
+Base64 ciphertext with plaintext (the marker attribute is kept). */
 export function applyInboundProtection(root: XmlElement, cipher: ProtectedStreamCipher): void {
   kx_walkProtected(root, (element) => {
     const ciphertext = fromBase64(getText(element));
@@ -148,11 +140,7 @@ export function applyInboundProtection(root: XmlElement, cipher: ProtectedStream
   });
 }
 
-/**
- * Encrypt every `Protected="True"` value in document order, replacing plaintext
- * with Base64 ciphertext. Operate on a clone so the in-memory tree stays
- * readable.
- */
+// Encrypts every Protected="True" value in place; call on a clone to keep the original readable.
 export function applyOutboundProtection(root: XmlElement, cipher: ProtectedStreamCipher): void {
   kx_walkProtected(root, (element) => {
     const ciphertext = cipher.process(utf8Encode(getText(element)));
@@ -187,21 +175,21 @@ function kx_createTimes(): XmlElement {
   return times;
 }
 
-/** A field on a new entry. */
+// A field on a new entry.
 export interface EntryField {
   key: string;
   value: string;
   protect?: boolean;
 }
 
-/** Standard fields recognised by {@link createEntry}. */
+// Standard fields recognised by {@link createEntry}.
 export interface EntryInput {
   title?: string;
   username?: string;
   password?: string;
   url?: string;
   notes?: string;
-  /** Additional custom string fields. */
+  // Additional custom string fields.
   fields?: EntryField[];
 }
 
@@ -216,7 +204,7 @@ function kx_createStringField(field: EntryField): XmlElement {
   return string;
 }
 
-/** Build an `<Entry>` element from the given fields. */
+// Build an `<Entry>` element from the given fields.
 export function createEntry(input: EntryInput): XmlElement {
   const entry = createElement('Entry');
   appendChild(entry, createElement('UUID', kx_newUuid()));
@@ -237,12 +225,7 @@ export function createEntry(input: EntryInput): XmlElement {
   return entry;
 }
 
-/**
- * An entry's tags, from its `<Tags>` element — KeePass's own `;`-joined
- * text format. Empty (`[]`) when the element is absent, matching how real
- * KeePass omits it entirely on a tagless entry rather than writing an empty
- * one.
- */
+// An entry's `;`-joined tags from <Tags>; [] if absent, matching real KeePass.
 export function getEntryTags(entry: XmlElement): string[] {
   const tagsEl = getChild(entry, 'Tags');
   if (!tagsEl) return [];
@@ -252,10 +235,7 @@ export function getEntryTags(entry: XmlElement): string[] {
     .filter((tag) => tag.length > 0);
 }
 
-/**
- * Replace an entry's tags. An empty list removes the `<Tags>` element
- * entirely rather than leaving one with empty text, matching real KeePass.
- */
+// Replace an entry's tags; an empty list removes <Tags> entirely, matching KeePass.
 export function setEntryTags(entry: XmlElement, tags: string[]): void {
   const cleaned = tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
   const existing = getChild(entry, 'Tags');
@@ -275,9 +255,7 @@ export function setEntryTags(entry: XmlElement, tags: string[]): void {
   }
 }
 
-/** An entry's Times, as plain data — ISO-UTC timestamps, KeePass's own
- * on-disk format. Fields are `''`/`false` when the Times element (or a
- * field within it) is missing, e.g. from a hand-built or malformed entry. */
+// An entry's Times as plain ISO-UTC data; fields default to ''/false if missing.
 export interface EntryTimes {
   created: string;
   modified: string;
@@ -299,12 +277,7 @@ export function getEntryTimes(entry: XmlElement): EntryTimes {
   };
 }
 
-/**
- * Update an entry's expiration. `expiryTimeIso`, if given, replaces
- * ExpiryTime; an empty string leaves the existing ExpiryTime untouched
- * (e.g. when the caller only means to flip Expires off). Does nothing on an
- * entry with no Times element at all.
- */
+// Update expiration; blank expiryTimeIso keeps ExpiryTime. No-op without a Times element.
 export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void {
   const times = getChild(entry, 'Times');
   if (!times) return;
@@ -318,20 +291,14 @@ export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIs
   }
 }
 
-/** Bump an entry's LastModificationTime to now — real KeePass does this on
- * every edit; this app's own applyEntryEdits() only ever touched fields. */
+// Bump an entry's LastModificationTime to now, matching real KeePass.
 export function touchLastModified(entry: XmlElement): void {
   const times = getChild(entry, 'Times');
   const modEl = times && getChild(times, 'LastModificationTime');
   if (modEl) setText(modEl, kx_nowIso());
 }
 
-/**
- * Visit every `<Entry>` under `group` — direct children of every
- * (sub)group, plus each entry's own `History` revisions — in that order.
- * Used wherever a binary attachment `Ref` needs to be found across the
- * whole database, not just its live (non-history) entries.
- */
+// Visit every Entry under group, including History revisions (for finding Refs database-wide).
 export function walkAllEntries(group: XmlElement, visit: (entry: XmlElement) => void): void {
   for (const entry of getChildren(group, 'Entry')) {
     visit(entry);
@@ -344,19 +311,14 @@ export function walkAllEntries(group: XmlElement, visit: (entry: XmlElement) => 
   }
 }
 
-/** An entry's attachment: a name paired with a Kdbx#binaries pool index. */
+// An entry's attachment: a name paired with a Kdbx#binaries pool index.
 export interface EntryAttachment {
   name: string;
   ref: number;
 }
 
-/**
- * An entry's attachments, from its `<Binary>` children
- * (`<Binary><Key>name</Key><Value Ref="N"/></Binary>`). `Ref` addresses
- * Kdbx#binaries by pool index for both KDBX 3.1 and 4.x — see
- * {@link Kdbx.addBinary} in kdbx.ts and meta-binaries.ts for how 3.1's
- * on-disk `Meta/Binaries` IDs get mapped to that index on load.
- */
+/** An entry's attachments from `<Binary>` children; `Ref` indexes
+`Kdbx#binaries` (see meta-binaries.ts for 3.1's on-disk ID mapping). */
 export function getEntryAttachments(entry: XmlElement): EntryAttachment[] {
   const out: EntryAttachment[] = [];
   for (const binaryEl of getChildren(entry, 'Binary')) {
@@ -370,7 +332,7 @@ export function getEntryAttachments(entry: XmlElement): EntryAttachment[] {
   return out;
 }
 
-/** Attach a binary pool reference (see Kdbx#addBinary) to an entry under the given name. */
+// Attach a binary pool reference (see Kdbx#addBinary) to an entry under the given name.
 export function addEntryAttachment(entry: XmlElement, name: string, ref: number): void {
   const binaryEl = createElement('Binary');
   appendChild(binaryEl, createElement('Key', name));
@@ -380,7 +342,7 @@ export function addEntryAttachment(entry: XmlElement, name: string, ref: number)
   appendChild(entry, binaryEl);
 }
 
-/** Rename an entry's attachment, matched by its current name. */
+// Rename an entry's attachment, matched by its current name.
 export function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void {
   for (const binaryEl of getChildren(entry, 'Binary')) {
     const keyEl = getChild(binaryEl, 'Key');
@@ -391,11 +353,7 @@ export function renameEntryAttachment(entry: XmlElement, oldName: string, newNam
   }
 }
 
-/**
- * Remove an entry's attachment, matched by name. Does not touch the binary
- * pool itself — Kdbx#save() drops pool entries no longer referenced by any
- * entry.
- */
+// Remove an entry's attachment by name; save() later drops unreferenced pool entries.
 export function removeEntryAttachment(entry: XmlElement, name: string): void {
   entry.children = entry.children.filter((child) => {
     if (child.type !== 'element' || child.name !== 'Binary') return true;
@@ -406,20 +364,14 @@ export function removeEntryAttachment(entry: XmlElement, name: string): void {
 
 const KX_DEFAULT_HISTORY_MAX_ITEMS = 10;
 
-/** An entry's past versions, from its `<History>` child, oldest first —
- * matching how real KeePass appends to it. `[]` when it has none. */
+// An entry's past versions from <History>, oldest first; [] if none.
 export function getEntryHistory(entry: XmlElement): XmlElement[] {
   const historyEl = getChild(entry, 'History');
   return historyEl ? getChildren(historyEl, 'Entry') : [];
 }
 
-/**
- * Snapshot `entry`'s current state (everything except its own History) onto
- * its History, trimmed to `document`'s Meta/HistoryMaxItems (defaulting to
- * 10, matching real KeePass, for a database that predates that field).
- * Must be called with the pre-edit state still in place — real KeePass
- * snapshots before applying an edit, not after.
- */
+/** Snapshot `entry`'s current state onto its History, trimmed to
+`HistoryMaxItems` (default 10). Call before applying an edit, not after. */
 export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void {
   const snapshot = cloneElement(entry);
   snapshot.children = snapshot.children.filter(
@@ -450,13 +402,8 @@ export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): vo
   }
 }
 
-/**
- * Restore `entry` to a past version from its History: the entry's current
- * state is snapshotted first (so it isn't lost), then its fields are
- * replaced with the historical version's — matching real KeePass, where
- * restoring is itself a further edit, not a rewind. `snapshot` must be one
- * of the elements `getEntryHistory(entry)` returned.
- */
+/** Restore `entry` to a past version: snapshots current state first, then
+replaces its fields. `snapshot` must come from `getEntryHistory(entry)`. */
 export function restoreHistoryEntry(
   document: XmlElement,
   entry: XmlElement,
@@ -477,14 +424,14 @@ export function restoreHistoryEntry(
   entry.children = newChildren;
 }
 
-/** Permanently remove one past version from an entry's History. */
+// Permanently remove one past version from an entry's History.
 export function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void {
   const historyEl = getChild(entry, 'History');
   if (!historyEl) return;
   historyEl.children = historyEl.children.filter((child) => child !== snapshot);
 }
 
-/** Build a `<Group>` element with the given name. */
+// Build a `<Group>` element with the given name.
 export function createGroup(name: string): XmlElement {
   const group = createElement('Group');
   appendChild(group, createElement('UUID', kx_newUuid()));
@@ -513,7 +460,7 @@ function kx_containsGroup(ancestor: XmlElement, target: XmlElement): boolean {
   return getChildren(ancestor, 'Group').some((sub) => kx_containsGroup(sub, target));
 }
 
-/** The database's recycle bin group, if `Meta/RecycleBinUUID` names one that still exists. */
+// The database's recycle bin group, if `Meta/RecycleBinUUID` names one that still exists.
 function kx_findRecycleBin(document: XmlElement): XmlElement | undefined {
   const meta = getChild(document, 'Meta');
   const uuidEl = meta && getChild(meta, 'RecycleBinUUID');
@@ -523,12 +470,7 @@ function kx_findRecycleBin(document: XmlElement): XmlElement | undefined {
   return kx_findGroupByUuid(rootGroup, getText(uuidEl));
 }
 
-/**
- * Find the database's recycle bin group, creating it as a child of the root
- * group the first time anything is trashed and recording its UUID in
- * `Meta/RecycleBinUUID` — matching real KeePass, which has no recycle bin
- * group in a fresh database until one is needed.
- */
+// Find (or lazily create) the recycle bin group, recording its UUID in Meta/RecycleBinUUID.
 export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   const existing = kx_findRecycleBin(document);
   if (existing) return existing;
@@ -554,16 +496,13 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   return bin;
 }
 
-/** True if `group` is the database's recycle bin, or nested inside it. */
+// True if `group` is the database's recycle bin, or nested inside it.
 export function isInRecycleBin(document: XmlElement, group: XmlElement): boolean {
   const bin = kx_findRecycleBin(document);
   return bin !== undefined && kx_containsGroup(bin, group);
 }
 
-/**
- * Build a complete `<KeePassFile>` document with a Meta section and a root group
- * (optionally pre-populated by `build`).
- */
+// Build a complete <KeePassFile> document with Meta and a root group, optionally via build().
 export function createDatabaseDocument(
   databaseName: string,
   build?: (rootGroup: XmlElement) => void,

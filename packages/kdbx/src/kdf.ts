@@ -1,11 +1,5 @@
-/**
- * Key derivation functions used by KDBX to transform the composite key.
- *
- * - KDBX 3.1 always uses AES-KDF, parameterized by the outer-header transform
- *   seed and round count.
- * - KDBX 4.x stores the KDF choice and parameters in a VariantDictionary; the
- *   built-in functions are AES-KDF, Argon2d, and Argon2id.
- */
+/** KDFs for the composite key: KDBX 3.1 always uses AES-KDF; 4.x picks
+AES-KDF, Argon2d, or Argon2id via a VariantDictionary. */
 
 import { type Argon2Type, argon2 } from '../../../build/packages/argon2/src/index.js';
 import { bytesEqual } from './bytes.ts';
@@ -16,7 +10,14 @@ import { type VariantDictionary, vdRequireBytes, vdRequireInt } from './variant-
 const KX_ARGON2_TAG_LENGTH = 32;
 const KX_BYTES_PER_KIB = 1024n;
 
-/** Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF). */
+/** Ceiling on Argon2 cost params read from the file before auth. RFC 9106
+allows up to ~4TiB memory / 2^32-1 iterations; unchecked, a crafted file
+could force a huge allocation before any password is even checked. */
+const KX_MAX_ARGON2_MEMORY_KIB = 2 * 1024 * 1024; // 2 GiB
+const KX_MAX_ARGON2_ITERATIONS = 64;
+const KX_MAX_ARGON2_PARALLELISM = 64;
+
+// Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF).
 export async function aesKdf(
   compositeKey: Uint8Array,
   seed: Uint8Array,
@@ -25,10 +26,7 @@ export async function aesKdf(
   return aesKdfTransform(compositeKey, seed, rounds);
 }
 
-/**
- * Transform a composite key using the KDF described by a KDBX 4.x KDF-parameter
- * VariantDictionary.
- */
+// Transform a composite key using the KDF named in a KDBX 4.x KDF-parameter VariantDictionary.
 export async function transformWithKdfParameters(
   compositeKey: Uint8Array,
   params: VariantDictionary,
@@ -70,6 +68,22 @@ function kx_runArgon2(
   // KDBX stores memory in bytes; RFC 9106 / the argon2 package take KiB.
   const memoryBytes = vdRequireInt(params, KdfParam.Argon2Memory);
   const memory = Number(memoryBytes / KX_BYTES_PER_KIB);
+
+  if (parallelism > KX_MAX_ARGON2_PARALLELISM) {
+    throw new Error(
+      `Argon2 parallelism (${parallelism}) exceeds the maximum this app will run (${KX_MAX_ARGON2_PARALLELISM})`,
+    );
+  }
+  if (iterations > KX_MAX_ARGON2_ITERATIONS) {
+    throw new Error(
+      `Argon2 iterations (${iterations}) exceeds the maximum this app will run (${KX_MAX_ARGON2_ITERATIONS})`,
+    );
+  }
+  if (memory > KX_MAX_ARGON2_MEMORY_KIB) {
+    throw new Error(
+      `Argon2 memory (${memory} KiB) exceeds the maximum this app will run (${KX_MAX_ARGON2_MEMORY_KIB} KiB)`,
+    );
+  }
 
   const versionParam = params.get(KdfParam.Argon2Version);
   const version =

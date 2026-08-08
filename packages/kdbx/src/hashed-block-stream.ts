@@ -1,20 +1,14 @@
-/**
- * Hashed block stream (KDBX 3.1).
- *
- * After AES decryption, the KDBX 3.1 payload begins with the stream start bytes
- * (verified separately) followed by this stream. Each block is
- *   index_u32le ‖ SHA-256(data) ‖ size_u32le ‖ data
- * and the stream ends with a block of size 0 (whose hash is all zeros).
- */
+/** KDBX 3.1 hashed block stream: after the stream-start bytes, blocks of
+`index‖SHA-256(data)‖size‖data`, ending with a size-0 block. */
 
 import { ByteReader, ByteWriter, bytesEqual, concatBytes } from './bytes.ts';
 import { sha256 } from './crypto.ts';
 
-/** Block size used when writing (KeePass uses 1 MiB). */
+// Block size used when writing (KeePass uses 1 MiB).
 const KX_HBS_BLOCK_SIZE = 1024 * 1024;
 const KX_ZERO_HASH = new Uint8Array(32);
 
-/** Verify and concatenate a hashed block stream into its payload. */
+// Verify and concatenate a hashed block stream into its payload.
 export async function readHashedBlockStream(data: Uint8Array): Promise<Uint8Array> {
   const reader = new ByteReader(data);
   const chunks: Uint8Array[] = [];
@@ -40,7 +34,7 @@ export async function readHashedBlockStream(data: Uint8Array): Promise<Uint8Arra
   return concatBytes(...chunks);
 }
 
-/** Frame a payload as a hashed block stream. */
+// Frame a payload as a hashed block stream.
 export async function writeHashedBlockStream(
   payload: Uint8Array,
   blockSize: number = KX_HBS_BLOCK_SIZE,

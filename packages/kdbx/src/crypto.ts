@@ -1,13 +1,5 @@
-/**
- * Cryptographic primitives backed by WebCrypto and the Web Streams compression
- * API, so the same code runs in browsers and in modern Node without any
- * external dependency.
- *
- * The stream ciphers (ChaCha20/Salsa20) and the memory-hard KDFs
- * (Argon2d/Argon2id) are not available in WebCrypto; those come from the
- * sibling `chacha20` and `argon2` packages and are wired in by the modules
- * that need them.
- */
+/** Crypto primitives via WebCrypto + Web Streams compression, no external deps.
+Stream ciphers and Argon2 aren't in WebCrypto — those come from chacha20/argon2. */
 
 import { concatBytes } from './bytes.ts';
 
@@ -19,33 +11,29 @@ function kx_getCrypto(): Crypto {
   return c;
 }
 
-/**
- * WebCrypto's `BufferSource` is parameterized over `ArrayBuffer` (not
- * `SharedArrayBuffer`). Our buffers are always `ArrayBuffer`-backed, so this
- * narrowing cast is sound and avoids copying large payloads.
- */
+// Our buffers are always ArrayBuffer-backed, so this BufferSource narrowing cast is sound.
 function kx_buf(data: Uint8Array): Uint8Array<ArrayBuffer> {
   return data as Uint8Array<ArrayBuffer>;
 }
 
-/** Fill a fresh array of `length` bytes with cryptographically strong randomness. */
+// Fill a fresh array of `length` bytes with cryptographically strong randomness.
 export function getRandomBytes(length: number): Uint8Array {
   const out = new Uint8Array(length);
   kx_getCrypto().getRandomValues(out);
   return out;
 }
 
-/** SHA-256 digest. */
+// SHA-256 digest.
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await kx_getCrypto().subtle.digest('SHA-256', kx_buf(data)));
 }
 
-/** SHA-512 digest. */
+// SHA-512 digest.
 export async function sha512(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await kx_getCrypto().subtle.digest('SHA-512', kx_buf(data)));
 }
 
-/** HMAC-SHA-256 of `data` under `key`. */
+// HMAC-SHA-256 of `data` under `key`.
 export async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
   const subtle = kx_getCrypto().subtle;
   const cryptoKey = await subtle.importKey(
@@ -58,10 +46,7 @@ export async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uin
   return new Uint8Array(await subtle.sign('HMAC', cryptoKey, kx_buf(data)));
 }
 
-/**
- * AES-256-CBC encryption with PKCS#7 padding (as used by KDBX for the outer
- * payload). The `iv` must be 16 bytes.
- */
+// AES-256-CBC with PKCS#7 padding, as KDBX uses for the outer payload; iv must be 16 bytes.
 export async function aesCbcEncrypt(
   key: Uint8Array,
   iv: Uint8Array,
@@ -74,7 +59,7 @@ export async function aesCbcEncrypt(
   );
 }
 
-/** AES-256-CBC decryption with PKCS#7 padding. The `iv` must be 16 bytes. */
+// AES-256-CBC decryption with PKCS#7 padding. The `iv` must be 16 bytes.
 export async function aesCbcDecrypt(
   key: Uint8Array,
   iv: Uint8Array,
@@ -87,24 +72,20 @@ export async function aesCbcDecrypt(
       await subtle.decrypt({ name: 'AES-CBC', iv: kx_buf(iv) }, cryptoKey, kx_buf(data)),
     );
   } catch {
-    // WebCrypto throws a DOMException with an empty message on a PKCS#7
-    // padding failure (deliberately, to avoid a padding-oracle side
-    // channel) — and a wrong key almost always produces invalid padding, so
-    // this is the ordinary "wrong password" case for KDBX 3.1 files, not a
-    // rare corruption edge case. Give callers something to show the user.
+    /** WebCrypto reports bad PKCS#7 padding as an empty-message DOMException
+    (avoids a padding-oracle leak) — the ordinary wrong-password case here. */
     throw new Error('AES-CBC decryption failed (wrong credentials or corrupt file)');
   }
 }
 
-/**
- * AES-KDF transformation (the KDBX 3.1 / legacy key derivation function).
- *
- * The composite key is split into two 16-byte halves; each half is encrypted
- * `rounds` times with AES-256-ECB under `seed`. WebCrypto has no ECB mode, but
- * encrypting `rounds` zero blocks in CBC mode with the half as the IV yields
- * the same chain: the i-th CBC ciphertext block equals AES^i(half). We take the
- * last real block, then SHA-256 the concatenation.
- */
+/** Ceiling on AES-KDF `rounds`, read from the file before auth — unchecked, a
+crafted file could force a many-exabyte allocation just by being opened.
+Far above any real KeePass config, but keeps a worst case survivable. */
+const KX_MAX_AES_KDF_ROUNDS = 100_000_000n;
+
+/** AES-KDF (KDBX 3.1's KDF): each 16-byte key half is AES-256-ECB'd `rounds`
+times under `seed`. WebCrypto has no ECB, so we simulate it via CBC with
+the half as IV over `rounds` zero blocks, then SHA-256 the final blocks. */
 export async function aesKdfTransform(
   key: Uint8Array,
   seed: Uint8Array,
@@ -116,8 +97,10 @@ export async function aesKdfTransform(
   if (rounds <= 0n) {
     throw new RangeError('AES-KDF rounds must be positive');
   }
-  if (rounds > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError('AES-KDF rounds exceed the supported maximum');
+  if (rounds > KX_MAX_AES_KDF_ROUNDS) {
+    throw new RangeError(
+      `AES-KDF rounds (${rounds}) exceed the maximum this app will run (${KX_MAX_AES_KDF_ROUNDS})`,
+    );
   }
   const n = Number(rounds);
   const subtle = kx_getCrypto().subtle;

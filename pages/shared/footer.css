@@ -1,0 +1,39 @@
+/* ============================================================
+   Shared footer partial (pages/shared/footer.html)
+   ============================================================ */
+
+footer {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}
+
+.footer-links {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  text-align: center;
+}
+
+.footer-links a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  text-decoration: underline;
+}

@@ -1,70 +1,26 @@
-// ============================================================
-// Google Drive connector
-// ============================================================
-//
-// Opens and saves a KeePass database that lives in the user's own Google
-// Drive, without the bytes ever touching local disk. The connector itself
-// never parses or decrypts anything: it authenticates to Drive, lets the user
-// pick a file with the Google Picker, downloads its bytes, then embeds the
-// real 0x67 app in an iframe and hands it those bytes over a small same-origin
-// postMessage protocol (see 0x67/page.ts's "Host integration" section). All
-// unlocking, browsing, and editing is the unmodified 0x67 app.
-//
-// This connector loads two of Google's own SDKs at runtime — Google Identity
-// Services (accounts.google.com/gsi/client) for sign-in and the Picker
-// (apis.google.com/js/api.js) for file selection. That is a deliberate, scoped
-// exception to the project's "no external libraries" rule: it holds absolutely
-// for 0x67 and every offline page, but a cloud connector is inherently online
-// and is loading the SAME provider the user just chose to sign in to — not an
-// unrelated third party. The master password and all decryption stay inside the
-// 0x67 iframe, which loads no external code; Google's SDKs here in the outer
-// connector only ever see OAuth and encrypted `.kdbx` bytes.
-//
-// Sign-in uses the GIS token model (`initTokenClient`), which returns a
-// short-lived access token straight to this page via a Google-run popup — no
-// client secret, no authorization-code exchange, and (unlike a redirect flow)
-// nothing to persist across a navigation: no localStorage, sessionStorage, or
-// cookie. The access token lives only in the variable below. The cost of the
-// token model is that it is popup-only; on a browser that blocks the popup
-// (e.g. a locked-down kiosk) the user must allow popups for this site. That
-// trade-off is deliberate: a redirect flow would require storing a CSRF `state`
-// nonce across the navigation, which the no-persistence rule forbids.
-//
-// (must, and the build*/is* helpers, are declared in globals.d.ts and supplied
-//  at runtime by logic.ts — bundle-iife concatenates the two. The gapi/google
-//  SDK globals are declared there too. See globals.d.ts.)
+/** Opens/saves a database in the user's own Google Drive, without touching
+local disk. Never parses or decrypts itself: signs in, picks a file with
+the Picker, embeds the real 0x67 app in an iframe, and hands it the
+bytes over postMessage (see 0x67/page.ts's "Host integration"). Loads
+Google's own SDKs as a scoped no-external-libraries exception — the
+0x67 iframe itself still loads nothing external. */
 
 // --- Configuration ---------------------------------------------------------
 
-// OAuth client ID for the "Web application" client registered to
-// keepass-web.app; public by design. GIS requires this page's origin to be an
-// authorized JavaScript origin on the client (no redirect URI is used).
+// OAuth client ID, public by design; GIS requires this origin be authorized on the client.
 const CLIENT_ID = '14808408917-6cecfggtk8npdabf40h66h7gh16e7bon.apps.googleusercontent.com';
-// Google Cloud project number (the numeric prefix of CLIENT_ID). The Picker
-// needs it via setAppId so that a file the user selects is granted to this app
-// under the drive.file scope; without it, the later files.get returns 404.
+// Project number (CLIENT_ID's numeric prefix); Picker needs it via setAppId or files.get 404s.
 const APP_ID = '14808408917';
-// API key ("developer key") for the same Google Cloud project, used by the
-// Picker. This is NOT a secret: the Picker requires the key in client-side JS,
-// so it is exposed by design and can't be hidden (unlike an OAuth client
-// secret). Google's guidance is to secure such keys by restriction, not
-// concealment — this key is locked to this project's HTTP referrers and
-// restricted to the Picker API only, and the project has no billable/abusable
-// API (e.g. Generative Language) enabled. A secret-scanner that flags the
-// literal below (e.g. CodeQL) is a known false positive; dismiss it with a
-// reference to this note. See:
-//   https://firebase.google.com/docs/projects/api-keys ("do not generally
-//     need to be treated as secret ... take extra precautions with API keys
-//     used with other Google Cloud APIs")
-//   https://docs.cloud.google.com/api-keys/docs/add-restrictions-api-keys
+/** Picker "developer key" — NOT a secret. Google requires it client-side
+and recommends restricting it (HTTP referrer + API scope) instead of
+hiding it; this key is so restricted. A secret-scanner flag here is a
+known false positive. */
 const DEVELOPER_KEY = 'AIzaSyB4TpJlDKYOSY_hrq1DOXkFJRFCaZ_92QA';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const GAPI_SRC = 'https://apis.google.com/js/api.js';
-// drive.file: per-file access limited to the databases the user selects in the
-// Picker (and files this app creates). A non-sensitive scope — no restricted-
-// scope CASA audit — which is what keeps the connector shippable today.
+// drive.file: only files the user picks or creates — non-sensitive, no CASA audit needed.
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 const APP_ORIGIN = window.location.origin;
@@ -76,15 +32,12 @@ let currentFile: DriveFile | null = null;
 let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
 let pickerApiLoaded = false;
 let tokenClient: TokenClient | null = null;
-// Set while waiting for the embedded app to ack a kw-close-request, so
-// handleFrameMessage knows what to run once it's safe to tear the iframe down.
+// Set while waiting for a kw-close-ack, so handleFrameMessage knows what to run once safe.
 let pendingClose: (() => void) | null = null;
 // Cached so the GIS script loads at most once, and concurrent callers share it.
 let gisReady: Promise<void> | null = null;
 
-// ============================================================
 // DOM helpers
-// ============================================================
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return must(document.getElementById(id) as T | null);
