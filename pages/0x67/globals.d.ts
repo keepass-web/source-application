@@ -20,6 +20,9 @@ interface OpenMessage {
   filename: string;
   bytes: ArrayBuffer;
 }
+interface CreateMessage {
+  type: 'kw-create';
+}
 interface SaveMessage {
   type: 'kw-save';
   filename: string;
@@ -44,6 +47,7 @@ interface CloseMessage {
 }
 
 declare function isOpenMessage(data: unknown): data is OpenMessage;
+declare function isCreateMessage(data: unknown): data is CreateMessage;
 declare function isSavedMessage(data: unknown): data is SavedMessage;
 declare function isCloseRequestMessage(data: unknown): data is CloseRequestMessage;
 declare function readyMessage(): ReadyMessage;

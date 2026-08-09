@@ -32,6 +32,9 @@ interface OpenMessage {
   filename: string;
   bytes: ArrayBuffer;
 }
+interface CreateMessage {
+  type: 'kw-create';
+}
 interface SaveMessage {
   type: 'kw-save';
   filename: string;
@@ -55,11 +58,17 @@ interface CloseMessage {
 declare function must<T>(value: T | null | undefined): T;
 declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
+declare function buildDriveCreateUrl(uploadBase: string): string;
+declare function buildMultipartBody(
+  filename: string,
+  bytes: ArrayBuffer,
+): { body: Blob; boundary: string };
 declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isCloseAckMessage(data: unknown): data is CloseAckMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
+declare function createMessage(): CreateMessage;
 declare function savedMessage(ok: boolean, error?: string): SavedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 

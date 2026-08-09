@@ -197,6 +197,21 @@ body:not(.app-mode) {
   background: var(--surface-2);
 }
 
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  background: none;
+}
+
+/* Marks the persistent save action as needing attention — nothing to click
+through to notice unsaved edits, unlike every other dirty-aware prompt. */
+.icon-btn.unsaved {
+  color: var(--accent);
+}
+
 .back-link {
   background: none;
   border: none;

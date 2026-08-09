@@ -44,6 +44,20 @@ const app: AppState = {
 // True once a trusted parent frame has handed this app a vault (see "Host integration").
 let hostSession = false;
 
+// The one place app.dirty changes, so the persistent save indicator can never drift from it.
+function setDirty(value: boolean): void {
+  app.dirty = value;
+  updateSaveIndicator();
+}
+
+// No-op off the entry list — the save button only exists in tpl-entry-list.
+function updateSaveIndicator(): void {
+  const btn = document.querySelector<HTMLButtonElement>('#root [data-action="save-database"]');
+  if (!btn) return;
+  btn.disabled = !app.dirty;
+  btn.classList.toggle('unsaved', app.dirty);
+}
+
 // DOM helpers
 
 // Unwrap a possibly-missing lookup, or fail loudly — a missing element means a real bug.
@@ -157,7 +171,11 @@ async function handleFile(file: File): Promise<void> {
 
 // Screen: Unlock
 
-function showUnlock(): void {
+/** `preserveDirty` is true only when arriving here from lockDatabase(), whose
+edits were never actually persisted anywhere — everywhere else, unlocking
+starts a database whose only state is what's on disk/the host, so nothing is
+unsaved yet. */
+function showUnlock(preserveDirty = false): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-unlock'));
 
@@ -203,7 +221,7 @@ function showUnlock(): void {
       app.db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
       app.currentGroup = app.db.getRootGroup();
       app.searchQuery = '';
-      app.dirty = false;
+      setDirty(preserveDirty && app.dirty);
       showEntryList();
     } catch (err) {
       errorEl.textContent =
@@ -271,7 +289,7 @@ function showCreateDatabase(): void {
       app.filename = `${databaseName}.kdbx`;
       app.currentGroup = app.db.getRootGroup();
       app.searchQuery = '';
-      app.dirty = true;
+      setDirty(true);
       showEntryList();
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : 'Could not create database.';
@@ -292,6 +310,7 @@ function showEntryList(): void {
   renderGroupTree();
   renderEntryPanel();
   wireEntryListEvents();
+  updateSaveIndicator();
 }
 
 /** No-op outside the mobile drawer layout, where the sidebar toggle and
@@ -396,7 +415,7 @@ function moveGroupTo(group: XmlElement, destination: XmlElement): void {
   if (parent && parent !== destination) {
     parent.children = parent.children.filter((c) => c !== group);
     appendChild(destination, group);
-    app.dirty = true;
+    setDirty(true);
   }
   renderGroupTree();
   renderEntryPanel();
@@ -419,7 +438,7 @@ function deleteGroupAction(group: XmlElement): void {
         const parent = findGroupParent(rootGroup, group);
         if (parent) parent.children = parent.children.filter((c) => c !== group);
         resetSelectionIfAffected(rootGroup, group);
-        app.dirty = true;
+        setDirty(true);
         renderGroupTree();
         renderEntryPanel();
       },
@@ -632,6 +651,34 @@ function updateViewToggleUI(): void {
   qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
 }
 
+/** Re-encrypts the current in-memory state (including anything not yet
+saved) rather than reloading the original file, so locking never loses an
+edit on its own — only choosing to discard at the prompt above does that. */
+async function lockDatabase(): Promise<void> {
+  const bytes = await must(app.db).save();
+  app.file = bytes.buffer as ArrayBuffer;
+  const wasDirty = app.dirty;
+  Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+  showUnlock(wasDirty);
+}
+
+function closeDatabase(): void {
+  Object.assign(app, {
+    db: null,
+    file: null,
+    filename: '',
+    currentGroup: null,
+    currentEntry: null,
+    searchQuery: '',
+  });
+  setDirty(false);
+  if (isEmbedded()) {
+    postToHost(closeMessage());
+  } else {
+    showUpload();
+  }
+}
+
 function wireEntryListEvents(): void {
   qs<HTMLInputElement>('#search-input').addEventListener('input', (e) => {
     app.searchQuery = (e.target as HTMLInputElement).value.trim();
@@ -647,43 +694,44 @@ function wireEntryListEvents(): void {
     renderEntryPanel();
   });
 
-  qs('[data-action="lock"]').addEventListener('click', async () => {
-    // Re-encrypt the current in-memory state (including anything not yet
-    // saved) rather than reloading the original file, so locking never loses
-    // an edit — only Close does that, and only with confirmation.
-    const bytes = await must(app.db).save();
-    app.file = bytes.buffer as ArrayBuffer;
-    Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
-    showUnlock();
+  qs('[data-action="save-database"]').addEventListener('click', openSaveDialog);
+
+  qs('[data-action="lock"]').addEventListener('click', () => {
+    confirmUnsavedChanges(
+      {
+        title: 'Lock without saving?',
+        message:
+          "Your edits will stay in this tab, but they still haven't been saved anywhere else.",
+        discardLabel: 'Lock Anyway',
+        discardDanger: false,
+      },
+      lockDatabase,
+    );
   });
 
   qs('[data-action="close"]').addEventListener('click', () => {
-    confirmDiscardIfDirty(() => {
-      Object.assign(app, {
-        db: null,
-        file: null,
-        filename: '',
-        currentGroup: null,
-        currentEntry: null,
-        searchQuery: '',
-        dirty: false,
-      });
-      if (isEmbedded()) {
-        postToHost(closeMessage());
-      } else {
-        showUpload();
-      }
-    });
+    confirmUnsavedChanges(DISCARD_PROMPT, closeDatabase);
   });
 
   qs('[data-action="settings"]').addEventListener('click', openSettings);
-  qs('[data-action="export"]').addEventListener('click', openExportDialog);
+  qs('[data-action="export"]').addEventListener('click', () => {
+    confirmUnsavedChanges(
+      {
+        title: 'Export without saving?',
+        message:
+          'The export reflects your current edits, but the database itself has not been saved yet.',
+        discardLabel: 'Export Anyway',
+        discardDanger: false,
+      },
+      openExportDialog,
+    );
+  });
 
   qs('[data-action="add-entry"]').addEventListener('click', () => {
     const newEntry = createEntry({ title: 'New Entry' });
     appendChild(must(app.currentGroup), newEntry);
     app.currentEntry = newEntry;
-    app.dirty = true;
+    setDirty(true);
     showEntryEdit(true);
   });
 
@@ -791,7 +839,7 @@ function showEntryDetail(): void {
         if (parent && parent !== destination) {
           parent.children = parent.children.filter((c) => c !== entry);
           appendChild(destination, entry);
-          app.dirty = true;
+          setDirty(true);
         }
         app.currentEntry = null;
         showEntryList();
@@ -820,7 +868,7 @@ function showEntryDetail(): void {
     if (parent && parent !== bin) {
       parent.children = parent.children.filter((c) => c !== entry);
       appendChild(bin, entry);
-      app.dirty = true;
+      setDirty(true);
     }
     app.currentEntry = null;
     showEntryList();
@@ -832,7 +880,7 @@ function showEntryDetail(): void {
     if (parent && parent !== rootGroup) {
       parent.children = parent.children.filter((c) => c !== entry);
       appendChild(rootGroup, entry);
-      app.dirty = true;
+      setDirty(true);
     }
     app.currentEntry = null;
     showEntryList();
@@ -843,7 +891,7 @@ function showEntryDetail(): void {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         parent.children = parent.children.filter((c) => c !== entry);
-        app.dirty = true;
+        setDirty(true);
       }
       app.currentEntry = null;
       showEntryList();
@@ -939,13 +987,13 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
 
     const restoreBtn = makeIconButton('icon-btn', 'Restore this version', '↩', () => {
       restoreHistoryEntry(db.root, entry, snapshot);
-      app.dirty = true;
+      setDirty(true);
       showEntryDetail();
     });
 
     const deleteBtn = makeIconButton('icon-btn', 'Delete this version', '🗑', () => {
       deleteHistoryEntry(entry, snapshot);
-      app.dirty = true;
+      setDirty(true);
       renderDetailHistory(db, entry, container);
     });
 
@@ -1164,7 +1212,7 @@ function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): 
   );
   touchLastModified(entry);
 
-  app.dirty = true;
+  setDirty(true);
 
   // Return to detail, then prompt to save
   showEntryDetail();
@@ -1216,7 +1264,7 @@ function openSettings(): void {
       const input: CredentialsInput = { password: newPasswordInput.value };
       if (keyfileData) input.keyFile = keyfileData;
       must(app.db).setCredentials(new Credentials(input));
-      app.dirty = true;
+      setDirty(true);
     }
 
     dlg.close();
@@ -1286,12 +1334,28 @@ function openSaveDialog(): void {
   laterBtn.textContent = 'Later';
 
   downloadBtn.onclick = async () => {
-    await downloadDatabase();
+    await performSave();
     dlg.close();
   };
 
   hostBtn.onclick = async () => {
-    await saveToHost(status, hostBtn);
+    status.hidden = false;
+    status.textContent = 'Saving…';
+    hostBtn.disabled = true;
+    const result = await performSave();
+    hostBtn.disabled = false;
+    if (result.ok) {
+      status.textContent = 'Saved.';
+      status.classList.add('ok');
+      // Retrying no longer makes sense once the save has succeeded — collapse
+      // the footer to a single acknowledgement instead of leaving stale
+      // "Later" / "Save" actions from before the save was requested.
+      laterBtn.textContent = 'Close';
+      hostBtn.hidden = true;
+    } else {
+      status.textContent = result.error ? `Save failed: ${result.error}` : 'Save failed.';
+      status.classList.add('error');
+    }
   };
 
   // Both close buttons (Later + ✕) dismiss
@@ -1302,18 +1366,36 @@ function openSaveDialog(): void {
   dlg.showModal();
 }
 
-async function downloadDatabase(): Promise<void> {
+/** Persists the current database: a download standalone, a write-back to the
+host when embedded. The host round trip is asynchronous (kw-save/kw-saved);
+a download is not, but both are awaited here so every caller sees one
+consistent, awaitable outcome regardless of destination. Never rejects —
+failure comes back as `{ ok: false }` so callers can show it inline rather
+than an unhandled rejection. */
+async function performSave(): Promise<{ ok: boolean; error?: string }> {
+  if (!hostSession) {
+    const bytes = await must(app.db).save();
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = app.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setDirty(false);
+    return { ok: true };
+  }
+
   const bytes = await must(app.db).save();
-  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = app.filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  app.dirty = false;
+  // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
+  postToHost(saveMessage(app.filename, new Uint8Array(bytes).buffer));
+  const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    pendingSave = resolve;
+  });
+  if (result.ok) setDirty(false);
+  return result;
 }
 
 // ============================================================
@@ -1366,23 +1448,74 @@ function openPasswordGenerator(onUse: (password: string) => void): void {
 // Dialog: Confirm Discard
 // ============================================================
 
-/** Run `proceed` immediately if there's nothing unsaved to lose; otherwise
- * confirm first, since locking/closing here discards in-memory edits rather
- * than saving them (there's no autosave). */
-function confirmDiscardIfDirty(proceed: () => void): void {
+interface UnsavedChangesPrompt {
+  title: string;
+  message: string;
+  discardLabel: string;
+  discardDanger: boolean; // true for an actual loss of edits (Close); false when nothing is lost (Lock, Export)
+}
+
+// Shared by every trigger where discarding really does throw the edits away.
+const DISCARD_PROMPT: UnsavedChangesPrompt = {
+  title: 'Discard unsaved changes?',
+  message: 'You have unsaved changes that will be lost.',
+  discardLabel: 'Discard',
+  discardDanger: true,
+};
+
+/** Run `proceed` immediately if there's nothing unsaved to lose. Otherwise
+ask: discard (proceed without saving), save first and then proceed, or
+cancel (stay put). The one place a user can act on unsaved edits, reused by
+every action that would otherwise risk losing or hiding them — closing,
+locking, exporting, and a host's close request. */
+function confirmUnsavedChanges(prompt: UnsavedChangesPrompt, proceed: () => void): void {
   if (!app.dirty) {
     proceed();
     return;
   }
 
   const dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]')).onclick = () => {
+  byId('confirm-discard-title').textContent = prompt.title;
+  byId('confirm-discard-message').textContent = prompt.message;
+  const status = must(dlg.querySelector<HTMLElement>('[data-role="confirm-discard-status"]'));
+  status.hidden = true;
+  status.textContent = '';
+  status.className = 'save-status';
+
+  const discardBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]'));
+  discardBtn.textContent = prompt.discardLabel;
+  discardBtn.className = `btn ${prompt.discardDanger ? 'btn-danger' : 'btn-secondary'}`;
+  discardBtn.disabled = false;
+  discardBtn.onclick = () => {
     dlg.close();
     proceed();
   };
+
   must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-discard"]')).onclick = () =>
     dlg.close();
+
+  const saveBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-save"]'));
+  saveBtn.textContent = hostSession ? 'Save' : 'Download';
+  saveBtn.disabled = false;
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    discardBtn.disabled = true;
+    status.hidden = false;
+    status.textContent = 'Saving…';
+    const result = await performSave();
+    if (result.ok) {
+      dlg.close();
+      proceed();
+      return;
+    }
+    saveBtn.disabled = false;
+    discardBtn.disabled = false;
+    status.textContent = result.error ? `Save failed: ${result.error}` : 'Save failed.';
+    status.classList.add('error');
+  };
+
   dlg.showModal();
+  saveBtn.focus();
 }
 
 // ============================================================
@@ -1481,7 +1614,7 @@ function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
       appendChild(mode.parent, newGroup);
       app.currentGroup = newGroup;
     }
-    app.dirty = true;
+    setDirty(true);
     dlg.close();
     onDone();
   };
@@ -1559,8 +1692,9 @@ function openMoveToDialog(
 // The message shapes and guards are shared with every host in
 // packages/embed-protocol, rather than hand-checked here, so the app and host
 // side of the protocol can't drift out of sync with each other:
-//   app  → host : kw-ready          app booted, send a vault
+//   app  → host : kw-ready          app booted, send a vault or a create instruction
 //   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer)
+//   host → app  : kw-create         start a brand-new, empty vault
 //   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
 //   host → app  : kw-saved          result of that persist (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
@@ -1573,8 +1707,9 @@ function openMoveToDialog(
 
 const HOST_ORIGIN = window.location.origin;
 
-/** The status element + button awaiting a `kw-saved` reply, or null. */
-let pendingHostSave: { status: HTMLElement; button: HTMLButtonElement } | null = null;
+/** Resolves the in-flight performSave()'s promise once a `kw-saved` reply
+arrives, or null when no save is outstanding. */
+let pendingSave: ((result: { ok: boolean; error?: string }) => void) | null = null;
 
 function isEmbedded(): boolean {
   return window.parent !== window;
@@ -1592,42 +1727,16 @@ function handleHostMessage(event: MessageEvent): void {
     app.filename = event.data.filename;
     app.file = event.data.bytes;
     showUnlock();
+  } else if (isCreateMessage(event.data)) {
+    hostSession = true;
+    showCreateDatabase();
   } else if (isSavedMessage(event.data)) {
-    notifyHostSaveResult(event.data.ok, event.data.error);
+    const resolve = pendingSave;
+    pendingSave = null;
+    const { ok, error } = event.data;
+    resolve?.(error === undefined ? { ok } : { ok, error });
   } else if (isCloseRequestMessage(event.data)) {
-    confirmDiscardIfDirty(() => postToHost(closeAckMessage()));
-  }
-}
-
-async function saveToHost(status: HTMLElement, button: HTMLButtonElement): Promise<void> {
-  const bytes = await must(app.db).save();
-  status.hidden = false;
-  status.className = 'save-status';
-  status.textContent = 'Saving…';
-  button.disabled = true;
-  pendingHostSave = { status, button };
-  // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
-  postToHost(saveMessage(app.filename, new Uint8Array(bytes).buffer));
-}
-
-function notifyHostSaveResult(ok: boolean, error?: string): void {
-  if (!pendingHostSave) return;
-  const { status, button } = pendingHostSave;
-  pendingHostSave = null;
-  button.disabled = false;
-  if (ok) {
-    app.dirty = false;
-    status.textContent = 'Saved.';
-    status.classList.add('ok');
-    // Retrying no longer makes sense once the save has succeeded — collapse
-    // the footer to a single acknowledgement instead of leaving stale
-    // "Later" / "Save" actions from before the save was requested.
-    const dlg = byId<HTMLDialogElement>('dlg-save');
-    must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]')).textContent = 'Close';
-    button.hidden = true;
-  } else {
-    status.textContent = error ? `Save failed: ${error}` : 'Save failed.';
-    status.classList.add('error');
+    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeAckMessage()));
   }
 }
 
@@ -1638,11 +1747,21 @@ function notifyHostSaveResult(ok: boolean, error?: string): void {
 if (isEmbedded()) {
   document.body.classList.add('embedded'); // the host page has its own footer
   window.addEventListener('message', handleHostMessage);
-  // Announce readiness so the host knows it can send the vault. Handshaking
-  // this way (rather than the host racing the iframe's load event) means the
-  // host only sends once the listener above is definitely attached.
+  // Announce readiness so the host knows it can send a vault or a create
+  // instruction. Handshaking this way (rather than the host racing the
+  // iframe's load event) means the host only sends once the listener above is
+  // definitely attached.
   postToHost(readyMessage());
 }
+
+// Shows the upload screen even when embedded: kw-open/kw-create (almost
+// always arriving within the same tick, since the host already has its bytes
+// or its create decision ready before it ever sets this iframe's src)
+// immediately replaces it. Without this fallback, a host whose reply
+// postMessage never arrives — e.g. file://, where each document gets its own
+// opaque origin and same-origin delivery silently never matches — would
+// leave the app permanently blank instead of at least usable standalone.
+showUpload();
 
 // Closing the tab, reloading, or navigating away with unsaved edits would
 // otherwise discard them with no warning — there's no autosave to fall back
@@ -1652,5 +1771,3 @@ window.addEventListener('beforeunload', (e) => {
   e.preventDefault();
   e.returnValue = true;
 });
-
-showUpload();

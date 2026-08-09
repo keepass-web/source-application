@@ -9,7 +9,13 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildDriveDownloadUrl, buildDriveUpdateUrl, must } from '../cloud-google-drive/logic.ts';
+import {
+  buildDriveCreateUrl,
+  buildDriveDownloadUrl,
+  buildDriveUpdateUrl,
+  buildMultipartBody,
+  must,
+} from '../cloud-google-drive/logic.ts';
 
 test('must returns a present value and throws on null/undefined', () => {
   assert.equal(must('x'), 'x');
@@ -27,4 +33,32 @@ test('buildDriveDownloadUrl / buildDriveUpdateUrl encode the id', () => {
     buildDriveUpdateUrl('https://up.example/v3', 'id9'),
     'https://up.example/v3/files/id9?uploadType=media',
   );
+});
+
+test('buildDriveCreateUrl builds the multipart-upload URL', () => {
+  assert.equal(
+    buildDriveCreateUrl('https://up.example/v3'),
+    'https://up.example/v3/files?uploadType=multipart',
+  );
+});
+
+test('buildMultipartBody wraps the filename and bytes in a multipart/related body', async () => {
+  const bytes = new Uint8Array([1, 2, 3, 4]).buffer;
+  const { body, boundary } = buildMultipartBody('vault.kdbx', bytes);
+  const decoded = new TextDecoder().decode(await body.arrayBuffer());
+
+  assert.ok(decoded.startsWith(`--${boundary}\r\n`));
+  assert.match(
+    decoded,
+    /Content-Type: application\/json; charset=UTF-8\r\n\r\n\{"name":"vault\.kdbx"\}\r\n/,
+  );
+  assert.ok(decoded.includes('Content-Type: application/octet-stream\r\n\r\n\x01\x02\x03\x04'));
+  assert.ok(decoded.trimEnd().endsWith(`--${boundary}--`));
+});
+
+test('buildMultipartBody generates a fresh boundary each call', () => {
+  const bytes = new ArrayBuffer(0);
+  const a = buildMultipartBody('a.kdbx', bytes);
+  const b = buildMultipartBody('a.kdbx', bytes);
+  assert.notEqual(a.boundary, b.boundary);
 });

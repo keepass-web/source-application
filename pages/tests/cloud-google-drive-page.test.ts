@@ -52,15 +52,18 @@ interface MockResponse {
   ok: boolean;
   status: number;
   arrayBuffer?: () => Promise<ArrayBuffer>;
+  json?: () => Promise<unknown>;
 }
 type Handler = () => Promise<MockResponse>;
-const handlers: { download: Handler; save: Handler } = {
+const handlers: { download: Handler; save: Handler; create: Handler } = {
   download: async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(4) }),
   save: async () => ({ ok: true, status: 200 }),
+  create: async () => ({ ok: true, status: 200, json: async () => ({ id: 'new-file-1' }) }),
 };
 Object.defineProperty(globalThis, 'fetch', {
   value: ((input: RequestInfo | URL): Promise<MockResponse> => {
     const url = String(input);
+    if (url.includes('uploadType=multipart')) return handlers.create();
     if (url.includes('/upload/')) return handlers.save();
     if (url.includes('alt=media')) return handlers.download();
     throw new Error(`unexpected fetch: ${url}`);
@@ -439,5 +442,105 @@ test('Google Drive connector', async (t) => {
     sendMessage({ type: 'kw-close' }, { source: frameWin });
     assert.equal(frameInbox.length, before, 'no reply expected — the app already confirmed itself');
     assert.ok(q('[data-action="pick"]'), 'back at the chooser, no request/ack round trip needed');
+  });
+
+  // --- Create a new database ----------------------------------------------
+
+  await t.test(
+    'creating a new database embeds the app with nothing to open, and kw-ready triggers kw-create',
+    async () => {
+      click(q('[data-action="create-database"]'));
+      await waitFor(() => q('#app-frame') !== null);
+      assert.equal(q<HTMLElement>('#host-filename').textContent, 'New database');
+
+      Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+        value: frameWin,
+        configurable: true,
+      });
+      sendMessage({ type: 'kw-ready' }, { source: frameWin });
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-create' });
+    },
+  );
+
+  await t.test(
+    'kw-save from a create session creates a new Drive file, remembers its id, and updates the header',
+    async () => {
+      handlers.create = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'new-file-1' }),
+      });
+      const before = frameInbox.length;
+      sendMessage(
+        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        { source: frameWin },
+      );
+      await waitFor(() => frameInbox.length > before);
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+      assert.equal(q<HTMLElement>('#host-filename').textContent, 'Fresh Vault.kdbx');
+    },
+  );
+
+  await t.test(
+    'a later save in the same session updates the now-known file instead of creating another',
+    async () => {
+      handlers.save = async () => ({ ok: true, status: 200 });
+      const before = frameInbox.length;
+      sendMessage(
+        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(16) },
+        { source: frameWin },
+      );
+      await waitFor(() => frameInbox.length > before);
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+    },
+  );
+
+  await t.test(
+    'back to Drive leaves the create session, same close handshake as an open session',
+    () => {
+      click(q('[data-action="back-to-drive"]'));
+      const req = frameInbox.at(-1)?.message;
+      assert.equal(req?.type, 'kw-close-request');
+      sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
+      assert.ok(q('[data-action="pick"]'));
+    },
+  );
+
+  await t.test('a Drive create HTTP error is reported to the app', async () => {
+    click(q('[data-action="create-database"]'));
+    await waitFor(() => q('#app-frame') !== null);
+    Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+      value: frameWin,
+      configurable: true,
+    });
+    sendMessage({ type: 'kw-ready' }, { source: frameWin });
+
+    handlers.create = errStatus(403);
+    const before = frameInbox.length;
+    sendMessage(
+      { type: 'kw-save', filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      { source: frameWin },
+    );
+    await waitFor(() => frameInbox.length > before);
+    assert.deepEqual(frameInbox.at(-1)?.message, {
+      type: 'kw-saved',
+      ok: false,
+      error: 'HTTP 403',
+    });
+  });
+
+  await t.test('a Drive create network error is reported to the app', async () => {
+    handlers.create = rejects;
+    const before = frameInbox.length;
+    sendMessage(
+      { type: 'kw-save', filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      { source: frameWin },
+    );
+    await waitFor(() => frameInbox.length > before);
+    assert.deepEqual(frameInbox.at(-1)?.message, {
+      type: 'kw-saved',
+      ok: false,
+      error: 'network error',
+    });
   });
 });

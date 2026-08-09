@@ -84,6 +84,7 @@
     "defaultExpiryLocalInputValue",
 
     "isOpenMessage",
+    "isCreateMessage",
     "isSavedMessage",
     "isCloseRequestMessage",
     "readyMessage",

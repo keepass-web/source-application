@@ -1,8 +1,8 @@
 /** `embed-protocol` — the same-origin postMessage contract between a
 keepass-web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders (previously duplicated per side) so
-both ends provably agree on the wire format: kw-ready, kw-open, kw-save,
-kw-saved, kw-close-request, kw-close-ack, kw-close. */
+both ends provably agree on the wire format: kw-ready, kw-open, kw-create,
+kw-save, kw-saved, kw-close-request, kw-close-ack, kw-close. */
 
 export interface ReadyMessage {
   type: 'kw-ready';
@@ -12,6 +12,11 @@ export interface OpenMessage {
   type: 'kw-open';
   filename: string;
   bytes: ArrayBuffer;
+}
+
+// Host tells the app to start a brand-new, empty database instead of opening one.
+export interface CreateMessage {
+  type: 'kw-create';
 }
 
 export interface SaveMessage {
@@ -63,6 +68,10 @@ export function isOpenMessage(data: unknown): data is OpenMessage {
   return isFileMessage(data, 'kw-open');
 }
 
+export function isCreateMessage(data: unknown): data is CreateMessage {
+  return hasType(data, 'kw-create');
+}
+
 export function isSaveMessage(data: unknown): data is SaveMessage {
   return isFileMessage(data, 'kw-save');
 }
@@ -94,6 +103,10 @@ export function readyMessage(): ReadyMessage {
 
 export function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage {
   return { type: 'kw-open', filename, bytes };
+}
+
+export function createMessage(): CreateMessage {
+  return { type: 'kw-create' };
 }
 
 export function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage {

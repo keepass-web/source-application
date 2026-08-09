@@ -1,13 +1,19 @@
-/** Opens a database from this computer: reads the file once, routes it via
-packages/router to the matching implementation (0x67.html), embeds it,
-and hands over the bytes (packages/embed-protocol) — nothing leaves the
-browser. Differs from Drive only in what "save" means: here, a download. */
+/** Opens or creates a database on this computer: for opening, reads the file
+once, routes it via packages/router to the matching implementation
+(0x67.html), embeds it, and hands over the bytes (packages/embed-protocol);
+for creating, embeds the same implementation with nothing to hand over and
+lets it drive its own create-database screen — nothing leaves the browser
+either way. Differs from Drive only in what "save" means: here, a download. */
 
 const APP_ORIGIN = window.location.origin;
+// The only current KDBX implementation. Opening detects this from a file's
+// bytes via packages/router; creating has no bytes to sniff, so it's named directly.
+const APP_IMPLEMENTATION = '0x67.html';
 
 // --- In-memory state (never persisted) -------------------------------------
 
-let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
+type PendingAction = { kind: 'open'; filename: string; bytes: ArrayBuffer } | { kind: 'create' };
+let pendingAction: PendingAction | null = null;
 // Set while waiting for a kw-close-ack, so handleFrameMessage knows what to run once safe.
 let pendingClose: (() => void) | null = null;
 
@@ -56,6 +62,7 @@ function showChooser(): void {
     const f = fileInput.files?.[0];
     if (f) void handleFile(f);
   });
+  qs('[data-action="create-database"]').addEventListener('click', () => showHostForCreate());
   qs('#choose-another').addEventListener('click', resetChooser);
 }
 
@@ -97,9 +104,20 @@ async function handleFile(file: File): Promise<void> {
 // Screen: Embedded implementation app
 
 function showHost(filename: string, bytes: ArrayBuffer, implementation: string): void {
-  pendingOpen = { filename, bytes };
+  pendingAction = { kind: 'open', filename, bytes };
+  embedApp(filename, implementation);
+}
+
+// No file was chosen — nothing to hand over, so the header shows a
+// placeholder until the app's first save tells this page the real name.
+function showHostForCreate(): void {
+  pendingAction = { kind: 'create' };
+  embedApp('New database', APP_IMPLEMENTATION);
+}
+
+function embedApp(headerLabel: string, implementation: string): void {
   setRoot(cloneTemplate('tpl-host'));
-  qs('#host-filename').textContent = filename;
+  qs('#host-filename').textContent = headerLabel;
   qs('[data-action="back-to-chooser"]').addEventListener('click', () => {
     requestCloseIframe(tearDownIframe);
   });
@@ -110,7 +128,7 @@ function showHost(filename: string, bytes: ArrayBuffer, implementation: string):
 
 function tearDownIframe(): void {
   window.removeEventListener('message', handleFrameMessage);
-  pendingOpen = null;
+  pendingAction = null;
   showChooser();
 }
 
@@ -130,9 +148,13 @@ function handleFrameMessage(event: MessageEvent): void {
 
   const source = event.source as Window;
   if (isReadyMessage(event.data)) {
-    const open = must(pendingOpen);
-    source.postMessage(openMessage(open.filename, open.bytes), APP_ORIGIN);
+    const action = must(pendingAction);
+    source.postMessage(
+      action.kind === 'open' ? openMessage(action.filename, action.bytes) : createMessage(),
+      APP_ORIGIN,
+    );
   } else if (isSaveMessage(event.data)) {
+    qs('#host-filename').textContent = event.data.filename;
     downloadAndAck(event.data.filename, event.data.bytes, source);
   } else if (isCloseAckMessage(event.data)) {
     const afterClose = pendingClose;

@@ -1404,9 +1404,27 @@ test('0x67 app', async (t) => {
   );
 
   await t.test(
-    'locking re-encrypts the current state (including unsaved edits) and returns to the unlock screen',
+    'locking with unsaved edits asks first; "Lock Anyway" re-encrypts the current state and returns to the unlock screen, and the edit is still marked unsaved after re-unlocking',
     async () => {
+      assert.equal(
+        q<HTMLButtonElement>('[data-action="save-database"]').disabled,
+        false,
+        'the persistent save indicator reflects the unsaved edits made earlier in this walkthrough',
+      );
+
       q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const lockDlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+      assert.equal(lockDlg.open, true);
+      assert.equal(byId<HTMLElement>('confirm-discard-title').textContent, 'Lock without saving?');
+      assert.equal(
+        dq<HTMLButtonElement>('[data-action="confirm-discard"]').textContent,
+        'Lock Anyway',
+      );
+
+      dq('[data-action="confirm-discard"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      assert.equal(lockDlg.open, false);
       await waitFor(() => q('#master-password') !== null);
       assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
 
@@ -1435,16 +1453,54 @@ test('0x67 app', async (t) => {
         q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
       ).map((b) => b.textContent);
       assert.ok(groupNames.some((name) => name?.includes('Personal')));
+
+      // The edit was only ever re-encrypted into memory, never actually
+      // saved anywhere — re-unlocking must not quietly forget that.
+      assert.equal(
+        q<HTMLButtonElement>('[data-action="save-database"]').disabled,
+        false,
+        'still unsaved after a lock that chose not to save',
+      );
     },
   );
 
-  await t.test('closing with nothing changed since the lock skips the confirm dialog', () => {
-    // showUnlock() clears the dirty flag on every successful unlock
-    // (including this relock), so there's nothing to confirm yet.
-    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
-    assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
-  });
+  await t.test(
+    'locking can save first instead: choosing Download saves, then locks, and the edit counts as saved from then on',
+    async () => {
+      q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const lockDlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+      assert.equal(lockDlg.open, true);
+
+      dq('[data-action="confirm-save"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      await waitFor(() => lockDlg.open === false);
+      await waitFor(() => q('#master-password') !== null);
+
+      q<HTMLInputElement>('#master-password').value = PASSWORD;
+      const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+      setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+      dispatch(keyfileInput, 'change');
+      await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+      dispatch(q('#unlock-form'), 'submit');
+      await waitFor(() => dom.window.document.body.classList.contains('app-mode'), 15000);
+
+      assert.equal(
+        q<HTMLButtonElement>('[data-action="save-database"]').disabled,
+        true,
+        'saving before locking clears the unsaved indicator',
+      );
+    },
+  );
+
+  await t.test(
+    'closing with nothing changed since the save-then-lock skips the confirm dialog',
+    () => {
+      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
+      assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
+    },
+  );
 });
 
 test('closing with unsaved changes prompts to discard, and confirming discards them', async () => {
