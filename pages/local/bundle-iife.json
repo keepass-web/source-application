@@ -15,6 +15,7 @@
     "isCloseAckMessage",
     "isCloseMessage",
     "openMessage",
+    "createMessage",
     "savedMessage",
     "closeRequestMessage",
     "must"

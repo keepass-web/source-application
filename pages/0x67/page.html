@@ -21,10 +21,10 @@
         <div class="drop-zone-icon">🔑</div>
         <p class="drop-zone-label">Drop your .kdbx file here</p>
         <label class="btn btn-primary">
-          Choose file
+          Choose a database…
           <input type="file" id="file-input" accept=".kdbx,.kdb" hidden>
         </label>
-        <button type="button" class="back-link" data-action="create-database">Create a new database</button>
+        <button type="button" class="btn btn-secondary" data-action="create-database">Create a new database</button>
       </div>
     </div>
   </template>
@@ -104,6 +104,7 @@
           <input type="search" id="search-input" class="search-input" placeholder="Search all entries…" autocomplete="off">
         </div>
         <div class="header-actions">
+          <button type="button" class="icon-btn" data-action="save-database" title="Save" aria-label="Save">💾</button>
           <button type="button" class="icon-btn" data-action="export" title="Export">⬆</button>
           <button type="button" class="icon-btn" data-action="settings" title="Settings">⚙</button>
           <button type="button" class="icon-btn" data-action="lock" title="Lock">🔒</button>
@@ -342,14 +343,16 @@
        ============================================================ -->
   <dialog id="dlg-confirm-discard" class="kw-dialog">
     <div class="dialog-header">
-      <h2>Discard unsaved changes?</h2>
+      <h2 id="confirm-discard-title">Discard unsaved changes?</h2>
     </div>
     <div class="dialog-body">
-      <p>You have unsaved changes that will be lost.</p>
+      <p id="confirm-discard-message">You have unsaved changes that will be lost.</p>
+      <p class="save-status" data-role="confirm-discard-status" hidden></p>
     </div>
     <div class="dialog-footer">
       <button type="button" class="btn btn-secondary" data-action="cancel-discard">Cancel</button>
       <button type="button" class="btn btn-danger" data-action="confirm-discard">Discard</button>
+      <button type="button" class="btn btn-primary" data-action="confirm-save">Save</button>
     </div>
   </dialog>
 

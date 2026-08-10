@@ -71,3 +71,34 @@ test('dropping a file on local.html embeds a working 0x67 app that unlocks the s
     `unlocked vault shows the fixture entry, got "${titleText}"`,
   );
 });
+
+test('clicking "Create a new database" on local.html embeds the app straight on its create-database screen', async () => {
+  await page.goto(`${server.origin}/local.html`, { waitUntil: 'networkidle0' });
+
+  await page.click('[data-action="create-database"]');
+
+  const iframeElement = await page.waitForSelector('#app-frame');
+  assert.ok(iframeElement, 'the app is embedded with nothing to open');
+  const iframeFrame = await iframeElement.contentFrame();
+  assert.ok(iframeFrame, 'the iframe has a content frame');
+
+  // kw-create overrides the embedded app's own upload screen with its
+  // create-database screen — no unlock screen, and no second file picker.
+  const nameInput = (await iframeFrame.waitForSelector(
+    '#create-name',
+  )) as ElementHandle<HTMLInputElement>;
+  assert.equal(await iframeFrame.$('#drop-zone'), null, 'no longer on the upload screen');
+  assert.equal(await iframeFrame.$('#master-password'), null, 'no unlock screen ever shown');
+
+  await nameInput.evaluate((el) => {
+    el.value = '';
+  });
+  await nameInput.type('E2E Created Vault');
+  await iframeFrame.type('#create-password', 'e2e-create-password');
+  await iframeFrame.type('#create-password-confirm', 'e2e-create-password');
+  await iframeFrame.click('#create-btn');
+
+  await iframeFrame.waitForSelector('.entry-empty');
+  const panelTitle = await iframeFrame.$eval('#panel-title', (el) => el.textContent);
+  assert.equal(panelTitle, 'E2E Created Vault', 'lands on the new, empty database');
+});

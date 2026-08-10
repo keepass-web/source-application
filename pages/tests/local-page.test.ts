@@ -254,4 +254,37 @@ test('local file connector', async (t) => {
     assert.equal(frameInbox.length, before, 'no reply expected — the app already confirmed itself');
     assert.ok(q('#drop-zone'), 'back at the chooser, no request/ack round trip needed');
   });
+
+  // --- Create a new database ----------------------------------------------
+
+  await t.test(
+    'creating a new database embeds the app with nothing to open, and kw-ready triggers kw-create',
+    () => {
+      click(q('[data-action="create-database"]'));
+      assert.ok(q('#app-frame'));
+      assert.equal(q<HTMLElement>('#host-filename').textContent, 'New database');
+      assert.equal(q<HTMLIFrameElement>('#app-frame').getAttribute('src'), '0x67.html');
+
+      Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+        value: frameWin,
+        configurable: true,
+      });
+      sendMessage({ type: 'kw-ready' }, { source: frameWin });
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-create' });
+    },
+  );
+
+  await t.test(
+    'kw-save from a create session downloads under the chosen name and updates the header',
+    () => {
+      const before = downloadNames.length;
+      sendMessage(
+        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        { source: frameWin },
+      );
+      assert.deepEqual(downloadNames.slice(before), ['Fresh Vault.kdbx']);
+      assert.equal(q<HTMLElement>('#host-filename').textContent, 'Fresh Vault.kdbx');
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+    },
+  );
 });

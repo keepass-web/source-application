@@ -38,6 +38,7 @@ import {
   getText,
   isInRecycleBin,
   Kdbx,
+  type KdbxCreateOptions,
   pushHistorySnapshot,
   removeEntryAttachment,
   renameEntryAttachment,
@@ -270,7 +271,7 @@ test('0x67 embedded in a host frame', async (t) => {
 
     sendFromHost({ type: 'kw-saved', ok: true });
     const status = dq<HTMLElement>('[data-role="save-status"]');
-    assert.equal(status.textContent, 'Saved.');
+    await waitFor(() => status.textContent === 'Saved.');
     assert.ok(status.classList.contains('ok'));
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, false);
     // Success collapses the footer to a single "Close" action — retrying
@@ -298,7 +299,7 @@ test('0x67 embedded in a host frame', async (t) => {
       await waitFor(() => hostInbox.length > before);
       sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 403' });
       const status = dq<HTMLElement>('[data-role="save-status"]');
-      assert.equal(status.textContent, 'Save failed: HTTP 403');
+      await waitFor(() => status.textContent === 'Save failed: HTTP 403');
       assert.ok(status.classList.contains('error'));
       assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Later');
       assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
@@ -312,7 +313,8 @@ test('0x67 embedded in a host frame', async (t) => {
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
       sendFromHost({ type: 'kw-saved', ok: false });
-      assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Save failed.');
+      const status = dq<HTMLElement>('[data-role="save-status"]');
+      await waitFor(() => status.textContent === 'Save failed.');
     },
   );
 
@@ -323,7 +325,8 @@ test('0x67 embedded in a host frame', async (t) => {
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
       sendFromHost({ type: 'kw-saved', ok: true });
-      assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Saved.');
+      const status = dq<HTMLElement>('[data-role="save-status"]');
+      await waitFor(() => status.textContent === 'Saved.');
       assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
       click(dq('[data-role="save-later"]'));
     },
@@ -377,4 +380,135 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(hostInbox.length, before + 1);
     assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
   });
+});
+
+test('0x67 embedded in a host frame: kw-create starts a fresh, empty database', async (t) => {
+  await t.test(
+    'kw-create shows the create-database screen, overriding whatever was showing, with no reply expected',
+    () => {
+      const before = hostInbox.length;
+      sendFromHost({ type: 'kw-create' });
+      assert.equal(hostInbox.length, before, 'switching screens needs no round trip to the host');
+      assert.ok(q('#create-form'));
+      assert.equal(q('#drop-zone'), null);
+      assert.equal(q('#master-password'), null);
+    },
+  );
+
+  await t.test(
+    'creating lands on an empty entry list, and the save dialog offers host write-back, not download',
+    async () => {
+      // showCreateDatabase() always uses default (production) Argon2 cost, and
+      // the save below re-derives the key under those same params — swap in
+      // FAST_ARGON2 for just this one call so the save doesn't pay a
+      // multi-second KDF cost, same fix buildTestDatabase() applies above.
+      const realCreate = Kdbx.create;
+      Kdbx.create = (credentials: Credentials, options?: KdbxCreateOptions) =>
+        realCreate(credentials, { ...options, argon2: FAST_ARGON2, aesKdfRounds: 1000n });
+      try {
+        q<HTMLInputElement>('#create-name').value = 'Host-Created Vault';
+        q<HTMLInputElement>('#create-password').value = PASSWORD;
+        q<HTMLInputElement>('#create-password-confirm').value = PASSWORD;
+        q('#create-form').dispatchEvent(
+          new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+        );
+        await waitFor(() => q('#search-input') !== null);
+      } finally {
+        Kdbx.create = realCreate;
+      }
+
+      // Make an edit so the save dialog opens, same as the kw-open walkthrough above.
+      click(q('[data-action="add-entry"]'));
+      await waitFor(() => q('[data-action="save"]') !== null);
+      click(q('[data-action="save"]'));
+      await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+
+      assert.equal(dq<HTMLElement>('[data-role="save-host"]').hidden, false);
+      assert.equal(dq<HTMLElement>('[data-role="save-local"]').hidden, true);
+    },
+  );
+
+  await t.test(
+    'Save posts kw-save with the name chosen at creation, then reports success on kw-saved',
+    async () => {
+      const before = hostInbox.length;
+      click(dq('[data-action="save-host"]'));
+      await waitFor(() => hostInbox.length > before);
+
+      const msg = lastHostMessage();
+      assert.equal(msg.type, 'kw-save');
+      assert.equal(msg.filename, 'Host-Created Vault.kdbx');
+      assert.ok(msg.bytes instanceof ArrayBuffer && msg.bytes.byteLength > 0);
+
+      sendFromHost({ type: 'kw-saved', ok: true });
+      const status = dq<HTMLElement>('[data-role="save-status"]');
+      await waitFor(() => status.textContent === 'Saved.');
+    },
+  );
+});
+
+test('0x67 embedded in a host frame: choosing Save from the unsaved-changes prompt', async (t) => {
+  await t.test(
+    'a failed write-back leaves the prompt open, buttons re-enabled, for a retry',
+    async () => {
+      // The previous test left the save dialog open (footer collapsed to
+      // "Close") on top of the entry-detail screen — dismiss both to reach the
+      // entry list, where "add entry" lives.
+      click(dq('[data-role="save-later"]'));
+      click(q('[data-action="back"]'));
+      click(q('[data-action="add-entry"]'));
+      await waitFor(() => q('[data-action="save"]') !== null);
+      click(q('[data-action="cancel"]')); // an unsaved (dirty) new entry, never committed
+
+      click(q('[data-action="close"]'));
+      const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+      await waitFor(() => dlg.open);
+      assert.equal(
+        dq<HTMLElement>('#confirm-discard-title').textContent,
+        'Discard unsaved changes?',
+      );
+      const saveBtn = dq<HTMLButtonElement>('[data-action="confirm-save"]');
+      assert.equal(saveBtn.textContent, 'Save', 'a host session offers Save, not Download');
+
+      const before = hostInbox.length;
+      click(saveBtn);
+      await waitFor(() => hostInbox.length > before);
+      assert.equal(saveBtn.disabled, true);
+      assert.equal(dq<HTMLButtonElement>('[data-action="confirm-discard"]').disabled, true);
+
+      sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 500' });
+      const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+      await waitFor(() => status.textContent === 'Save failed: HTTP 500');
+      assert.ok(status.classList.contains('error'));
+      assert.equal(dlg.open, true, 'stays open so the user can retry or choose Discard instead');
+      assert.equal(saveBtn.disabled, false);
+      assert.equal(dq<HTMLButtonElement>('[data-action="confirm-discard"]').disabled, false);
+    },
+  );
+
+  await t.test('a failure with no error message falls back to a generic one', async () => {
+    const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+    const saveBtn = dq<HTMLButtonElement>('[data-action="confirm-save"]');
+    const before = hostInbox.length;
+    click(saveBtn);
+    await waitFor(() => hostInbox.length > before);
+    sendFromHost({ type: 'kw-saved', ok: false });
+    const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() => status.textContent === 'Save failed.');
+    assert.equal(dlg.open, true);
+  });
+
+  await t.test(
+    'retrying and succeeding closes the prompt and proceeds with the action',
+    async () => {
+      const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+      const saveBtn = dq<HTMLButtonElement>('[data-action="confirm-save"]');
+      const before = hostInbox.length;
+      click(saveBtn);
+      await waitFor(() => hostInbox.length > before);
+      sendFromHost({ type: 'kw-saved', ok: true });
+      await waitFor(() => dlg.open === false);
+      assert.deepEqual(lastHostMessage(), { type: 'kw-close' }, 'Close was the pending action');
+    },
+  );
 });

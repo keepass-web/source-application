@@ -1,9 +1,10 @@
-/** Opens/saves a database in the user's own Google Drive, without touching
-local disk. Never parses or decrypts itself: signs in, picks a file with
-the Picker, embeds the real 0x67 app in an iframe, and hands it the
-bytes over postMessage (see 0x67/page.ts's "Host integration"). Loads
-Google's own SDKs as a scoped no-external-libraries exception — the
-0x67 iframe itself still loads nothing external. */
+/** Opens/creates/saves a database in the user's own Google Drive, without
+touching local disk. Never parses or decrypts itself: signs in, then either
+picks a file with the Picker or starts a create, embeds the real 0x67 app in
+an iframe, and hands it the bytes (or a create instruction) over postMessage
+(see 0x67/page.ts's "Host integration"). Loads Google's own SDKs as a
+scoped no-external-libraries exception — the 0x67 iframe itself still loads
+nothing external. */
 
 // --- Configuration ---------------------------------------------------------
 
@@ -24,12 +25,18 @@ const GAPI_SRC = 'https://apis.google.com/js/api.js';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 const APP_ORIGIN = window.location.origin;
+// The only current KDBX implementation. Opening detects this from a file's
+// bytes via packages/router; creating has no bytes to sniff, so it's named directly.
+const APP_IMPLEMENTATION = '0x67.html';
 
 // --- In-memory state (never persisted) -------------------------------------
 
 let accessToken: string | null = null;
+// The Drive file a save writes back to — null until create's first save
+// makes one, or open picks an existing one.
 let currentFile: DriveFile | null = null;
-let pendingOpen: { filename: string; bytes: ArrayBuffer } | null = null;
+type PendingAction = { kind: 'open'; filename: string; bytes: ArrayBuffer } | { kind: 'create' };
+let pendingAction: PendingAction | null = null;
 let pickerApiLoaded = false;
 let tokenClient: TokenClient | null = null;
 // Set while waiting for a kw-close-ack, so handleFrameMessage knows what to run once safe.
@@ -143,6 +150,7 @@ function showChooser(): void {
   qs('[data-action="pick"]').addEventListener('click', () => {
     void chooseFile();
   });
+  qs('[data-action="create-database"]').addEventListener('click', () => showHostForCreate());
   qs('[data-action="signout"]').addEventListener('click', signOut);
 }
 
@@ -228,9 +236,21 @@ async function openPickedFile(file: DriveFile): Promise<void> {
 
 function showHost(file: DriveFile, bytes: ArrayBuffer, implementation: string): void {
   currentFile = file;
-  pendingOpen = { filename: file.name, bytes };
+  pendingAction = { kind: 'open', filename: file.name, bytes };
+  embedApp(file.name, implementation);
+}
+
+// No file was picked — nothing to hand over, so the header shows a
+// placeholder until the app's first save both names and creates the file.
+function showHostForCreate(): void {
+  currentFile = null;
+  pendingAction = { kind: 'create' };
+  embedApp('New database', APP_IMPLEMENTATION);
+}
+
+function embedApp(headerLabel: string, implementation: string): void {
   setRoot(cloneTemplate('tpl-host'));
-  qs('#host-filename').textContent = file.name;
+  qs('#host-filename').textContent = headerLabel;
   qs('[data-action="back-to-drive"]').addEventListener('click', () => {
     requestCloseIframe(tearDownIframe);
   });
@@ -243,7 +263,7 @@ function showHost(file: DriveFile, bytes: ArrayBuffer, implementation: string): 
 function tearDownIframe(): void {
   window.removeEventListener('message', handleFrameMessage);
   currentFile = null;
-  pendingOpen = null;
+  pendingAction = null;
   showChooser();
 }
 
@@ -268,10 +288,18 @@ function handleFrameMessage(event: MessageEvent): void {
 
   const source = event.source as Window;
   if (isReadyMessage(event.data)) {
-    const open = must(pendingOpen);
-    source.postMessage(openMessage(open.filename, open.bytes), APP_ORIGIN);
+    const action = must(pendingAction);
+    source.postMessage(
+      action.kind === 'open' ? openMessage(action.filename, action.bytes) : createMessage(),
+      APP_ORIGIN,
+    );
   } else if (isSaveMessage(event.data)) {
-    void saveToDrive(event.data.bytes, source);
+    qs('#host-filename').textContent = event.data.filename;
+    if (currentFile) {
+      void saveToDrive(event.data.bytes, source);
+    } else {
+      void createFileOnDrive(event.data.filename, event.data.bytes, source);
+    }
   } else if (isCloseAckMessage(event.data)) {
     const afterClose = pendingClose;
     pendingClose = null;
@@ -300,10 +328,37 @@ async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
   }
 }
 
+/** First save of a create-originated session: no Drive file exists yet, so
+this creates one instead of the PATCH saveToDrive uses, then remembers it so
+every later save in this session updates that same file. */
+async function createFileOnDrive(
+  filename: string,
+  bytes: ArrayBuffer,
+  source: Window,
+): Promise<void> {
+  const { body, boundary } = buildMultipartBody(filename, bytes);
+  try {
+    const response = await fetch(buildDriveCreateUrl(UPLOAD_API), {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if (!response.ok) {
+      source.postMessage(savedMessage(false, `HTTP ${response.status}`), APP_ORIGIN);
+      return;
+    }
+    const created = (await response.json()) as { id: string };
+    currentFile = { id: created.id, name: filename };
+    source.postMessage(savedMessage(true), APP_ORIGIN);
+  } catch {
+    source.postMessage(savedMessage(false, 'network error'), APP_ORIGIN);
+  }
+}
+
 function signOut(): void {
   accessToken = null;
   currentFile = null;
-  pendingOpen = null;
+  pendingAction = null;
   showSignIn();
 }
 

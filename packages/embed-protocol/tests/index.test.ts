@@ -4,9 +4,11 @@ import {
   closeAckMessage,
   closeMessage,
   closeRequestMessage,
+  createMessage,
   isCloseAckMessage,
   isCloseMessage,
   isCloseRequestMessage,
+  isCreateMessage,
   isOpenMessage,
   isReadyMessage,
   isSavedMessage,
@@ -34,6 +36,14 @@ test('openMessage / isOpenMessage round-trip and reject malformed payloads', () 
   assert.equal(isOpenMessage('x'), false);
   assert.equal(isOpenMessage({ type: 'kw-open', filename: 1, bytes }), false);
   assert.equal(isOpenMessage({ type: 'kw-open', filename: 'a', bytes: 'no' }), false);
+});
+
+test('createMessage / isCreateMessage round-trip', () => {
+  assert.deepEqual(createMessage(), { type: 'kw-create' });
+  assert.equal(isCreateMessage(createMessage()), true);
+  assert.equal(isCreateMessage(null), false);
+  assert.equal(isCreateMessage(42), false);
+  assert.equal(isCreateMessage({ type: 'nope' }), false);
 });
 
 test('saveMessage / isSaveMessage round-trip and reject malformed payloads', () => {

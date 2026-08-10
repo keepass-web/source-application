@@ -13,11 +13,14 @@
     "must",
     "buildDriveDownloadUrl",
     "buildDriveUpdateUrl",
+    "buildDriveCreateUrl",
+    "buildMultipartBody",
     "isReadyMessage",
     "isSaveMessage",
     "isCloseAckMessage",
     "isCloseMessage",
     "openMessage",
+    "createMessage",
     "savedMessage",
     "closeRequestMessage"
   ]
