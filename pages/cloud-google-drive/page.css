@@ -92,10 +92,14 @@ body {
 
 /* #root is a flex-shrink:0 sibling away from footer below, so it grows to
    fill whatever space footer doesn't need — see .screen-host, which used to
-   claim a flat 100vh of its own and is now sized off this instead. */
+   claim a flat 100vh of its own and is now sized off this instead.
+   overflow-y then scrolls tall content (e.g. the picker screen) internally on
+   a short viewport instead of it spilling out over the fixed-height footer,
+   since body's fixed height means the page itself can't grow to fit. */
 #root {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* ============================================================
@@ -191,10 +195,11 @@ body {
 .picker-body {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 1rem;
   max-width: 460px;
   margin: 6vh auto 0;
+  text-align: center;
 }
 
 .pick-status {

@@ -35,10 +35,12 @@
   <template id="tpl-picker">
     <div class="screen screen-picker">
       <header class="picker-header">
-        <span class="wordmark">Google Drive</span>
+        <a class="back-link" href="index.html">← Back to KeePass Web</a>
         <button type="button" class="btn btn-secondary" data-action="signout">Sign out</button>
       </header>
       <div class="picker-body">
+        <div class="wordmark"><span class="mark"></span>KeePass Web</div>
+        <h1>Open a database from Google Drive</h1>
         <p class="description">Choose a KeePass database from your Google Drive to open.</p>
         <button type="button" class="btn btn-primary" data-action="pick">Choose a database…</button>
         <button type="button" class="btn btn-secondary" data-action="create-database">Create a new database</button>

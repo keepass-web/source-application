@@ -88,9 +88,14 @@ body {
   border-radius: 3px;
 }
 
+/* min-height:0 lets this shrink below its content's natural size (needed for
+the fixed-height body above); overflow-y then scrolls that content internally
+on a short viewport instead of it spilling out over the fixed-height footer
+below, since body's fixed height means the page itself can't grow to fit. */
 #root {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 a {
