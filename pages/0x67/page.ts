@@ -320,31 +320,108 @@ function setSidebarOpen(open: boolean): void {
   qs<HTMLElement>('#sidebar-backdrop').hidden = !open;
 }
 
+const SIDEBAR_WIDTH_MIN = 180;
+const SIDEBAR_WIDTH_MAX = 520;
+const SIDEBAR_WIDTH_STEP = 16;
+
+/* Null until the user adjusts the handle, so the rail opens at the CSS default
+that fits 25 characters (#63); the width stays in memory because one silently
+restored forever would be implicit state, yet it must survive a re-render. */
+let sidebarWidth: number | null = null;
+
+/* Sets the custom property rather than an inline width (#63); an inline width
+outranks the drawer's own rule, so a rail widened on a desktop stayed that wide
+once the viewport narrowed. */
+function setSidebarWidth(px: number): void {
+  sidebarWidth = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)));
+  document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+  qs('#sidebar-resize').setAttribute('aria-valuenow', String(sidebarWidth));
+}
+
+// The rail as rendered until the user picks a width; their choice after that (#63).
+function currentSidebarWidth(): number {
+  return sidebarWidth ?? qs('#sidebar').getBoundingClientRect().width;
+}
+
+/* Pointer events rather than mouse events (#63): one path covers mouse, touch
+and pen, so the rail is resizable wherever it is visible. */
+function wireSidebarResize(): void {
+  const handle = qs<HTMLElement>('#sidebar-resize');
+  handle.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
+  handle.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
+  if (sidebarWidth !== null) setSidebarWidth(sidebarWidth); // resync the fresh handle's aria
+
+  handle.addEventListener('pointerdown', (down) => {
+    down.preventDefault();
+    handle.setPointerCapture(down.pointerId);
+    const startX = down.clientX;
+    const startWidth = currentSidebarWidth();
+
+    const onMove = (move: PointerEvent) => setSidebarWidth(startWidth + move.clientX - startX);
+    const onDone = () => {
+      handle.releasePointerCapture(down.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onDone);
+      handle.removeEventListener('pointercancel', onDone);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onDone);
+    handle.addEventListener('pointercancel', onDone);
+  });
+
+  handle.addEventListener('keydown', (key) => {
+    if (key.key !== 'ArrowLeft' && key.key !== 'ArrowRight') return;
+    key.preventDefault();
+    const step = key.key === 'ArrowLeft' ? -SIDEBAR_WIDTH_STEP : SIDEBAR_WIDTH_STEP;
+    setSidebarWidth(currentSidebarWidth() + step);
+  });
+}
+
+/* The group whose ⋯ menu is open, not a flag (#63): the drawer shows ⋯ on every
+row, so the menu belongs to a row rather than to the selection. */
+let groupMenuFor: XmlElement | null = null;
+
 function renderGroupTree(): void {
   const container = qs('#group-tree');
   container.innerHTML = '';
+  const rootGroup = must(app.db).getRootGroup();
   const ul = document.createElement('ul');
   ul.className = 'group-list';
-  ul.appendChild(buildGroupNode(must(app.db).getRootGroup(), true));
+  ul.appendChild(buildGroupNode(rootGroup, true));
   container.appendChild(ul);
+  // Deleting acts on the selection (#63); the root group is the database itself.
+  const selected = must(app.currentGroup);
+  qs<HTMLButtonElement>('#delete-group-btn').disabled =
+    selected === rootGroup || isRecycleBinGroup(selected);
+}
+
+/* Opening ⋯ selects the row too (#63); the drawer shows ⋯ on every row, so
+without this the header's delete could act on a different group than the menu
+the user is looking at. */
+function selectGroup(group: XmlElement): void {
+  app.currentGroup = group;
+  app.searchQuery = '';
+  const searchInput = document.querySelector<HTMLInputElement>('#search-input');
+  if (searchInput) searchInput.value = '';
+  renderGroupTree();
+  renderEntryPanel();
 }
 
 function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const li = document.createElement('li');
   const row = document.createElement('div');
-  row.className = 'group-row';
+  const isActive = group === app.currentGroup;
+  row.className = `group-row${isActive ? ' group-row-active' : ''}`;
 
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = `group-btn${group === app.currentGroup ? ' active' : ''}`;
+  btn.className = `group-btn${isActive ? ' active' : ''}`;
   btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+  btn.title = groupName(group); // the rail truncates; hover still gives the whole name (#63)
   btn.addEventListener('click', () => {
-    app.currentGroup = group;
-    app.searchQuery = '';
-    const searchInput = document.querySelector<HTMLInputElement>('#search-input');
-    if (searchInput) searchInput.value = '';
-    renderGroupTree();
-    renderEntryPanel();
+    groupMenuFor = null;
+    selectGroup(group);
     setSidebarOpen(false);
   });
   row.appendChild(btn);
@@ -353,10 +430,19 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   // settings (its master password/name), not as an ordinary group, and
   // neither movable nor deletable.
   if (!isRoot) {
-    row.appendChild(buildGroupActions(group));
+    row.appendChild(
+      makeIconButton('icon-btn group-menu-btn', 'Group actions', '⋯', () => {
+        groupMenuFor = groupMenuFor === group ? null : group;
+        selectGroup(group);
+      }),
+    );
   }
 
   li.appendChild(row);
+
+  if (!isRoot && groupMenuFor === group) {
+    li.appendChild(buildGroupMenu(group));
+  }
 
   const subgroups = getChildren(group, 'Group');
   if (subgroups.length > 0) {
@@ -370,33 +456,69 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   return li;
 }
 
-function buildGroupActions(group: XmlElement): HTMLDivElement {
-  const actions = document.createElement('div');
-  actions.className = 'group-actions';
-
-  const renameBtn = makeIconButton('icon-btn group-action-btn', 'Rename group', '✏️', () => {
-    openGroupDialog({ type: 'rename', group }, () => {
-      renderGroupTree();
-      renderEntryPanel();
-    });
+function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'group-menu-item';
+  btn.textContent = label;
+  // Closing here, not in each action, also covers a dialog the user cancels (#63).
+  btn.addEventListener('click', () => {
+    groupMenuFor = null;
+    renderGroupTree();
+    onClick();
   });
-  actions.appendChild(renameBtn);
+  return btn;
+}
 
-  const moveBtn = makeIconButton('icon-btn group-action-btn', 'Move group', '📂', () => {
-    openMoveToDialog(
-      'Move group to…',
-      (candidate) => !isDescendantGroup(group, candidate),
-      (destination) => moveGroupTo(group, destination),
-    );
-  });
-  actions.appendChild(moveBtn);
+function buildGroupMenu(group: XmlElement): HTMLDivElement {
+  const menu = document.createElement('div');
+  menu.className = 'group-menu';
 
-  const deleteBtn = makeIconButton('icon-btn group-action-btn', 'Delete group', '🗑', () => {
-    deleteGroupAction(group);
-  });
-  actions.appendChild(deleteBtn);
+  menu.appendChild(
+    makeMenuItem('Rename', () => {
+      openGroupDialog({ type: 'rename', group }, () => {
+        renderGroupTree();
+        renderEntryPanel();
+      });
+    }),
+  );
 
-  return actions;
+  menu.appendChild(
+    makeMenuItem('Move', () => {
+      openMoveToDialog(
+        'Move group to…',
+        (candidate) => !isDescendantGroup(group, candidate),
+        (destination) => moveGroupTo(group, destination),
+      );
+    }),
+  );
+
+  if (isTrashedGroup(group)) {
+    menu.appendChild(makeMenuItem('Undelete', () => undeleteGroup(group)));
+  }
+
+  return menu;
+}
+
+/* The bin reports itself as inside itself (#63), so deleting it would take the
+permanent branch and destroy every trashed item; it is never an ordinary
+delete target. */
+function isRecycleBinGroup(group: XmlElement): boolean {
+  return isInRecycleBin(must(app.db).root, group) && !isTrashedGroup(group);
+}
+
+/* Tests the parent, not the group (#63): isInRecycleBin counts the bin as
+containing itself, which would offer the bin an Undelete of its own. */
+function isTrashedGroup(group: XmlElement): boolean {
+  const db = must(app.db);
+  const parent = findGroupParent(db.getRootGroup(), group);
+  return parent !== null && isInRecycleBin(db.root, parent);
+}
+
+/* Restores to the root group (#63); KDBX records no previous location, so this
+matches where a trashed entry is restored to. */
+function undeleteGroup(group: XmlElement): void {
+  moveGroupTo(group, must(app.db).getRootGroup());
 }
 
 /** Deselect (back to root) if the current selection is `group` or nested
@@ -422,6 +544,10 @@ function moveGroupTo(group: XmlElement, destination: XmlElement): void {
 }
 
 function deleteGroupAction(group: XmlElement): void {
+  // The row is about to move or vanish; its menu should not travel with it (#63).
+  groupMenuFor = null;
+  renderGroupTree();
+
   const db = must(app.db);
   const rootGroup = db.getRootGroup();
 
@@ -446,11 +572,20 @@ function deleteGroupAction(group: XmlElement): void {
     return;
   }
 
-  // Outside the bin, deleting a group is "Trash" — reversible, so (like
-  // trashing an entry) it needs no confirmation.
-  const bin = findOrCreateRecycleBin(db.root);
-  resetSelectionIfAffected(rootGroup, group);
-  moveGroupTo(group, bin);
+  /* Trashing is reversible, but a group carries its whole subtree with it, so
+  it asks first (#63) where a single entry does not. */
+  openConfirmDelete(
+    'Move to Recycle Bin?',
+    `"${groupName(group)}" and everything in it can be restored from the bin.`,
+    () => {
+      // Created inside the callback so cancelling leaves no empty bin behind.
+      const bin = findOrCreateRecycleBin(db.root);
+      resetSelectionIfAffected(rootGroup, group);
+      moveGroupTo(group, bin);
+    },
+    'Move to Bin',
+    false,
+  );
 }
 
 function renderEntryPanel(): void {
@@ -738,6 +873,12 @@ function wireEntryListEvents(): void {
   qs('[data-action="add-group"]').addEventListener('click', () => {
     openGroupDialog({ type: 'create', parent: must(app.currentGroup) }, () => showEntryList());
   });
+
+  qs('[data-action="delete-group"]').addEventListener('click', () => {
+    deleteGroupAction(must(app.currentGroup));
+  });
+
+  wireSidebarResize();
 
   qs('[data-action="view-tile"]').addEventListener('click', () => {
     app.entryView = 'tile';
@@ -1522,12 +1663,22 @@ function confirmUnsavedChanges(prompt: UnsavedChangesPrompt, proceed: () => void
 // Dialog: Confirm Delete
 // ============================================================
 
-function openConfirmDelete(title: string, message: string, callback: () => void): void {
+function openConfirmDelete(
+  title: string,
+  message: string,
+  callback: () => void,
+  confirmLabel = 'Delete',
+  danger = true,
+): void {
   const dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
   byId('confirm-delete-title').textContent = title;
   byId('confirm-delete-message').textContent = message;
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]')).onclick = () => {
+  const confirmBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]'));
+  confirmBtn.textContent = confirmLabel;
+  confirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+
+  confirmBtn.onclick = () => {
     dlg.close();
     callback();
   };

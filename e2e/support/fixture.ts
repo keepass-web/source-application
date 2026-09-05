@@ -3,7 +3,13 @@
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendChild, Credentials, createEntry, Kdbx } from '../../packages/kdbx/src/index.ts';
+import {
+  appendChild,
+  Credentials,
+  createEntry,
+  createGroup,
+  Kdbx,
+} from '../../packages/kdbx/src/index.ts';
 
 // Fast KDF settings (matches pages/tests/*.test.ts) — a throwaway fixture,
 // no reason to pay real Argon2id cost.
@@ -13,11 +19,14 @@ export interface KdbxFixture {
   path: string;
   password: string;
   entryTitle: string;
+  groupName: string;
 }
 
 export async function writeKdbxFixture(): Promise<KdbxFixture> {
   const password = 'e2e-test-password';
   const entryTitle = 'Example Entry';
+  // Exactly 25 characters, the floor issue #63 sets for the group rail.
+  const groupName = 'Financial Institutions XY';
 
   const credentials = new Credentials({ password });
   const kdbx = await Kdbx.create(credentials, {
@@ -32,6 +41,7 @@ export async function writeKdbxFixture(): Promise<KdbxFixture> {
     kdbx.getRootGroup(),
     createEntry({ title: entryTitle, username: 'octocat', password: 'hunter2' }),
   );
+  appendChild(kdbx.getRootGroup(), createGroup(groupName));
   const bytes = await kdbx.save();
 
   const path = join(
@@ -40,5 +50,5 @@ export async function writeKdbxFixture(): Promise<KdbxFixture> {
   );
   await writeFile(path, bytes);
 
-  return { path, password, entryTitle };
+  return { path, password, entryTitle, groupName };
 }

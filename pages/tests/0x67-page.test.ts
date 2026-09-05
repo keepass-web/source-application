@@ -11,13 +11,15 @@
  * exercise it exclusively through the real page.html markup and dispatched
  * events, not by importing its internals directly.
  *
- * Two real, upstream gaps this file works around rather than pretends don't
- * exist: jsdom does not implement HTMLDialogElement's showModal()/close()
- * (tracked upstream: https://github.com/jsdom/jsdom/issues/3294, still open
- * as of the jsdom version pinned here) or the Clipboard API at all. Both are
- * given minimal, behavior-only polyfills below — open/close state and a
- * writable clipboard buffer, nothing about real focus-trapping or OS
- * clipboard access, which page.ts doesn't rely on anyway.
+ * Three real, upstream gaps this file works around rather than pretends
+ * don't exist: jsdom does not implement HTMLDialogElement's
+ * showModal()/close() (tracked upstream:
+ * https://github.com/jsdom/jsdom/issues/3294, still open as of the jsdom
+ * version pinned here), the Clipboard API, or pointer capture. All three are
+ * given minimal, behavior-only polyfills below — open/close state, a
+ * writable clipboard buffer, and no-op capture — nothing about real
+ * focus-trapping, OS clipboard access or pointer routing, none of which
+ * page.ts relies on.
  */
 
 import assert from 'node:assert/strict';
@@ -131,6 +133,10 @@ let clipboardWritesShouldFail = false;
     clipboardText = text;
   },
 };
+
+// --- Pointer capture polyfill (see file header) ---
+dom.window.HTMLElement.prototype.setPointerCapture = () => {};
+dom.window.HTMLElement.prototype.releasePointerCapture = () => {};
 
 // --- Hoist the kdbx library and this page's own pure logic onto globalThis,
 // --- exactly like bundle.js does in the real browser build (see
@@ -591,10 +597,10 @@ test('0x67 app', async (t) => {
   await t.test(
     'group tree: rename, move (with own-subtree blocked), and delete/permanently-delete',
     () => {
-      // Root has no rename/move/delete actions of its own.
+      // Root has no actions of its own, so it gets no ⋯ at all.
       const rootBtn = (): HTMLButtonElement =>
         q('#group-tree').querySelector<HTMLButtonElement>('.group-btn') as HTMLButtonElement;
-      assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-actions'), null);
+      assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-menu-btn'), null);
 
       // Group rows are icon-prefixed ("🌐 Personal"), and the root's own
       // label ("📁 Personal Vault") would falsely match a plain substring
@@ -605,20 +611,39 @@ test('0x67 app', async (t) => {
         ) as HTMLButtonElement;
       const rowFor = (name: string): HTMLElement =>
         groupBtnFor(name).closest('.group-row') as HTMLElement;
-      const actionBtn = (name: string, title: string): HTMLButtonElement =>
-        rowFor(name).querySelector<HTMLButtonElement>(`[title="${title}"]`) as HTMLButtonElement;
+      const liFor = (name: string): HTMLElement => rowFor(name).closest('li') as HTMLElement;
       // The tree is always fully expanded, so a trashed/moved group's button
       // never disappears from #group-tree — it just relocates. Check its new
       // position (is it inside this parent's own subtree?) rather than mere
       // presence/absence.
       const isInSubtreeOf = (parentName: string, childName: string): boolean =>
         Array.from(
-          rowFor(parentName).nextElementSibling?.querySelectorAll<HTMLButtonElement>(
-            '.group-btn',
-          ) ?? [],
+          liFor(parentName)
+            .querySelector(':scope > ul')
+            ?.querySelectorAll<HTMLButtonElement>('.group-btn') ?? [],
         ).some((b) => b.textContent?.endsWith(childName));
       const click = (el: EventTarget): void => {
         el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      };
+      const menuItem = (name: string, label: string): HTMLButtonElement => {
+        click(groupBtnFor(name)); // only the active row reveals its ⋯
+        click(rowFor(name).querySelector('.group-menu-btn') as HTMLButtonElement);
+        return Array.from(
+          liFor(name).querySelectorAll<HTMLButtonElement>(':scope > .group-menu .group-menu-item'),
+        ).find((b) => b.textContent === label) as HTMLButtonElement;
+      };
+      const clickHeaderDelete = (name: string): void => {
+        click(groupBtnFor(name));
+        click(q('[data-action="delete-group"]'));
+      };
+      const confirmDelete = (): void =>
+        click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      const menuLabels = (name: string): string[] => {
+        click(groupBtnFor(name));
+        click(rowFor(name).querySelector('.group-menu-btn') as HTMLButtonElement);
+        return Array.from(
+          liFor(name).querySelectorAll<HTMLButtonElement>(':scope > .group-menu .group-menu-item'),
+        ).map((b) => b.textContent ?? '');
       };
       const addRootGroup = (name: string): void => {
         click(rootBtn());
@@ -633,7 +658,7 @@ test('0x67 app', async (t) => {
       addRootGroup('Move Target');
 
       // --- rename: reuses dlg-new-group, retitled and prefilled ---
-      click(actionBtn('Rename Target', 'Rename group'));
+      click(menuItem('Rename Target', 'Rename'));
       const groupDlg = byId<HTMLDialogElement>('dlg-new-group');
       assert.equal(byId<HTMLElement>('new-group-title').textContent, 'Rename group');
       assert.equal(byId<HTMLInputElement>('new-group-name').value, 'Rename Target');
@@ -642,9 +667,33 @@ test('0x67 app', async (t) => {
       assert.equal(groupDlg.open, false);
       assert.ok(groupBtnFor('Renamed Group'));
       assert.equal(groupBtnFor('Rename Target'), undefined);
+      assert.equal(
+        groupBtnFor('Renamed Group').title,
+        'Renamed Group',
+        'the full name is on hover, since the rail truncates',
+      );
+
+      // --- ⋯ toggles: pressing it again on the same row puts the menu away ---
+      const openMenu = (name: string): Element | null =>
+        liFor(name).querySelector(':scope > .group-menu');
+      const menuBtnFor = (name: string): HTMLButtonElement =>
+        rowFor(name).querySelector('.group-menu-btn') as HTMLButtonElement;
+      click(groupBtnFor('Renamed Group'));
+      click(menuBtnFor('Renamed Group'));
+      assert.ok(openMenu('Renamed Group'), 'first press opens the menu');
+      click(menuBtnFor('Renamed Group'));
+      assert.equal(openMenu('Renamed Group'), null, 'second press closes it');
+
+      // --- ⋯ claims the selection, so header delete cannot target another row ---
+      click(groupBtnFor('Personal'));
+      click(menuBtnFor('Work'));
+      assert.ok(
+        groupBtnFor('Work').classList.contains('active'),
+        'opening ⋯ on a row makes that row the selection',
+      );
 
       // --- move: a group cannot be moved into itself ---
-      click(actionBtn('Move Target', 'Move group'));
+      click(menuItem('Move Target', 'Move'));
       const moveDlg = byId<HTMLDialogElement>('dlg-move-to');
       assert.equal(moveDlg.open, true);
       assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group to…');
@@ -670,19 +719,47 @@ test('0x67 app', async (t) => {
       click(q('[data-action="back"]'));
 
       // --- move: a descendant is also an invalid target, and cancel/close both leave it in place ---
-      click(actionBtn('Renamed Group', 'Move group'));
+      click(menuItem('Renamed Group', 'Move'));
       assert.equal(destBtn('Renamed Group').disabled, true, 'self is not a valid target');
       assert.equal(destBtn('Move Target').disabled, true, 'own descendant is not a valid target');
       click(dq('#dlg-move-to [data-action="close"]'));
       assert.equal(moveDlg.open, false);
 
-      click(actionBtn('Renamed Group', 'Move group'));
+      click(menuItem('Renamed Group', 'Move'));
       click(dq('#dlg-move-to [data-action="cancel-move"]'));
       assert.equal(moveDlg.open, false);
+      assert.equal(
+        liFor('Renamed Group').querySelector(':scope > .group-menu'),
+        null,
+        'picking a menu item closes the menu even when the dialog is cancelled',
+      );
 
-      // --- delete outside the bin: no confirmation, moves into Recycle Bin ---
-      click(actionBtn('Renamed Group', 'Delete group'));
-      assert.equal(byId<HTMLDialogElement>('dlg-confirm-delete').open, false);
+      // --- a row's menu does not survive that row being deleted ---
+      click(menuBtnFor('Renamed Group'));
+      assert.ok(openMenu('Renamed Group'), 'menu is open before deleting');
+      click(q('[data-action="delete-group"]'));
+      assert.equal(openMenu('Renamed Group'), null, 'deleting closes the row menu');
+      click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
+
+      // --- delete outside the bin: confirmed, then moves into Recycle Bin ---
+      clickHeaderDelete('Renamed Group');
+      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(confirmDlg.open, true, 'trashing a group asks first');
+      assert.equal(
+        byId<HTMLElement>('confirm-delete-title').textContent,
+        'Move to Recycle Bin?',
+        'the reversible path does not read like the permanent one',
+      );
+      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /restored/);
+      const confirmBtn = (): HTMLButtonElement =>
+        dq<HTMLButtonElement>('#dlg-confirm-delete [data-action="confirm-delete"]');
+      assert.equal(confirmBtn().textContent, 'Move to Bin', 'not a red Delete on a reversible act');
+      assert.equal(confirmBtn().classList.contains('btn-danger'), false);
+      click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
+      assert.equal(groupBtnFor('Recycle Bin'), undefined, 'cancelling creates no empty bin');
+
+      clickHeaderDelete('Renamed Group');
+      confirmDelete();
       assert.ok(groupBtnFor('Recycle Bin'), 'the recycle bin group is created on first trash');
       assert.ok(
         isInSubtreeOf('Recycle Bin', 'Renamed Group'),
@@ -693,15 +770,36 @@ test('0x67 app', async (t) => {
         'its own subtree moved along with it',
       );
 
+      // --- undelete: offered only for a trashed group, and restores to root ---
+      assert.deepEqual(menuLabels('Personal'), ['Rename', 'Move'], 'a live group has no undelete');
+      assert.deepEqual(menuLabels('Renamed Group'), ['Rename', 'Move', 'Undelete']);
+      assert.deepEqual(menuLabels('Recycle Bin'), ['Rename', 'Move'], 'the bin is not in itself');
+      assert.equal(
+        q<HTMLButtonElement>('[data-action="delete-group"]').disabled,
+        true,
+        'the bin cannot be deleted: that would take the permanent path and empty it',
+      );
+      click(menuItem('Renamed Group', 'Undelete'));
+      assert.equal(
+        isInSubtreeOf('Recycle Bin', 'Renamed Group'),
+        false,
+        'undelete pulls the group back out of the bin',
+      );
+
+      // Back into the bin, so the permanent-delete case below has its subject.
+      clickHeaderDelete('Renamed Group');
+      confirmDelete();
+
       // --- delete inside the bin: confirmed, permanent, whole subtree ---
-      click(actionBtn('Renamed Group', 'Delete group'));
-      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      clickHeaderDelete('Renamed Group');
       assert.equal(confirmDlg.open, true);
       assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
+      assert.equal(confirmBtn().textContent, 'Delete', 'the permanent path keeps its red Delete');
+      assert.equal(confirmBtn().classList.contains('btn-danger'), true);
       // The 1 entry saved into "Move Target" earlier exercises the singular
       // wording; the Recycle Bin test elsewhere covers the plural case.
       assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /\b1 entry\b/);
-      click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      confirmDelete();
       assert.equal(confirmDlg.open, false);
       assert.equal(groupBtnFor('Renamed Group'), undefined, 'permanently gone');
       assert.equal(groupBtnFor('Move Target'), undefined, 'its subtree went with it');
@@ -712,6 +810,48 @@ test('0x67 app', async (t) => {
       assert.equal(root().querySelectorAll('.entry-row').length, 0);
     },
   );
+
+  await t.test('rail resize: pointer drag and arrow keys, clamped, re-applied on render', () => {
+    const handle = (): HTMLElement => byId<HTMLElement>('sidebar-resize');
+    const railWidth = (): string =>
+      dom.window.document.documentElement.style.getPropertyValue('--sidebar-width');
+
+    // jsdom has no layout engine, so getBoundingClientRect() is all zeros and
+    // every drag here starts from a 0-width rail. That still exercises the
+    // arithmetic and the clamps; the real geometry — that the default width
+    // actually fits 25 characters — is asserted by the e2e suite, in a browser
+    // that has layout.
+    dispatch(handle(), 'pointerdown', { clientX: 100, pointerId: 1 });
+    dispatch(handle(), 'pointermove', { clientX: 400, pointerId: 1 });
+    assert.equal(railWidth(), '300px');
+    assert.equal(handle().getAttribute('aria-valuenow'), '300');
+
+    dispatch(handle(), 'pointermove', { clientX: 0, pointerId: 1 });
+    assert.equal(railWidth(), '180px', 'clamped at the narrow end');
+    dispatch(handle(), 'pointermove', { clientX: 9000, pointerId: 1 });
+    assert.equal(railWidth(), '520px', 'clamped at the wide end');
+
+    dispatch(handle(), 'pointerup', { clientX: 9000, pointerId: 1 });
+    dispatch(handle(), 'pointermove', { clientX: 250, pointerId: 1 });
+    assert.equal(railWidth(), '520px', 'releasing stops tracking the pointer');
+
+    // Arrows step from the width already chosen rather than from the layout
+    // engine, so direction is provable here even without one.
+    dispatch(handle(), 'keydown', { key: 'ArrowLeft' });
+    assert.equal(railWidth(), '504px', 'one step narrower than the 520 just dragged to');
+    dispatch(handle(), 'keydown', { key: 'a' });
+    assert.equal(railWidth(), '504px', 'unchanged by a non-arrow key');
+    dispatch(handle(), 'keydown', { key: 'ArrowRight' });
+    assert.equal(railWidth(), '520px', 'one step wider, back at the ceiling');
+
+    // The custom property outlives a re-render, but the handle carrying the
+    // aria value does not, so the fresh one has to be resynced from memory.
+    dispatch(q('[data-action="add-group"]'), 'click');
+    byId<HTMLInputElement>('new-group-name').value = 'Width Survivor';
+    dispatch(dq('#dlg-new-group [data-action="create-group"]'), 'click');
+    assert.equal(railWidth(), '520px');
+    assert.equal(handle().getAttribute('aria-valuenow'), '520', 'the new handle is resynced');
+  });
 
   await t.test('adding a new entry opens the edit screen, prefilled with standard fields', () => {
     q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
