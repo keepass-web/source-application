@@ -117,13 +117,25 @@ logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
 let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function copyToClipboard(text: string): Promise<void> {
+/* Names the field, never the value (#67): the toast is a reminder that a secret
+is on the clipboard, so it must not put that secret on screen as well. */
+function showClipboardToast(label: string): void {
+  const toast = byId('toast');
+  toast.textContent = `${label} copied to clipboard`;
+  toast.hidden = false;
+}
+
+async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     if (clipboardTimer) clearTimeout(clipboardTimer);
+    showClipboardToast(label);
+    /* One timer drives both the wipe and the toast (#67), so the toast is gone
+    exactly when the clipboard is, rather than on a schedule of its own. */
     clipboardTimer = setTimeout(() => {
       navigator.clipboard.writeText('').catch(() => {});
       clipboardTimer = null;
+      byId('toast').hidden = true;
     }, app.clipboardTimeout * 1000);
   } catch (err) {
     console.error('Clipboard write failed', err);
@@ -689,29 +701,77 @@ function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): str
   return raw;
 }
 
-// Delays opening a row so a second click (a double-click) has time to cancel
-// it via wireCopyOnDblClick, rather than racing ahead of the copy.
-let entryRowOpenTimer: ReturnType<typeof setTimeout> | null = null;
-const ENTRY_ROW_OPEN_DELAY_MS = 250;
+const ENTRY_HOLD_MS = 500;
+const ENTRY_HOLD_SLOP_PX = 8;
 
-function openEntryDetailDelayed(entry: XmlElement): void {
-  if (entryRowOpenTimer) clearTimeout(entryRowOpenTimer);
-  entryRowOpenTimer = setTimeout(() => {
-    entryRowOpenTimer = null;
-    app.currentEntry = entry;
-    showEntryDetail();
-  }, ENTRY_ROW_OPEN_DELAY_MS);
+function openEntry(entry: XmlElement): void {
+  app.currentEntry = entry;
+  showEntryDetail();
 }
 
-function wireCopyOnDblClick(cell: HTMLTableCellElement, value: string): void {
-  cell.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    if (entryRowOpenTimer) {
-      clearTimeout(entryRowOpenTimer);
-      entryRowOpenTimer = null;
-    }
-    if (value) copyToClipboard(value);
+/* A tap copies, a hold opens the card (#67). Hold duration separates the two at
+release, so neither waits on the other the way click-versus-double-click did.
+The slop check matters on touch, where scrolling the table starts on a cell. */
+function wireCellPress(
+  cell: HTMLTableCellElement,
+  entry: XmlElement,
+  value: string,
+  label: string,
+): void {
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  let startX = 0;
+  let startY = 0;
+
+  const cancelHold = (): void => {
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = null;
+  };
+
+  cell.addEventListener('pointerdown', (down) => {
+    startX = down.clientX;
+    startY = down.clientY;
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      openEntry(entry);
+    }, ENTRY_HOLD_MS);
   });
+
+  cell.addEventListener('pointermove', (move) => {
+    if (Math.hypot(move.clientX - startX, move.clientY - startY) > ENTRY_HOLD_SLOP_PX) cancelHold();
+  });
+
+  cell.addEventListener('pointercancel', cancelHold);
+
+  cell.addEventListener('pointerup', () => {
+    const tapped = holdTimer !== null;
+    cancelHold();
+    if (tapped && value) copyToClipboard(value, label);
+  });
+}
+
+/* Dim rather than hover-only (#67): hover may raise a control's emphasis, but a
+touch user has no hover, so it must never be what makes it discoverable. */
+function copyHint(): HTMLSpanElement {
+  const hint = document.createElement('span');
+  hint.className = 'copy-hint';
+  hint.textContent = '📋';
+  return hint;
+}
+
+function buildEntryCell(
+  entry: XmlElement,
+  display: string,
+  value: string,
+  label: string,
+): HTMLTableCellElement {
+  const td = document.createElement('td');
+  td.appendChild(document.createTextNode(display));
+  if (value) {
+    td.appendChild(copyHint());
+    td.title = `Copy ${label.toLowerCase()}`;
+  }
+  wireCellPress(td, entry, value, label);
+  return td;
 }
 
 function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
@@ -730,6 +790,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     th.textContent = column.label;
     headRow.appendChild(th);
   }
+  headRow.appendChild(document.createElement('th'));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -737,21 +798,32 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
 
-    const titleTd = document.createElement('td');
+    const titleTd = buildEntryCell(
+      entry,
+      `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`,
+      entryTitle(entry),
+      'Title',
+    );
     titleTd.className = 'entry-table-title';
-    titleTd.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
-    wireCopyOnDblClick(titleTd, entryTitle(entry));
     tr.appendChild(titleTd);
 
     for (const column of visibleColumns) {
-      const td = document.createElement('td');
-      td.textContent = entryColumnDisplayValue(entry, column.key);
+      const td = buildEntryCell(
+        entry,
+        entryColumnDisplayValue(entry, column.key),
+        entryColumnValue(entry, column.key),
+        column.label,
+      );
       if (column.key === 'password') td.classList.add('entry-table-protected');
-      wireCopyOnDblClick(td, entryColumnValue(entry, column.key));
       tr.appendChild(td);
     }
 
-    tr.addEventListener('click', () => openEntryDetailDelayed(entry));
+    // A visible way in, since a hold is not discoverable on its own (#67).
+    const openTd = document.createElement('td');
+    openTd.className = 'entry-table-open';
+    openTd.appendChild(makeIconButton('icon-btn', 'Open entry', '›', () => openEntry(entry)));
+    tr.appendChild(openTd);
+
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -1069,7 +1141,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   }
 
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
-    await copyToClipboard(value);
+    await copyToClipboard(value, key);
     copyBtn.textContent = '✓';
     setTimeout(() => {
       copyBtn.textContent = '📋';
@@ -1301,7 +1373,7 @@ function buildEditField(
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    await copyToClipboard(valueInput.value);
+    await copyToClipboard(valueInput.value, keyInput.value);
     copyBtn.textContent = '✓';
     setTimeout(() => {
       copyBtn.textContent = '📋';

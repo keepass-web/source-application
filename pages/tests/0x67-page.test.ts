@@ -1250,6 +1250,9 @@ test('0x67 app', async (t) => {
         .then(() => Promise.resolve())
         .then(() => {
           assert.equal(copyBtn?.textContent, '✓');
+          // The toast names the field and never carries the value itself (#67).
+          assert.equal(byId<HTMLElement>('toast').hidden, false);
+          assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
           // Second, immediate copy exercises the "clear the pending timer"
           // branch in copyToClipboard before advancing time at all.
           copyBtn?.click();
@@ -1274,6 +1277,8 @@ test('0x67 app', async (t) => {
           // The rejected write must not throw, and must not have "succeeded"
           // in clearing the (mock) clipboard either.
           assert.equal(clipboardText, 'still there before the timer fires');
+          // One timer drives both, so the reminder goes when the clipboard does.
+          assert.equal(byId<HTMLElement>('toast').hidden, true);
         });
     },
   );
@@ -2129,12 +2134,15 @@ test('entry list table view: default columns, masked password, column toggling, 
     Array.from(root().querySelectorAll('.entry-table th')).map((th) => th.textContent ?? '');
   assert.deepEqual(
     headerText(),
-    ['Title', 'Username', 'Password', 'URL', 'Modified'],
-    'default visible columns',
+    ['Title', 'Username', 'Password', 'URL', 'Modified', ''],
+    'default visible columns, plus the unlabelled open-entry column',
   );
 
+  // The cell's own text, without the copy hint appended beside it.
   const bodyCells = (): string[] =>
-    Array.from(root().querySelectorAll('.entry-table tbody td')).map((td) => td.textContent ?? '');
+    Array.from(root().querySelectorAll('.entry-table tbody td')).map(
+      (td) => td.firstChild?.textContent ?? '',
+    );
   const [titleCell, usernameCell, passwordCell, urlCell] = bodyCells();
   assert.ok(titleCell?.includes('GitHub'));
   assert.equal(usernameCell, 'octocat');
@@ -2162,29 +2170,67 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.ok(bodyCells().includes('work account'));
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const row = q('.entry-table tbody tr') as HTMLElement;
-  dispatch(row, 'click');
-  assert.equal(q('#detail-title'), null, 'not yet — still within the delay window');
-  t.mock.timers.tick(250);
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
-
-  // Back to the entry list, table view, to exercise the double-click path.
-  dispatch(q('[data-action="back"]'), 'click');
-  dispatch(q('[data-action="view-table"]'), 'click');
+  const press = (el: EventTarget, type: string, x = 0, y = 0): void => {
+    dispatch(el, type, { clientX: x, clientY: y, pointerId: 1 });
+  };
 
   clipboardWritesShouldFail = false;
-  const passwordTd = Array.from(root().querySelectorAll('.entry-table tbody td')).find(
-    (td) => td.textContent === '••••••••',
-  ) as HTMLElement;
-  dispatch(passwordTd, 'click');
-  dispatch(passwordTd, 'dblclick');
-  // The double-click's own handler cancels the pending single-click timer —
-  // advancing past its delay must not open the entry.
-  t.mock.timers.tick(250);
-  assert.equal(q('#detail-title'), null, 'the double-click cancelled the pending open');
+  const maskedCell = (): HTMLElement =>
+    Array.from(root().querySelectorAll('.entry-table tbody td')).find(
+      (td) => td.firstChild?.textContent === '••••••••',
+    ) as HTMLElement;
+
+  // A tap copies the real value, names it, and does not open the card.
+  press(maskedCell(), 'pointerdown');
+  press(maskedCell(), 'pointerup');
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the real password was copied, not the mask');
+  assert.equal(byId<HTMLElement>('toast').hidden, false);
+  assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
+  assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
+  assert.equal(q('#detail-title'), null, 'a tap does not open the card');
+
+  // A drag that begins on a cell is a scroll, not a tap.
+  clipboardText = '';
+  press(maskedCell(), 'pointerdown', 0, 0);
+  press(maskedCell(), 'pointermove', 0, 40);
+  press(maskedCell(), 'pointerup', 0, 40);
+  await Promise.resolve();
+  assert.equal(clipboardText, '', 'moving past the slop cancels the copy');
+
+  // Staying inside the slop is still a tap.
+  press(maskedCell(), 'pointerdown', 0, 0);
+  press(maskedCell(), 'pointermove', 0, 2);
+  press(maskedCell(), 'pointerup', 0, 2);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(clipboardText, 'hunter2', 'a small wobble still copies');
+
+  // A cancelled press neither copies nor opens.
+  clipboardText = '';
+  press(maskedCell(), 'pointerdown');
+  press(maskedCell(), 'pointercancel');
+  t.mock.timers.tick(500);
+  await Promise.resolve();
+  assert.equal(clipboardText, '', 'a cancelled press copies nothing');
+  assert.equal(q('#detail-title'), null, 'and opens nothing');
+
+  // A hold opens the card.
+  press(maskedCell(), 'pointerdown');
+  t.mock.timers.tick(500);
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'a hold opens it');
+  dispatch(q('[data-action="back"]'), 'click');
+  dispatch(q('[data-action="view-table"]'), 'click');
+
+  // The visible way in, for anyone who never discovers the hold.
+  const openBtn = (q('.entry-table tbody tr') as HTMLElement).querySelector(
+    '.entry-table-open button',
+  ) as HTMLButtonElement;
+  dispatch(openBtn, 'click');
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'the › opens it too');
+  dispatch(q('[data-action="back"]'), 'click');
+  dispatch(q('[data-action="view-table"]'), 'click');
 
   // Turn on Created and Attachments too — Created exercises the other half
   // of entryColumnDisplayValue's date-formatting check, and Attachments (0,
@@ -2208,25 +2254,15 @@ test('entry list table view: default columns, masked password, column toggling, 
   const attachmentsTd = (q('.entry-table tbody tr') as HTMLElement).querySelectorAll('td')[
     columnIndex
   ] as HTMLElement;
-  assert.equal(attachmentsTd.textContent, '', 'no attachments on this entry');
-  dispatch(attachmentsTd, 'dblclick');
+  assert.equal(attachmentsTd.firstChild?.textContent, '', 'no attachments on this entry');
+  assert.equal(attachmentsTd.querySelector('.copy-hint'), null, 'and so no copy hint');
+  clipboardText = '';
+  press(attachmentsTd, 'pointerdown');
+  press(attachmentsTd, 'pointerup');
   await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(
-    clipboardText,
-    'hunter2',
-    'still the last real copy — the empty cell copied nothing',
-  );
+  assert.equal(clipboardText, '', 'a cell with nothing in it copies nothing');
 
-  // Clicking the same row twice before the delay elapses reschedules rather
-  // than opening the entry twice.
-  const row2 = q('.entry-table tbody tr') as HTMLElement;
-  dispatch(row2, 'click');
-  dispatch(row2, 'click');
-  t.mock.timers.tick(250);
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
-  dispatch(q('[data-action="back"]'), 'click');
-
+  t.mock.timers.reset();
   dispatch(q('[data-action="view-tile"]'), 'click');
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
