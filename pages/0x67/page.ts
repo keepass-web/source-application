@@ -339,6 +339,8 @@ function setSidebarWidth(px: number): void {
 and pen, so the rail is resizable wherever it is visible. */
 function wireSidebarResize(): void {
   const handle = qs<HTMLElement>('#sidebar-resize');
+  handle.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
+  handle.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
   if (sidebarWidth !== null) setSidebarWidth(sidebarWidth);
 
   handle.addEventListener('pointerdown', (down) => {
@@ -381,7 +383,9 @@ function renderGroupTree(): void {
   ul.appendChild(buildGroupNode(rootGroup, true));
   container.appendChild(ul);
   // Deleting acts on the selection (#63); the root group is the database itself.
-  qs<HTMLButtonElement>('#delete-group-btn').disabled = app.currentGroup === rootGroup;
+  const selected = must(app.currentGroup);
+  qs<HTMLButtonElement>('#delete-group-btn').disabled =
+    selected === rootGroup || isRecycleBinGroup(selected);
 }
 
 function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
@@ -442,7 +446,12 @@ function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
   btn.type = 'button';
   btn.className = 'group-menu-item';
   btn.textContent = label;
-  btn.addEventListener('click', onClick);
+  // Closing here, not in each action, also covers a dialog the user cancels (#63).
+  btn.addEventListener('click', () => {
+    groupMenuFor = null;
+    renderGroupTree();
+    onClick();
+  });
   return btn;
 }
 
@@ -476,6 +485,13 @@ function buildGroupMenu(group: XmlElement): HTMLDivElement {
   return menu;
 }
 
+/* The bin reports itself as inside itself (#63), so deleting it would take the
+permanent branch and destroy every trashed item; it is never an ordinary
+delete target. */
+function isRecycleBinGroup(group: XmlElement): boolean {
+  return isInRecycleBin(must(app.db).root, group) && !isTrashedGroup(group);
+}
+
 /* Tests the parent, not the group (#63): isInRecycleBin counts the bin as
 containing itself, which would offer the bin an Undelete of its own. */
 function isTrashedGroup(group: XmlElement): boolean {
@@ -487,7 +503,6 @@ function isTrashedGroup(group: XmlElement): boolean {
 /* Restores to the root group (#63); KDBX records no previous location, so this
 matches where a trashed entry is restored to. */
 function undeleteGroup(group: XmlElement): void {
-  groupMenuFor = null;
   moveGroupTo(group, must(app.db).getRootGroup());
 }
 
@@ -541,8 +556,8 @@ function deleteGroupAction(group: XmlElement): void {
   /* Trashing is reversible, but a group carries its whole subtree with it, so
   it asks first (#63) where a single entry does not. */
   openConfirmDelete(
-    'Delete group?',
-    `"${groupName(group)}" and everything in it moves to the Recycle Bin.`,
+    'Move to Recycle Bin?',
+    `"${groupName(group)}" and everything in it can be restored from the bin.`,
     () => {
       // Created inside the callback so cancelling leaves no empty bin behind.
       const bin = findOrCreateRecycleBin(db.root);

@@ -720,12 +720,22 @@ test('0x67 app', async (t) => {
       click(menuItem('Renamed Group', 'Move'));
       click(dq('#dlg-move-to [data-action="cancel-move"]'));
       assert.equal(moveDlg.open, false);
+      assert.equal(
+        liFor('Renamed Group').querySelector(':scope > .group-menu'),
+        null,
+        'picking a menu item closes the menu even when the dialog is cancelled',
+      );
 
       // --- delete outside the bin: confirmed, then moves into Recycle Bin ---
       clickHeaderDelete('Renamed Group');
       const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
       assert.equal(confirmDlg.open, true, 'trashing a group asks first');
-      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /Recycle Bin/);
+      assert.equal(
+        byId<HTMLElement>('confirm-delete-title').textContent,
+        'Move to Recycle Bin?',
+        'the reversible path does not read like the permanent one',
+      );
+      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /restored/);
       click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
       assert.equal(groupBtnFor('Recycle Bin'), undefined, 'cancelling creates no empty bin');
 
@@ -745,6 +755,11 @@ test('0x67 app', async (t) => {
       assert.deepEqual(menuLabels('Personal'), ['Rename', 'Move'], 'a live group has no undelete');
       assert.deepEqual(menuLabels('Renamed Group'), ['Rename', 'Move', 'Undelete']);
       assert.deepEqual(menuLabels('Recycle Bin'), ['Rename', 'Move'], 'the bin is not in itself');
+      assert.equal(
+        q<HTMLButtonElement>('[data-action="delete-group"]').disabled,
+        true,
+        'the bin cannot be deleted: that would take the permanent path and empty it',
+      );
       click(menuItem('Renamed Group', 'Undelete'));
       assert.equal(
         isInSubtreeOf('Recycle Bin', 'Renamed Group'),

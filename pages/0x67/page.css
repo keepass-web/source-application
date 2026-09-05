@@ -38,8 +38,6 @@
   --success: #0e7c5a;
   /* 25 chars of a first-level sub-group (#63) at .group-btn's size, plus icon, padding, nesting, and the ⋯ slot. */
   --sidebar-width: 280px;
-  --sidebar-width-min: 180px;
-  --sidebar-width-max: 520px;
 }
 
 body {
