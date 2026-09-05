@@ -734,6 +734,13 @@ test('0x67 app', async (t) => {
         'picking a menu item closes the menu even when the dialog is cancelled',
       );
 
+      // --- a row's menu does not survive that row being deleted ---
+      click(menuBtnFor('Renamed Group'));
+      assert.ok(openMenu('Renamed Group'), 'menu is open before deleting');
+      click(q('[data-action="delete-group"]'));
+      assert.equal(openMenu('Renamed Group'), null, 'deleting closes the row menu');
+      click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
+
       // --- delete outside the bin: confirmed, then moves into Recycle Bin ---
       clickHeaderDelete('Renamed Group');
       const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');

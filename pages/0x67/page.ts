@@ -544,6 +544,10 @@ function moveGroupTo(group: XmlElement, destination: XmlElement): void {
 }
 
 function deleteGroupAction(group: XmlElement): void {
+  // The row is about to move or vanish; its menu should not travel with it (#63).
+  groupMenuFor = null;
+  renderGroupTree();
+
   const db = must(app.db);
   const rootGroup = db.getRootGroup();
 
