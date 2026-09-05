@@ -329,10 +329,18 @@ that fits 25 characters (#63); the width stays in memory because one silently
 restored forever would be implicit state, yet it must survive a re-render. */
 let sidebarWidth: number | null = null;
 
+/* Sets the custom property rather than an inline width (#63); an inline width
+outranks the drawer's own rule, so a rail widened on a desktop stayed that wide
+once the viewport narrowed. */
 function setSidebarWidth(px: number): void {
   sidebarWidth = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)));
-  qs<HTMLElement>('#sidebar').style.width = `${sidebarWidth}px`;
+  document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
   qs('#sidebar-resize').setAttribute('aria-valuenow', String(sidebarWidth));
+}
+
+// The rail as rendered until the user picks a width; their choice after that (#63).
+function currentSidebarWidth(): number {
+  return sidebarWidth ?? qs('#sidebar').getBoundingClientRect().width;
 }
 
 /* Pointer events rather than mouse events (#63): one path covers mouse, touch
@@ -341,13 +349,13 @@ function wireSidebarResize(): void {
   const handle = qs<HTMLElement>('#sidebar-resize');
   handle.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
   handle.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
-  if (sidebarWidth !== null) setSidebarWidth(sidebarWidth);
+  if (sidebarWidth !== null) setSidebarWidth(sidebarWidth); // resync the fresh handle's aria
 
   handle.addEventListener('pointerdown', (down) => {
     down.preventDefault();
     handle.setPointerCapture(down.pointerId);
     const startX = down.clientX;
-    const startWidth = qs('#sidebar').getBoundingClientRect().width;
+    const startWidth = currentSidebarWidth();
 
     const onMove = (move: PointerEvent) => setSidebarWidth(startWidth + move.clientX - startX);
     const onDone = () => {
@@ -366,7 +374,7 @@ function wireSidebarResize(): void {
     if (key.key !== 'ArrowLeft' && key.key !== 'ArrowRight') return;
     key.preventDefault();
     const step = key.key === 'ArrowLeft' ? -SIDEBAR_WIDTH_STEP : SIDEBAR_WIDTH_STEP;
-    setSidebarWidth(qs('#sidebar').getBoundingClientRect().width + step);
+    setSidebarWidth(currentSidebarWidth() + step);
   });
 }
 

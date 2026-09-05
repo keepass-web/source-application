@@ -159,3 +159,30 @@ test('at phone width the rail is a drawer: no resize handle, and ⋯ still reach
   assert.ok(await phoneApp.$('#sidebar.sidebar-open'), 'opening the menu left the drawer open');
   await phone.close();
 });
+
+test('a rail widened on desktop does not follow the user into the phone drawer', async () => {
+  const handle = await app.$('#sidebar-resize');
+  assert.ok(handle, 'the rail has a resize handle');
+  const box = await handle.boundingBox();
+  assert.ok(box, 'the handle is laid out');
+
+  const y = box.y + 20;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 400, y, { steps: 8 });
+  await page.mouse.up();
+
+  const railWidth = (): Promise<number> =>
+    app.$eval('#sidebar', (el) => el.getBoundingClientRect().width);
+  const wide = await railWidth();
+  assert.ok(wide > 400, `the rail is dragged wide first (${wide}px)`);
+
+  await page.setViewport({ width: 375, height: 812 });
+  const drawer = await railWidth();
+  assert.ok(
+    drawer <= 375,
+    `the drawer keeps its own width at phone size (${drawer}px inside a 375px viewport)`,
+  );
+
+  await page.setViewport({ width: 1280, height: 900 });
+});

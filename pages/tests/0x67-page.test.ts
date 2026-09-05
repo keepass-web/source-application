@@ -792,7 +792,8 @@ test('0x67 app', async (t) => {
 
   await t.test('rail resize: pointer drag and arrow keys, clamped, re-applied on render', () => {
     const handle = (): HTMLElement => byId<HTMLElement>('sidebar-resize');
-    const railWidth = (): string => byId<HTMLElement>('sidebar').style.width;
+    const railWidth = (): string =>
+      dom.window.document.documentElement.style.getPropertyValue('--sidebar-width');
 
     // jsdom has no layout engine, so getBoundingClientRect() is all zeros and
     // every drag here starts from a 0-width rail. That still exercises the
@@ -813,25 +814,22 @@ test('0x67 app', async (t) => {
     dispatch(handle(), 'pointermove', { clientX: 250, pointerId: 1 });
     assert.equal(railWidth(), '520px', 'releasing stops tracking the pointer');
 
-    // Arrow keys step the width; every other key is left to the page.
-    dispatch(handle(), 'keydown', { key: 'ArrowRight' });
-    assert.equal(railWidth(), '180px', '0 + one step, clamped up to the floor');
-    dispatch(handle(), 'keydown', { key: 'a' });
-    assert.equal(railWidth(), '180px', 'unchanged by a non-arrow key');
+    // Arrows step from the width already chosen rather than from the layout
+    // engine, so direction is provable here even without one.
     dispatch(handle(), 'keydown', { key: 'ArrowLeft' });
-    assert.equal(railWidth(), '180px');
+    assert.equal(railWidth(), '504px', 'one step narrower than the 520 just dragged to');
+    dispatch(handle(), 'keydown', { key: 'a' });
+    assert.equal(railWidth(), '504px', 'unchanged by a non-arrow key');
+    dispatch(handle(), 'keydown', { key: 'ArrowRight' });
+    assert.equal(railWidth(), '520px', 'one step wider, back at the ceiling');
 
-    // Re-rendering the screen replaces the rail element, so a chosen width has
-    // to be re-applied from memory — it is deliberately stored nowhere else.
-    dispatch(handle(), 'pointerdown', { clientX: 0, pointerId: 1 });
-    dispatch(handle(), 'pointermove', { clientX: 300, pointerId: 1 });
-    dispatch(handle(), 'pointerup', { clientX: 300, pointerId: 1 });
-    assert.equal(railWidth(), '300px');
-
+    // The custom property outlives a re-render, but the handle carrying the
+    // aria value does not, so the fresh one has to be resynced from memory.
     dispatch(q('[data-action="add-group"]'), 'click');
     byId<HTMLInputElement>('new-group-name').value = 'Width Survivor';
     dispatch(dq('#dlg-new-group [data-action="create-group"]'), 'click');
-    assert.equal(railWidth(), '300px', 're-applied after the screen re-rendered');
+    assert.equal(railWidth(), '520px');
+    assert.equal(handle().getAttribute('aria-valuenow'), '520', 'the new handle is resynced');
   });
 
   await t.test('adding a new entry opens the edit screen, prefilled with standard fields', () => {
