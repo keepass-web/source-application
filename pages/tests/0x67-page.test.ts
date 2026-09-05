@@ -684,6 +684,14 @@ test('0x67 app', async (t) => {
       click(menuBtnFor('Renamed Group'));
       assert.equal(openMenu('Renamed Group'), null, 'second press closes it');
 
+      // --- ⋯ claims the selection, so header delete cannot target another row ---
+      click(groupBtnFor('Personal'));
+      click(menuBtnFor('Work'));
+      assert.ok(
+        groupBtnFor('Work').classList.contains('active'),
+        'opening ⋯ on a row makes that row the selection',
+      );
+
       // --- move: a group cannot be moved into itself ---
       click(menuItem('Move Target', 'Move'));
       const moveDlg = byId<HTMLDialogElement>('dlg-move-to');
@@ -736,6 +744,10 @@ test('0x67 app', async (t) => {
         'the reversible path does not read like the permanent one',
       );
       assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /restored/);
+      const confirmBtn = (): HTMLButtonElement =>
+        dq<HTMLButtonElement>('#dlg-confirm-delete [data-action="confirm-delete"]');
+      assert.equal(confirmBtn().textContent, 'Move to Bin', 'not a red Delete on a reversible act');
+      assert.equal(confirmBtn().classList.contains('btn-danger'), false);
       click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
       assert.equal(groupBtnFor('Recycle Bin'), undefined, 'cancelling creates no empty bin');
 
@@ -775,6 +787,8 @@ test('0x67 app', async (t) => {
       clickHeaderDelete('Renamed Group');
       assert.equal(confirmDlg.open, true);
       assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
+      assert.equal(confirmBtn().textContent, 'Delete', 'the permanent path keeps its red Delete');
+      assert.equal(confirmBtn().classList.contains('btn-danger'), true);
       // The 1 entry saved into "Move Target" earlier exercises the singular
       // wording; the Recycle Bin test elsewhere covers the plural case.
       assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /\b1 entry\b/);

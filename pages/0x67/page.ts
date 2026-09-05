@@ -396,6 +396,18 @@ function renderGroupTree(): void {
     selected === rootGroup || isRecycleBinGroup(selected);
 }
 
+/* Opening ⋯ selects the row too (#63); the drawer shows ⋯ on every row, so
+without this the header's delete could act on a different group than the menu
+the user is looking at. */
+function selectGroup(group: XmlElement): void {
+  app.currentGroup = group;
+  app.searchQuery = '';
+  const searchInput = document.querySelector<HTMLInputElement>('#search-input');
+  if (searchInput) searchInput.value = '';
+  renderGroupTree();
+  renderEntryPanel();
+}
+
 function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const li = document.createElement('li');
   const row = document.createElement('div');
@@ -408,13 +420,8 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
   btn.title = groupName(group); // the rail truncates; hover still gives the whole name (#63)
   btn.addEventListener('click', () => {
-    app.currentGroup = group;
-    app.searchQuery = '';
     groupMenuFor = null;
-    const searchInput = document.querySelector<HTMLInputElement>('#search-input');
-    if (searchInput) searchInput.value = '';
-    renderGroupTree();
-    renderEntryPanel();
+    selectGroup(group);
     setSidebarOpen(false);
   });
   row.appendChild(btn);
@@ -426,7 +433,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
     row.appendChild(
       makeIconButton('icon-btn group-menu-btn', 'Group actions', '⋯', () => {
         groupMenuFor = groupMenuFor === group ? null : group;
-        renderGroupTree();
+        selectGroup(group);
       }),
     );
   }
@@ -572,6 +579,8 @@ function deleteGroupAction(group: XmlElement): void {
       resetSelectionIfAffected(rootGroup, group);
       moveGroupTo(group, bin);
     },
+    'Move to Bin',
+    false,
   );
 }
 
@@ -1650,12 +1659,22 @@ function confirmUnsavedChanges(prompt: UnsavedChangesPrompt, proceed: () => void
 // Dialog: Confirm Delete
 // ============================================================
 
-function openConfirmDelete(title: string, message: string, callback: () => void): void {
+function openConfirmDelete(
+  title: string,
+  message: string,
+  callback: () => void,
+  confirmLabel = 'Delete',
+  danger = true,
+): void {
   const dlg = byId<HTMLDialogElement>('dlg-confirm-delete');
   byId('confirm-delete-title').textContent = title;
   byId('confirm-delete-message').textContent = message;
 
-  must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]')).onclick = () => {
+  const confirmBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-delete"]'));
+  confirmBtn.textContent = confirmLabel;
+  confirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+
+  confirmBtn.onclick = () => {
     dlg.close();
     callback();
   };
