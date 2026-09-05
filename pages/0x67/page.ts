@@ -320,27 +320,86 @@ function setSidebarOpen(open: boolean): void {
   qs<HTMLElement>('#sidebar-backdrop').hidden = !open;
 }
 
+const SIDEBAR_WIDTH_MIN = 180;
+const SIDEBAR_WIDTH_MAX = 520;
+const SIDEBAR_WIDTH_STEP = 16;
+
+/* Null until the user drags or arrows the handle, so the rail opens at the CSS
+default — wide enough for 25 characters (#63). Kept in memory only: a width
+chosen once and silently restored forever is exactly the implicit state the
+project avoids, but it does have to survive re-rendering the screen. */
+let sidebarWidth: number | null = null;
+
+function setSidebarWidth(px: number): void {
+  sidebarWidth = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)));
+  qs<HTMLElement>('#sidebar').style.width = `${sidebarWidth}px`;
+  qs('#sidebar-resize').setAttribute('aria-valuenow', String(sidebarWidth));
+}
+
+/* Pointer events rather than mouse events: one path covers mouse, touch and
+pen, so the rail is resizable wherever it is visible. */
+function wireSidebarResize(): void {
+  const handle = qs<HTMLElement>('#sidebar-resize');
+  if (sidebarWidth !== null) setSidebarWidth(sidebarWidth);
+
+  handle.addEventListener('pointerdown', (down) => {
+    down.preventDefault();
+    handle.setPointerCapture(down.pointerId);
+    const startX = down.clientX;
+    const startWidth = qs('#sidebar').getBoundingClientRect().width;
+
+    const onMove = (move: PointerEvent) => setSidebarWidth(startWidth + move.clientX - startX);
+    const onDone = () => {
+      handle.releasePointerCapture(down.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onDone);
+      handle.removeEventListener('pointercancel', onDone);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onDone);
+    handle.addEventListener('pointercancel', onDone);
+  });
+
+  handle.addEventListener('keydown', (key) => {
+    if (key.key !== 'ArrowLeft' && key.key !== 'ArrowRight') return;
+    key.preventDefault();
+    const step = key.key === 'ArrowLeft' ? -SIDEBAR_WIDTH_STEP : SIDEBAR_WIDTH_STEP;
+    setSidebarWidth(qs('#sidebar').getBoundingClientRect().width + step);
+  });
+}
+
+/* The group whose ⋯ menu is open, not a flag: the drawer layout shows ⋯ on
+every row, so the menu has to belong to a row rather than to the selection.
+Reset whenever the selection moves. */
+let groupMenuFor: XmlElement | null = null;
+
 function renderGroupTree(): void {
   const container = qs('#group-tree');
   container.innerHTML = '';
+  const rootGroup = must(app.db).getRootGroup();
   const ul = document.createElement('ul');
   ul.className = 'group-list';
-  ul.appendChild(buildGroupNode(must(app.db).getRootGroup(), true));
+  ul.appendChild(buildGroupNode(rootGroup, true));
   container.appendChild(ul);
+  // Deleting acts on the selection, and the root group is the database itself.
+  qs<HTMLButtonElement>('#delete-group-btn').disabled = app.currentGroup === rootGroup;
 }
 
 function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const li = document.createElement('li');
   const row = document.createElement('div');
-  row.className = 'group-row';
+  const isActive = group === app.currentGroup;
+  row.className = `group-row${isActive ? ' group-row-active' : ''}`;
 
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = `group-btn${group === app.currentGroup ? ' active' : ''}`;
+  btn.className = `group-btn${isActive ? ' active' : ''}`;
   btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
   btn.addEventListener('click', () => {
     app.currentGroup = group;
     app.searchQuery = '';
+    groupMenuFor = null;
     const searchInput = document.querySelector<HTMLInputElement>('#search-input');
     if (searchInput) searchInput.value = '';
     renderGroupTree();
@@ -353,10 +412,19 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   // settings (its master password/name), not as an ordinary group, and
   // neither movable nor deletable.
   if (!isRoot) {
-    row.appendChild(buildGroupActions(group));
+    row.appendChild(
+      makeIconButton('icon-btn group-menu-btn', 'Group actions', '⋯', () => {
+        groupMenuFor = groupMenuFor === group ? null : group;
+        renderGroupTree();
+      }),
+    );
   }
 
   li.appendChild(row);
+
+  if (!isRoot && groupMenuFor === group) {
+    li.appendChild(buildGroupMenu(group));
+  }
 
   const subgroups = getChildren(group, 'Group');
   if (subgroups.length > 0) {
@@ -370,33 +438,41 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   return li;
 }
 
-function buildGroupActions(group: XmlElement): HTMLDivElement {
-  const actions = document.createElement('div');
-  actions.className = 'group-actions';
+function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'group-menu-item';
+  btn.textContent = label;
+  btn.addEventListener('click', onClick);
+  return btn;
+}
 
-  const renameBtn = makeIconButton('icon-btn group-action-btn', 'Rename group', '✏️', () => {
-    openGroupDialog({ type: 'rename', group }, () => {
-      renderGroupTree();
-      renderEntryPanel();
-    });
-  });
-  actions.appendChild(renameBtn);
+/* Deleting is deliberately absent: it is the one irreversible action here, so
+it lives in the rail header rather than a gesture away from rename. */
+function buildGroupMenu(group: XmlElement): HTMLDivElement {
+  const menu = document.createElement('div');
+  menu.className = 'group-menu';
 
-  const moveBtn = makeIconButton('icon-btn group-action-btn', 'Move group', '📂', () => {
-    openMoveToDialog(
-      'Move group to…',
-      (candidate) => !isDescendantGroup(group, candidate),
-      (destination) => moveGroupTo(group, destination),
-    );
-  });
-  actions.appendChild(moveBtn);
+  menu.appendChild(
+    makeMenuItem('Rename', () => {
+      openGroupDialog({ type: 'rename', group }, () => {
+        renderGroupTree();
+        renderEntryPanel();
+      });
+    }),
+  );
 
-  const deleteBtn = makeIconButton('icon-btn group-action-btn', 'Delete group', '🗑', () => {
-    deleteGroupAction(group);
-  });
-  actions.appendChild(deleteBtn);
+  menu.appendChild(
+    makeMenuItem('Move', () => {
+      openMoveToDialog(
+        'Move group to…',
+        (candidate) => !isDescendantGroup(group, candidate),
+        (destination) => moveGroupTo(group, destination),
+      );
+    }),
+  );
 
-  return actions;
+  return menu;
 }
 
 /** Deselect (back to root) if the current selection is `group` or nested
@@ -738,6 +814,12 @@ function wireEntryListEvents(): void {
   qs('[data-action="add-group"]').addEventListener('click', () => {
     openGroupDialog({ type: 'create', parent: must(app.currentGroup) }, () => showEntryList());
   });
+
+  qs('[data-action="delete-group"]').addEventListener('click', () => {
+    deleteGroupAction(must(app.currentGroup));
+  });
+
+  wireSidebarResize();
 
   qs('[data-action="view-tile"]').addEventListener('click', () => {
     app.entryView = 'tile';

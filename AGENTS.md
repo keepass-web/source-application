@@ -12,6 +12,8 @@ The concrete implication for an agent: don't reach for a framework, a general-pu
 
 When a design decision has more than one reasonable answer, resolve it in this order: correct operation, minimal surface area (to-the-point comments, efficient algorithms, no excess features), readable (plain language, clear names), explicit (the user does something deliberate to kick off a behavior — nothing fires as a side effect), convenient, performant. Higher wins. Don't trade a higher priority for a lower one to make a later item nicer — for example, don't add a persisted session to make something more convenient at the cost of making it less explicit, and don't reach for a shared abstraction at the cost of a larger, harder-to-audit surface area.
 
+Effort scales with reversibility. The action a user takes most often gets the cheapest gesture, and a less reversible one always costs more — a different gesture, a separate control, or a confirmation — never the same gesture as the reversible neighbour it sits beside. Deleting already works this way: trashing is reversible and so happens silently, while emptying the bin is permanent and so is confirmed. The rule generalizes that, so a new control's weight is decided by its consequence rather than by whatever fits the layout.
+
 ## Approach
 
 Every internal dependency is owned, not borrowed. `packages/argon2`, `packages/chacha20`, and `packages/kdbx` are consumed by relative import to each other's compiled output in `build/packages/` — never through a `dependencies` entry in any `package.json`, and never published. `grep -r '"dependencies"' --include=package.json .` should always come back empty for internal code; if a change makes it not empty, that change is wrong.
