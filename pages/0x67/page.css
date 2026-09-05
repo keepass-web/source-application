@@ -473,14 +473,14 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
   overflow: hidden;
 }
 
-/* A flex sibling of the rail, not an overlay on it: the tree scrolls, and an
-overlaid handle would sit on top of its scrollbar. */
+/* A flex sibling of the rail, not an overlay on it (#63): the tree scrolls, and
+an overlaid handle would sit on top of its scrollbar. */
 .sidebar-resize {
   flex: 0 0 6px;
   margin: 0;
   border: none;
   cursor: col-resize;
-  touch-action: none; /* a drag here resizes; it must not be claimed by scrolling */
+  touch-action: none; /* a drag here resizes (#63); scrolling must not claim it */
 }
 
 .sidebar-resize:hover,
@@ -531,8 +531,8 @@ overlaid handle would sit on top of its scrollbar. */
   gap: 0.1rem;
 }
 
-/* Reserved on every row, shown only on the active one, so selecting a group
-doesn't reflow its name. */
+/* Reserved on every row, shown only on the active one (#63), so selecting a
+group doesn't reflow its name. */
 .group-menu-btn {
   flex-shrink: 0;
   padding: 0.2rem 0.3rem;
@@ -544,8 +544,8 @@ doesn't reflow its name. */
   visibility: visible;
 }
 
-/* Inline, not a floating popup: the rail and the tree both clip overflow, so
-an absolutely positioned menu would be cut off. */
+/* Inline, not a floating popup (#63): the rail and the tree both clip overflow,
+so an absolutely positioned menu would be cut off. */
 .group-menu {
   display: flex;
   gap: 0.25rem;
@@ -877,8 +877,8 @@ an absolutely positioned menu would be cut off. */
     display: none;
   }
 
-  /* Tapping a group closes the drawer, so gating ⋯ on the active row would
-  put rename and move two drawer visits away — show it on every row here. */
+  /* Tapping a group closes the drawer (#63), so gating ⋯ on the active row
+  would put rename and move two drawer visits away; show it on every row. */
   .group-menu-btn {
     visibility: visible;
   }

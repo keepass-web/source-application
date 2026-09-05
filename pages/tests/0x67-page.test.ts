@@ -632,9 +632,18 @@ test('0x67 app', async (t) => {
           liFor(name).querySelectorAll<HTMLButtonElement>(':scope > .group-menu .group-menu-item'),
         ).find((b) => b.textContent === label) as HTMLButtonElement;
       };
-      const deleteSelected = (name: string): void => {
+      const clickHeaderDelete = (name: string): void => {
         click(groupBtnFor(name));
         click(q('[data-action="delete-group"]'));
+      };
+      const confirmDelete = (): void =>
+        click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      const menuLabels = (name: string): string[] => {
+        click(groupBtnFor(name));
+        click(rowFor(name).querySelector('.group-menu-btn') as HTMLButtonElement);
+        return Array.from(
+          liFor(name).querySelectorAll<HTMLButtonElement>(':scope > .group-menu .group-menu-item'),
+        ).map((b) => b.textContent ?? '');
       };
       const addRootGroup = (name: string): void => {
         click(rootBtn());
@@ -658,6 +667,11 @@ test('0x67 app', async (t) => {
       assert.equal(groupDlg.open, false);
       assert.ok(groupBtnFor('Renamed Group'));
       assert.equal(groupBtnFor('Rename Target'), undefined);
+      assert.equal(
+        groupBtnFor('Renamed Group').title,
+        'Renamed Group',
+        'the full name is on hover, since the rail truncates',
+      );
 
       // --- ⋯ toggles: pressing it again on the same row puts the menu away ---
       const openMenu = (name: string): Element | null =>
@@ -707,9 +721,16 @@ test('0x67 app', async (t) => {
       click(dq('#dlg-move-to [data-action="cancel-move"]'));
       assert.equal(moveDlg.open, false);
 
-      // --- delete outside the bin: no confirmation, moves into Recycle Bin ---
-      deleteSelected('Renamed Group');
-      assert.equal(byId<HTMLDialogElement>('dlg-confirm-delete').open, false);
+      // --- delete outside the bin: confirmed, then moves into Recycle Bin ---
+      clickHeaderDelete('Renamed Group');
+      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      assert.equal(confirmDlg.open, true, 'trashing a group asks first');
+      assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /Recycle Bin/);
+      click(dq('#dlg-confirm-delete [data-action="cancel-delete"]'));
+      assert.equal(groupBtnFor('Recycle Bin'), undefined, 'cancelling creates no empty bin');
+
+      clickHeaderDelete('Renamed Group');
+      confirmDelete();
       assert.ok(groupBtnFor('Recycle Bin'), 'the recycle bin group is created on first trash');
       assert.ok(
         isInSubtreeOf('Recycle Bin', 'Renamed Group'),
@@ -720,15 +741,29 @@ test('0x67 app', async (t) => {
         'its own subtree moved along with it',
       );
 
+      // --- undelete: offered only for a trashed group, and restores to root ---
+      assert.deepEqual(menuLabels('Personal'), ['Rename', 'Move'], 'a live group has no undelete');
+      assert.deepEqual(menuLabels('Renamed Group'), ['Rename', 'Move', 'Undelete']);
+      assert.deepEqual(menuLabels('Recycle Bin'), ['Rename', 'Move'], 'the bin is not in itself');
+      click(menuItem('Renamed Group', 'Undelete'));
+      assert.equal(
+        isInSubtreeOf('Recycle Bin', 'Renamed Group'),
+        false,
+        'undelete pulls the group back out of the bin',
+      );
+
+      // Back into the bin, so the permanent-delete case below has its subject.
+      clickHeaderDelete('Renamed Group');
+      confirmDelete();
+
       // --- delete inside the bin: confirmed, permanent, whole subtree ---
-      deleteSelected('Renamed Group');
-      const confirmDlg = byId<HTMLDialogElement>('dlg-confirm-delete');
+      clickHeaderDelete('Renamed Group');
       assert.equal(confirmDlg.open, true);
       assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
       // The 1 entry saved into "Move Target" earlier exercises the singular
       // wording; the Recycle Bin test elsewhere covers the plural case.
       assert.match(byId<HTMLElement>('confirm-delete-message').textContent ?? '', /\b1 entry\b/);
-      click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+      confirmDelete();
       assert.equal(confirmDlg.open, false);
       assert.equal(groupBtnFor('Renamed Group'), undefined, 'permanently gone');
       assert.equal(groupBtnFor('Move Target'), undefined, 'its subtree went with it');

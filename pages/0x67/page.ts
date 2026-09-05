@@ -324,10 +324,9 @@ const SIDEBAR_WIDTH_MIN = 180;
 const SIDEBAR_WIDTH_MAX = 520;
 const SIDEBAR_WIDTH_STEP = 16;
 
-/* Null until the user drags or arrows the handle, so the rail opens at the CSS
-default — wide enough for 25 characters (#63). Kept in memory only: a width
-chosen once and silently restored forever is exactly the implicit state the
-project avoids, but it does have to survive re-rendering the screen. */
+/* Null until the user adjusts the handle, so the rail opens at the CSS default
+that fits 25 characters (#63); the width stays in memory because one silently
+restored forever would be implicit state, yet it must survive a re-render. */
 let sidebarWidth: number | null = null;
 
 function setSidebarWidth(px: number): void {
@@ -336,8 +335,8 @@ function setSidebarWidth(px: number): void {
   qs('#sidebar-resize').setAttribute('aria-valuenow', String(sidebarWidth));
 }
 
-/* Pointer events rather than mouse events: one path covers mouse, touch and
-pen, so the rail is resizable wherever it is visible. */
+/* Pointer events rather than mouse events (#63): one path covers mouse, touch
+and pen, so the rail is resizable wherever it is visible. */
 function wireSidebarResize(): void {
   const handle = qs<HTMLElement>('#sidebar-resize');
   if (sidebarWidth !== null) setSidebarWidth(sidebarWidth);
@@ -369,9 +368,8 @@ function wireSidebarResize(): void {
   });
 }
 
-/* The group whose ⋯ menu is open, not a flag: the drawer layout shows ⋯ on
-every row, so the menu has to belong to a row rather than to the selection.
-Reset whenever the selection moves. */
+/* The group whose ⋯ menu is open, not a flag (#63): the drawer shows ⋯ on every
+row, so the menu belongs to a row rather than to the selection. */
 let groupMenuFor: XmlElement | null = null;
 
 function renderGroupTree(): void {
@@ -382,7 +380,7 @@ function renderGroupTree(): void {
   ul.className = 'group-list';
   ul.appendChild(buildGroupNode(rootGroup, true));
   container.appendChild(ul);
-  // Deleting acts on the selection, and the root group is the database itself.
+  // Deleting acts on the selection (#63); the root group is the database itself.
   qs<HTMLButtonElement>('#delete-group-btn').disabled = app.currentGroup === rootGroup;
 }
 
@@ -396,6 +394,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   btn.type = 'button';
   btn.className = `group-btn${isActive ? ' active' : ''}`;
   btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+  btn.title = groupName(group); // the rail truncates; hover still gives the whole name (#63)
   btn.addEventListener('click', () => {
     app.currentGroup = group;
     app.searchQuery = '';
@@ -447,8 +446,6 @@ function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
   return btn;
 }
 
-/* Deleting is deliberately absent: it is the one irreversible action here, so
-it lives in the rail header rather than a gesture away from rename. */
 function buildGroupMenu(group: XmlElement): HTMLDivElement {
   const menu = document.createElement('div');
   menu.className = 'group-menu';
@@ -472,7 +469,26 @@ function buildGroupMenu(group: XmlElement): HTMLDivElement {
     }),
   );
 
+  if (isTrashedGroup(group)) {
+    menu.appendChild(makeMenuItem('Undelete', () => undeleteGroup(group)));
+  }
+
   return menu;
+}
+
+/* Tests the parent, not the group (#63): isInRecycleBin counts the bin as
+containing itself, which would offer the bin an Undelete of its own. */
+function isTrashedGroup(group: XmlElement): boolean {
+  const db = must(app.db);
+  const parent = findGroupParent(db.getRootGroup(), group);
+  return parent !== null && isInRecycleBin(db.root, parent);
+}
+
+/* Restores to the root group (#63); KDBX records no previous location, so this
+matches where a trashed entry is restored to. */
+function undeleteGroup(group: XmlElement): void {
+  groupMenuFor = null;
+  moveGroupTo(group, must(app.db).getRootGroup());
 }
 
 /** Deselect (back to root) if the current selection is `group` or nested
@@ -522,11 +538,18 @@ function deleteGroupAction(group: XmlElement): void {
     return;
   }
 
-  // Outside the bin, deleting a group is "Trash" — reversible, so (like
-  // trashing an entry) it needs no confirmation.
-  const bin = findOrCreateRecycleBin(db.root);
-  resetSelectionIfAffected(rootGroup, group);
-  moveGroupTo(group, bin);
+  /* Trashing is reversible, but a group carries its whole subtree with it, so
+  it asks first (#63) where a single entry does not. */
+  openConfirmDelete(
+    'Delete group?',
+    `"${groupName(group)}" and everything in it moves to the Recycle Bin.`,
+    () => {
+      // Created inside the callback so cancelling leaves no empty bin behind.
+      const bin = findOrCreateRecycleBin(db.root);
+      resetSelectionIfAffected(rootGroup, group);
+      moveGroupTo(group, bin);
+    },
+  );
 }
 
 function renderEntryPanel(): void {
