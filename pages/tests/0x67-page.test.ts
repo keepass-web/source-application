@@ -2170,8 +2170,8 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.ok(bodyCells().includes('work account'));
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const press = (el: EventTarget, type: string, x = 0, y = 0): void => {
-    dispatch(el, type, { clientX: x, clientY: y, pointerId: 1 });
+  const press = (el: EventTarget, type: string, x = 0, y = 0, button = 0): void => {
+    dispatch(el, type, { clientX: x, clientY: y, pointerId: 1, button });
   };
 
   clipboardWritesShouldFail = false;
@@ -2215,6 +2215,18 @@ test('entry list table view: default columns, masked password, column toggling, 
   await Promise.resolve();
   assert.equal(clipboardText, '', 'a cancelled press copies nothing');
   assert.equal(q('#detail-title'), null, 'and opens nothing');
+
+  // Only the primary button copies: a right-click must not put a password on
+  // the clipboard, and neither must a primary press released with another.
+  clipboardText = '';
+  press(maskedCell(), 'pointerdown', 0, 0, 2);
+  press(maskedCell(), 'pointerup', 0, 0, 2);
+  await Promise.resolve();
+  assert.equal(clipboardText, '', 'a right-click copies nothing');
+  press(maskedCell(), 'pointerdown');
+  press(maskedCell(), 'pointerup', 0, 0, 2);
+  await Promise.resolve();
+  assert.equal(clipboardText, '', 'nor a primary press released with another button');
 
   // A hold opens the card.
   press(maskedCell(), 'pointerdown');

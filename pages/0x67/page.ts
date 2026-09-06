@@ -728,6 +728,10 @@ function wireCellPress(
   };
 
   cell.addEventListener('pointerdown', (down) => {
+    if (down.button !== 0) return; // a right- or middle-click is not a copy (#67)
+    /* Capture, so a release outside the cell still ends the gesture here; without
+    it the hold timer survives and opens the card on its own. */
+    cell.setPointerCapture(down.pointerId);
     startX = down.clientX;
     startY = down.clientY;
     holdTimer = setTimeout(() => {
@@ -742,8 +746,8 @@ function wireCellPress(
 
   cell.addEventListener('pointercancel', cancelHold);
 
-  cell.addEventListener('pointerup', () => {
-    const tapped = holdTimer !== null;
+  cell.addEventListener('pointerup', (up) => {
+    const tapped = holdTimer !== null && up.button === 0;
     cancelHold();
     if (tapped && value) copyToClipboard(value, label);
   });
