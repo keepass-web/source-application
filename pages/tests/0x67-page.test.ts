@@ -1237,17 +1237,29 @@ test('0x67 app', async (t) => {
     'copying a field writes to the clipboard, flips the icon, then reverts on a timer',
     (t) => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
+      const usernameRow = Array.from(root().querySelectorAll('.detail-field')).find(
+        (row) => row.querySelector('.detail-label')?.textContent === 'UserName',
+      ) as HTMLElement;
       const passwordRow = Array.from(root().querySelectorAll('.detail-field')).find(
         (row) => row.querySelector('.detail-label')?.textContent === 'Password',
       ) as HTMLElement;
       const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
 
       clipboardWritesShouldFail = false;
-      copyBtn?.click();
+      usernameRow.querySelector<HTMLButtonElement>('[title="Copy"]')?.click();
       // The write and the icon flip both happen inside an async click handler;
       // let its microtasks settle before advancing fake timers.
       return Promise.resolve()
         .then(() => Promise.resolve())
+        .then(() => {
+          assert.equal(
+            byId<HTMLElement>('toast').textContent,
+            'Username copied to clipboard',
+            "not KeePass's own 'UserName'",
+          );
+          copyBtn?.click();
+          return Promise.resolve().then(() => Promise.resolve());
+        })
         .then(() => {
           assert.equal(copyBtn?.textContent, '✓');
           // The toast names the field and never carries the value itself (#67).
@@ -1277,8 +1289,19 @@ test('0x67 app', async (t) => {
           // The rejected write must not throw, and must not have "succeeded"
           // in clearing the (mock) clipboard either.
           assert.equal(clipboardText, 'still there before the timer fires');
-          // One timer drives both, so the reminder goes when the clipboard does.
-          assert.equal(byId<HTMLElement>('toast').hidden, true);
+          // The clear failed, so the value is still on the clipboard and the
+          // reminder must not retire as though it were gone.
+          assert.equal(byId<HTMLElement>('toast').hidden, false);
+          copyBtn?.click();
+          return Promise.resolve().then(() => Promise.resolve());
+        })
+        .then(() => {
+          t.mock.timers.tick(30_000);
+          return Promise.resolve().then(() => Promise.resolve());
+        })
+        .then(() => {
+          assert.equal(clipboardText, '', 'this clear succeeded');
+          assert.equal(byId<HTMLElement>('toast').hidden, true, 'so the reminder retires');
         });
     },
   );
@@ -1300,7 +1323,10 @@ test('0x67 app', async (t) => {
     // value the field was opened with.
     valueInput.value = 'not-yet-saved-password';
     clipboardWritesShouldFail = false;
+    const keyInput = passwordRow.querySelector<HTMLInputElement>('.edit-key') as HTMLInputElement;
+    keyInput.value = '';
     copyBtn?.click();
+    keyInput.value = 'Password';
 
     return Promise.resolve()
       .then(() => Promise.resolve())
@@ -2227,6 +2253,18 @@ test('entry list table view: default columns, masked password, column toggling, 
   press(maskedCell(), 'pointerup', 0, 0, 2);
   await Promise.resolve();
   assert.equal(clipboardText, '', 'nor a primary press released with another button');
+
+  clipboardText = '';
+  const hintBtn = maskedCell().querySelector('.copy-hint') as HTMLButtonElement;
+  assert.equal(hintBtn.title, 'Copy password', 'the button carries its own name');
+  press(hintBtn, 'pointerdown');
+  press(hintBtn, 'pointerup');
+  await Promise.resolve();
+  assert.equal(clipboardText, '', 'pressing the button does not also run the cell handler');
+  dispatch(hintBtn, 'click');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(clipboardText, 'hunter2', 'clicking it copies, so a keyboard can reach it');
 
   // A hold opens the card.
   press(maskedCell(), 'pointerdown');

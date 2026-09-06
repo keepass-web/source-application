@@ -791,7 +791,12 @@ so an absolutely positioned menu would be cut off. */
   white-space: nowrap;
 }
 
+/* A tap on a cell copies (#67), so the cell must not start a text selection or
+wait on a double-tap-to-zoom before that tap registers. */
 .entry-table td {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-touch-callout: none;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   max-width: 220px;
@@ -801,24 +806,21 @@ so an absolutely positioned menu would be cut off. */
   cursor: pointer;
 }
 
-/* A tap on a cell copies (#67), so the cell must not start a text selection or
-wait on a double-tap-to-zoom before that tap registers. */
-.entry-table td {
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-
-/* Present at rest, brighter on hover (#67): hover may raise emphasis, never be
-what makes the affordance discoverable, since touch has none. */
+/* Present at rest, brighter on hover or focus (#67): hover may raise emphasis,
+never be what makes the affordance discoverable, since touch has none. */
 .copy-hint {
   margin-left: 0.35rem;
-  opacity: 0.25;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
   font-size: 0.8em;
+  line-height: 1;
+  opacity: 0.25;
 }
 
 .entry-table td:hover .copy-hint,
-.entry-table td:focus-within .copy-hint {
+.copy-hint:focus-visible {
   opacity: 1;
 }
 

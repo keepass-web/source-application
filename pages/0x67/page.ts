@@ -117,6 +117,13 @@ logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
 let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
+const FIELD_LABELS: Record<string, string> = { UserName: 'Username' };
+
+// KeePass's own field keys are not what the rest of the app calls them (#67).
+function fieldLabel(key: string): string {
+  return FIELD_LABELS[key] ?? key;
+}
+
 /* Names the field, never the value (#67): the toast is a reminder that a secret
 is on the clipboard, so it must not put that secret on screen as well. */
 function showClipboardToast(label: string): void {
@@ -133,9 +140,13 @@ async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
     /* One timer drives both the wipe and the toast (#67), so the toast is gone
     exactly when the clipboard is, rather than on a schedule of its own. */
     clipboardTimer = setTimeout(() => {
-      navigator.clipboard.writeText('').catch(() => {});
       clipboardTimer = null;
-      byId('toast').hidden = true;
+      navigator.clipboard
+        .writeText('')
+        .then(() => {
+          byId('toast').hidden = true;
+        })
+        .catch(() => {}); // the clear failed, so the value is still there and the toast stays
     }, app.clipboardTimeout * 1000);
   } catch (err) {
     console.error('Clipboard write failed', err);
@@ -693,7 +704,7 @@ const ENTRY_COLUMNS: ReadonlyArray<{ key: EntryColumnKey; label: string }> = [
 ];
 
 /** Display text: dates formatted, password masked. entryColumnValue itself
- * (unmasked) is what a double-click copies — see buildEntryTable. */
+ * (unmasked) is what a tap copies — see buildEntryTable. */
 function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): string {
   const raw = entryColumnValue(entry, column);
   if (column === 'password') return raw ? '••••••••' : '';
@@ -709,9 +720,10 @@ function openEntry(entry: XmlElement): void {
   showEntryDetail();
 }
 
-/* A tap copies, a hold opens the card (#67). Hold duration separates the two at
-release, so neither waits on the other the way click-versus-double-click did.
-The slop check matters on touch, where scrolling the table starts on a cell. */
+/* A tap copies, a hold opens the card (#67). The hold fires on its own timer
+while the pointer is still down, and a release before then copies instead, so
+neither gesture waits on the other the way click-versus-double-click did. The
+slop check matters on touch, where scrolling the table starts on a cell. */
 function wireCellPress(
   cell: HTMLTableCellElement,
   entry: XmlElement,
@@ -729,6 +741,7 @@ function wireCellPress(
 
   cell.addEventListener('pointerdown', (down) => {
     if (down.button !== 0) return; // a right- or middle-click is not a copy (#67)
+    if (down.target !== cell) return; // the copy button runs its own handler
     /* Capture, so a release outside the cell still ends the gesture here; without
     it the hold timer survives and opens the card on its own. */
     cell.setPointerCapture(down.pointerId);
@@ -753,13 +766,12 @@ function wireCellPress(
   });
 }
 
-/* Dim rather than hover-only (#67): hover may raise a control's emphasis, but a
-touch user has no hover, so it must never be what makes it discoverable. */
-function copyHint(): HTMLSpanElement {
-  const hint = document.createElement('span');
-  hint.className = 'copy-hint';
-  hint.textContent = '📋';
-  return hint;
+/* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
+and focusable so copying is reachable without a pointer at all. */
+function copyHint(value: string, label: string): HTMLButtonElement {
+  return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, '📋', () => {
+    copyToClipboard(value, label);
+  });
 }
 
 function buildEntryCell(
@@ -770,10 +782,7 @@ function buildEntryCell(
 ): HTMLTableCellElement {
   const td = document.createElement('td');
   td.appendChild(document.createTextNode(display));
-  if (value) {
-    td.appendChild(copyHint());
-    td.title = `Copy ${label.toLowerCase()}`;
-  }
+  if (value) td.appendChild(copyHint(value, label));
   wireCellPress(td, entry, value, label);
   return td;
 }
@@ -1145,7 +1154,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   }
 
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
-    await copyToClipboard(value, key);
+    await copyToClipboard(value, fieldLabel(key));
     copyBtn.textContent = '✓';
     setTimeout(() => {
       copyBtn.textContent = '📋';
@@ -1377,7 +1386,7 @@ function buildEditField(
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    await copyToClipboard(valueInput.value, keyInput.value);
+    await copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
     copyBtn.textContent = '✓';
     setTimeout(() => {
       copyBtn.textContent = '📋';

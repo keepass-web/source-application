@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import puppeteer, { type Browser, type ElementHandle, type Frame, type Page } from 'puppeteer-core';
+import { openApp } from './support/app.ts';
 import { resolveChromePath } from './support/chrome.ts';
 import { type DistServer, startDistServer } from './support/dist-server.ts';
 import { type KdbxFixture, writeKdbxFixture } from './support/fixture.ts';
@@ -32,27 +33,8 @@ before(async () => {
   await page.setViewport({ width: 1280, height: 900 });
   fixture = await writeKdbxFixture();
 
-  app = await openApp(page);
+  app = await openApp(page, server.origin, fixture);
 });
-
-/** Upload the fixture to local.html and unlock the app it embeds, returning
- * the app's frame. */
-async function openApp(target: Page): Promise<Frame> {
-  await target.goto(`${server.origin}/local.html`, { waitUntil: 'networkidle0' });
-  const fileInput = (await target.waitForSelector(
-    '#file-input',
-  )) as ElementHandle<HTMLInputElement>;
-  await fileInput.uploadFile(fixture.path);
-  const frameElement = await target.waitForSelector('#app-frame');
-  assert.ok(frameElement, 'the app is embedded in an iframe');
-  const frame = (await frameElement.contentFrame()) as Frame;
-  const passwordInput = await frame.waitForSelector('#master-password');
-  assert.ok(passwordInput, 'the embedded app shows its unlock screen');
-  await passwordInput.type(fixture.password);
-  await frame.click('#unlock-btn');
-  await frame.waitForSelector('#group-tree .group-btn');
-  return frame;
-}
 
 after(async () => {
   await browser.close();
@@ -119,7 +101,7 @@ test('dragging the handle resizes the rail', async () => {
 test('at phone width the rail is a drawer: no resize handle, and ⋯ still reaches rename', async () => {
   const phone = await browser.newPage();
   await phone.setViewport({ width: 375, height: 812 });
-  const phoneApp = await openApp(phone);
+  const phoneApp = await openApp(phone, server.origin, fixture);
 
   assert.equal(
     await phoneApp.$eval('#sidebar-resize', (el) => getComputedStyle(el).display),
