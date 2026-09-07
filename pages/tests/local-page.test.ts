@@ -215,6 +215,18 @@ test('local file connector', async (t) => {
     assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
   });
 
+  await t.test('kw-title names the open database in the tab', () => {
+    sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
+    assert.equal(doc.title, '🔒 vault.kdbx - KeePass Web - Local file');
+
+    sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
+    assert.equal(doc.title, '🔓 vault.kdbx - KeePass Web - Local file');
+
+    // An app with nothing open reports no filename, leaving this page's own title.
+    sendMessage({ type: 'kw-title', filename: '', locked: true }, { source: frameWin });
+    assert.equal(doc.title, 'KeePass Web - Local file');
+  });
+
   await t.test('a stray kw-close-ack with nothing pending is a harmless no-op', () => {
     const before = frameInbox.length;
     sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
@@ -223,6 +235,7 @@ test('local file connector', async (t) => {
   });
 
   await t.test('back to chooser asks the app first, and only leaves once it acks', () => {
+    sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
     click(q('[data-action="back-to-chooser"]'));
     assert.ok(q('#app-frame'), 'still on the host screen — waiting for the app to confirm');
     const req = frameInbox.at(-1)?.message;
@@ -230,6 +243,7 @@ test('local file connector', async (t) => {
 
     sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
     assert.ok(q('#drop-zone'), 'now back at the chooser');
+    assert.equal(doc.title, 'KeePass Web - Local file', 'the tab is this page again');
   });
 
   await t.test('a frame message after back to chooser completed is ignored', () => {

@@ -2,7 +2,7 @@
 keepass-web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders (previously duplicated per side) so
 both ends provably agree on the wire format: kw-ready, kw-open, kw-create,
-kw-save, kw-saved, kw-close-request, kw-close-ack, kw-close. */
+kw-save, kw-saved, kw-title, kw-close-request, kw-close-ack, kw-close. */
 
 export interface ReadyMessage {
   type: 'kw-ready';
@@ -29,6 +29,13 @@ export interface SavedMessage {
   type: 'kw-saved';
   ok: boolean;
   error?: string;
+}
+
+// The host document owns the tab title, so the app reports state rather than setting it (#65).
+export interface TitleMessage {
+  type: 'kw-title';
+  filename: string;
+  locked: boolean;
 }
 
 export interface CloseRequestMessage {
@@ -83,6 +90,12 @@ export function isSavedMessage(data: unknown): data is SavedMessage {
   return rec.error === undefined || typeof rec.error === 'string';
 }
 
+export function isTitleMessage(data: unknown): data is TitleMessage {
+  if (!hasType(data, 'kw-title')) return false;
+  const rec = data as Record<string, unknown>;
+  return typeof rec.filename === 'string' && typeof rec.locked === 'boolean';
+}
+
 export function isCloseRequestMessage(data: unknown): data is CloseRequestMessage {
   return hasType(data, 'kw-close-request');
 }
@@ -115,6 +128,10 @@ export function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage {
 
 export function savedMessage(ok: boolean, error?: string): SavedMessage {
   return error === undefined ? { type: 'kw-saved', ok } : { type: 'kw-saved', ok, error };
+}
+
+export function titleMessage(filename: string, locked: boolean): TitleMessage {
+  return { type: 'kw-title', filename, locked };
 }
 
 export function closeRequestMessage(): CloseRequestMessage {

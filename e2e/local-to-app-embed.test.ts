@@ -29,6 +29,10 @@ before(async () => {
     args: ['--no-sandbox'],
   });
   page = await browser.newPage();
+  // The second test navigates away from the database the first one left
+  // unlocked, and an open database now makes Chrome ask first (#66). That
+  // prompt is the subject of navigation-guard.test.ts; here it is in the way.
+  page.on('dialog', (dialog) => void dialog.accept());
 });
 
 after(async () => {

@@ -309,6 +309,11 @@ export function isValidClipboardTimeout(seconds: number): boolean {
   return !Number.isNaN(seconds) && seconds >= 5;
 }
 
+/** The settings dialog's minimum accepted auto-lock delay, in seconds. */
+export function isValidAutoLockTimeout(seconds: number): boolean {
+  return !Number.isNaN(seconds) && seconds >= 10;
+}
+
 /** Character classes offered by the password generator. */
 const GENERATOR_CHARSETS = {
   upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',

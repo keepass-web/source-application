@@ -75,6 +75,7 @@
     "applyEntryEdits",
     "isCustomField",
     "isValidClipboardTimeout",
+    "isValidAutoLockTimeout",
     "generatePassword",
     "elementIconId",
     "iconEmoji",
@@ -89,6 +90,7 @@
     "isCloseRequestMessage",
     "readyMessage",
     "saveMessage",
+    "titleMessage",
     "closeAckMessage",
     "closeMessage"
   ]
