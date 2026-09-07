@@ -13,10 +13,12 @@ import {
   isReadyMessage,
   isSavedMessage,
   isSaveMessage,
+  isTitleMessage,
   openMessage,
   readyMessage,
   savedMessage,
   saveMessage,
+  titleMessage,
 } from '../src/index.ts';
 
 test('readyMessage / isReadyMessage round-trip', () => {
@@ -68,6 +70,18 @@ test('savedMessage / isSavedMessage round-trip, with and without an error', () =
   assert.equal(isSavedMessage(null), false);
   assert.equal(isSavedMessage({ type: 'kw-saved', ok: 'nope' }), false);
   assert.equal(isSavedMessage({ type: 'kw-saved', ok: true, error: 42 }), false);
+});
+
+test('titleMessage / isTitleMessage round-trip', () => {
+  assert.deepEqual(titleMessage('vault.kdbx', true), {
+    type: 'kw-title',
+    filename: 'vault.kdbx',
+    locked: true,
+  });
+  assert.equal(isTitleMessage(titleMessage('vault.kdbx', false)), true);
+  assert.equal(isTitleMessage(null), false);
+  assert.equal(isTitleMessage({ type: 'kw-title', filename: 'vault.kdbx' }), false);
+  assert.equal(isTitleMessage({ type: 'kw-title', filename: 42, locked: true }), false);
 });
 
 test('closeRequestMessage / isCloseRequestMessage round-trip', () => {

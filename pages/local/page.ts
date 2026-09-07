@@ -9,6 +9,8 @@ const APP_ORIGIN = window.location.origin;
 // The only current KDBX implementation. Opening detects this from a file's
 // bytes via packages/router; creating has no bytes to sniff, so it's named directly.
 const APP_IMPLEMENTATION = '0x67.html';
+// This page's own title, kept so closing the app can hand the tab back (#65).
+const BASE_TITLE = document.title;
 
 // --- In-memory state (never persisted) -------------------------------------
 
@@ -128,6 +130,7 @@ function embedApp(headerLabel: string, implementation: string): void {
 
 function tearDownIframe(): void {
   window.removeEventListener('message', handleFrameMessage);
+  document.title = BASE_TITLE;
   pendingAction = null;
   showChooser();
 }
@@ -156,6 +159,10 @@ function handleFrameMessage(event: MessageEvent): void {
   } else if (isSaveMessage(event.data)) {
     qs('#host-filename').textContent = event.data.filename;
     downloadAndAck(event.data.filename, event.data.bytes, source);
+  } else if (isTitleMessage(event.data)) {
+    const { filename, locked } = event.data;
+    const icon = locked ? '🔒' : '🔓';
+    document.title = filename ? `${icon} ${filename} - ${BASE_TITLE}` : BASE_TITLE;
   } else if (isCloseAckMessage(event.data)) {
     const afterClose = pendingClose;
     pendingClose = null;

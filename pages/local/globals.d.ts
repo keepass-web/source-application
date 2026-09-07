@@ -40,6 +40,11 @@ interface SavedMessage {
   ok: boolean;
   error?: string;
 }
+interface TitleMessage {
+  type: 'kw-title';
+  filename: string;
+  locked: boolean;
+}
 interface CloseRequestMessage {
   type: 'kw-close-request';
 }
@@ -52,6 +57,7 @@ interface CloseMessage {
 
 declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
+declare function isTitleMessage(data: unknown): data is TitleMessage;
 declare function isCloseAckMessage(data: unknown): data is CloseAckMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;

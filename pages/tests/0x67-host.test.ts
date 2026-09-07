@@ -194,10 +194,12 @@ const lastHostMessage = (): Record<string, unknown> =>
 // ============================================================
 
 test('0x67 embedded in a host frame', async (t) => {
-  await t.test('announces readiness to the host on boot', () => {
-    assert.equal(hostInbox.length, 1);
+  await t.test('announces readiness and an empty title to the host on boot', () => {
+    assert.equal(hostInbox.length, 2);
     assert.deepEqual(hostInbox[0]?.message, { type: 'kw-ready' });
     assert.equal(hostInbox[0]?.origin, 'https://example.com');
+    // Nothing is open yet, so the host is told to keep its own title.
+    assert.deepEqual(lastHostMessage(), { type: 'kw-title', filename: '', locked: true });
     // Still shows the normal upload screen underneath, untouched.
     assert.ok(q('#drop-zone'));
     assert.ok(doc.body.classList.contains('embedded')); // suppresses this document's own footer
@@ -236,6 +238,11 @@ test('0x67 embedded in a host frame', async (t) => {
     });
     await waitFor(() => q('#master-password') !== null);
     assert.equal(q<HTMLElement>('#db-filename').textContent, 'from-drive.kdbx');
+    assert.deepEqual(lastHostMessage(), {
+      type: 'kw-title',
+      filename: 'from-drive.kdbx',
+      locked: true,
+    });
   });
 
   await t.test('unlocks, and the save dialog offers host write-back, not download', async () => {
@@ -244,6 +251,11 @@ test('0x67 embedded in a host frame', async (t) => {
       new dom.window.Event('submit', { bubbles: true, cancelable: true }),
     );
     await waitFor(() => q('#search-input') !== null);
+    assert.deepEqual(lastHostMessage(), {
+      type: 'kw-title',
+      filename: 'from-drive.kdbx',
+      locked: false,
+    });
 
     // Make an edit so the save dialog opens: add an entry, then save it.
     click(q('[data-action="add-entry"]'));
@@ -388,7 +400,9 @@ test('0x67 embedded in a host frame: kw-create starts a fresh, empty database', 
     () => {
       const before = hostInbox.length;
       sendFromHost({ type: 'kw-create' });
-      assert.equal(hostInbox.length, before, 'switching screens needs no round trip to the host');
+      assert.equal(hostInbox.length, before + 1, 'only the title, no round trip to the host');
+      // Nothing is open until the database is actually created.
+      assert.deepEqual(lastHostMessage(), { type: 'kw-title', filename: '', locked: true });
       assert.ok(q('#create-form'));
       assert.equal(q('#drop-zone'), null);
       assert.equal(q('#master-password'), null);

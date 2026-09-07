@@ -164,6 +164,7 @@ async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
 function showUpload(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-upload'));
+  publishTitle();
 
   const dropZone = qs('#drop-zone');
   const fileInput = qs<HTMLInputElement>('#file-input');
@@ -207,6 +208,7 @@ unsaved yet. */
 function showUnlock(preserveDirty = false): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-unlock'));
+  publishTitle();
 
   qs('#db-filename').textContent = app.filename;
   const passwordInput = qs<HTMLInputElement>('#master-password');
@@ -268,6 +270,7 @@ function showUnlock(preserveDirty = false): void {
 function showCreateDatabase(): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-create-database'));
+  publishTitle();
 
   const nameInput = qs<HTMLInputElement>('#create-name');
   const passwordInput = qs<HTMLInputElement>('#create-password');
@@ -336,6 +339,7 @@ function showCreateDatabase(): void {
 function showEntryList(): void {
   document.body.classList.add('app-mode');
   setRoot(cloneTemplate('tpl-entry-list'));
+  publishTitle();
   renderGroupTree();
   renderEntryPanel();
   wireEntryListEvents();
@@ -1900,6 +1904,9 @@ function openMoveToDialog(
 
 const HOST_ORIGIN = window.location.origin;
 
+// This page's own title, kept so a closed database can hand the tab back (#65).
+const BASE_TITLE = document.title;
+
 /** Resolves the in-flight performSave()'s promise once a `kw-saved` reply
 arrives, or null when no save is outstanding. */
 let pendingSave: ((result: { ok: boolean; error?: string }) => void) | null = null;
@@ -1910,6 +1917,19 @@ function isEmbedded(): boolean {
 
 function postToHost(message: object): void {
   window.parent.postMessage(message, HOST_ORIGIN);
+}
+
+/** The tab title belongs to whichever document owns the tab: the host when
+embedded, this page when standalone. Every screen announces itself, so the
+tab bar names the open database and its lock state without being opened (#65). */
+function publishTitle(): void {
+  const locked = app.db === null;
+  if (isEmbedded()) {
+    postToHost(titleMessage(app.filename, locked));
+    return;
+  }
+  const icon = locked ? '🔒' : '🔓';
+  document.title = app.filename ? `${icon} ${app.filename} - ${BASE_TITLE}` : BASE_TITLE;
 }
 
 function handleHostMessage(event: MessageEvent): void {

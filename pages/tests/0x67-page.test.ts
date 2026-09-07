@@ -291,6 +291,7 @@ test('0x67 app', async (t) => {
     assert.ok(q('#file-input'));
     assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
     assert.equal(dom.window.document.body.classList.contains('embedded'), false);
+    assert.equal(dom.window.document.title, 'KeePass Web');
   });
 
   await t.test('dragover/dragleave toggle the drag-over class', () => {
@@ -312,11 +313,13 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => q('#master-password') !== null);
     assert.equal(q<HTMLElement>('#db-filename').textContent, 'dropped.kdbx');
+    assert.equal(dom.window.document.title, '🔒 dropped.kdbx - KeePass Web');
   });
 
   await t.test('unlock screen "back" returns to upload and clears the file', () => {
     q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.ok(q('#drop-zone'));
+    assert.equal(dom.window.document.title, 'KeePass Web');
   });
 
   await t.test(
@@ -425,6 +428,7 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
     assert.ok(q('#group-tree').querySelector('.group-btn'));
+    assert.equal(dom.window.document.title, '🔓 real.kdbx - KeePass Web');
     // Table view is the default.
     assert.equal(root().querySelectorAll('.entry-table').length, 1);
     // Switch to tile view, which the rest of this suite's entry-list
@@ -1597,6 +1601,7 @@ test('0x67 app', async (t) => {
       assert.equal(lockDlg.open, false);
       await waitFor(() => q('#master-password') !== null);
       assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
+      assert.equal(dom.window.document.title, '🔒 real.kdbx - KeePass Web');
 
       // A wrong password on the relocked (freshly re-encrypted) state is
       // still rejected — locking doesn't weaken the credential check.
@@ -1669,6 +1674,7 @@ test('0x67 app', async (t) => {
       q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
       assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
+      assert.equal(dom.window.document.title, 'KeePass Web');
     },
   );
 });

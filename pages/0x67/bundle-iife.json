@@ -89,6 +89,7 @@
     "isCloseRequestMessage",
     "readyMessage",
     "saveMessage",
+    "titleMessage",
     "closeAckMessage",
     "closeMessage"
   ]

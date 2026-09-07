@@ -12,6 +12,7 @@
     "identifyFormat",
     "isReadyMessage",
     "isSaveMessage",
+    "isTitleMessage",
     "isCloseAckMessage",
     "isCloseMessage",
     "openMessage",
