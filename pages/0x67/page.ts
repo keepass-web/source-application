@@ -117,13 +117,42 @@ logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
 let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function copyToClipboard(text: string): Promise<void> {
+/* The most recent auto-clear (#67). Every copy waits for it before writing, so
+a clear can never resolve on top of a newer value and wipe it; a settled one
+costs nothing to await, which is why this is never null. */
+let clipboardClear: Promise<unknown> = Promise.resolve();
+
+const FIELD_LABELS: Record<string, string> = { UserName: 'Username' };
+
+// KeePass's own field keys are not what the rest of the app calls them (#67).
+function fieldLabel(key: string): string {
+  return FIELD_LABELS[key] ?? key;
+}
+
+/* Names the field, never the value (#67): the toast is a reminder that a secret
+is on the clipboard, so it must not put that secret on screen as well. */
+function showClipboardToast(label: string): void {
+  const toast = byId('toast');
+  toast.textContent = `${label} copied to clipboard`;
+  toast.hidden = false;
+}
+
+async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
   try {
+    await clipboardClear;
     await navigator.clipboard.writeText(text);
     if (clipboardTimer) clearTimeout(clipboardTimer);
+    showClipboardToast(label);
+    /* One timer drives both the wipe and the toast (#67), so the toast is gone
+    exactly when the clipboard is, rather than on a schedule of its own. */
     clipboardTimer = setTimeout(() => {
-      navigator.clipboard.writeText('').catch(() => {});
       clipboardTimer = null;
+      clipboardClear = navigator.clipboard
+        .writeText('')
+        .then(() => {
+          byId('toast').hidden = true;
+        })
+        .catch(() => {}); // the clear failed, so the value is still there and the toast stays
     }, app.clipboardTimeout * 1000);
   } catch (err) {
     console.error('Clipboard write failed', err);
@@ -681,7 +710,7 @@ const ENTRY_COLUMNS: ReadonlyArray<{ key: EntryColumnKey; label: string }> = [
 ];
 
 /** Display text: dates formatted, password masked. entryColumnValue itself
- * (unmasked) is what a double-click copies — see buildEntryTable. */
+ * (unmasked) is what a tap copies — see buildEntryTable. */
 function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): string {
   const raw = entryColumnValue(entry, column);
   if (column === 'password') return raw ? '••••••••' : '';
@@ -689,29 +718,35 @@ function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): str
   return raw;
 }
 
-// Delays opening a row so a second click (a double-click) has time to cancel
-// it via wireCopyOnDblClick, rather than racing ahead of the copy.
-let entryRowOpenTimer: ReturnType<typeof setTimeout> | null = null;
-const ENTRY_ROW_OPEN_DELAY_MS = 250;
-
-function openEntryDetailDelayed(entry: XmlElement): void {
-  if (entryRowOpenTimer) clearTimeout(entryRowOpenTimer);
-  entryRowOpenTimer = setTimeout(() => {
-    entryRowOpenTimer = null;
-    app.currentEntry = entry;
-    showEntryDetail();
-  }, ENTRY_ROW_OPEN_DELAY_MS);
+function openEntry(entry: XmlElement): void {
+  app.currentEntry = entry;
+  showEntryDetail();
 }
 
-function wireCopyOnDblClick(cell: HTMLTableCellElement, value: string): void {
-  cell.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    if (entryRowOpenTimer) {
-      clearTimeout(entryRowOpenTimer);
-      entryRowOpenTimer = null;
-    }
-    if (value) copyToClipboard(value);
+/* A click copies (#67); opening the card is the row's own button instead. The
+browser already decides what counts as a click, so a scroll that starts on a
+cell copies nothing and a secondary button never reaches here at all. */
+function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
+  cell.addEventListener('click', (event) => {
+    if (event.target !== event.currentTarget) return; // the copy button runs its own handler
+    if (value) copyToClipboard(value, label);
   });
+}
+
+/* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
+and focusable so copying is reachable without a pointer at all. */
+function copyHint(value: string, label: string): HTMLButtonElement {
+  return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, '📋', () => {
+    copyToClipboard(value, label);
+  });
+}
+
+function buildEntryCell(display: string, value: string, label: string): HTMLTableCellElement {
+  const td = document.createElement('td');
+  td.appendChild(document.createTextNode(display));
+  if (value) td.appendChild(copyHint(value, label));
+  wireCellCopy(td, value, label);
+  return td;
 }
 
 function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
@@ -730,6 +765,12 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     th.textContent = column.label;
     headRow.appendChild(th);
   }
+  const openTh = document.createElement('th');
+  const openLabel = document.createElement('span');
+  openLabel.className = 'visually-hidden';
+  openLabel.textContent = 'Open';
+  openTh.appendChild(openLabel);
+  headRow.appendChild(openTh);
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -737,21 +778,30 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
 
-    const titleTd = document.createElement('td');
+    const titleTd = buildEntryCell(
+      `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`,
+      entryTitle(entry),
+      'Title',
+    );
     titleTd.className = 'entry-table-title';
-    titleTd.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
-    wireCopyOnDblClick(titleTd, entryTitle(entry));
     tr.appendChild(titleTd);
 
     for (const column of visibleColumns) {
-      const td = document.createElement('td');
-      td.textContent = entryColumnDisplayValue(entry, column.key);
+      const td = buildEntryCell(
+        entryColumnDisplayValue(entry, column.key),
+        entryColumnValue(entry, column.key),
+        column.label,
+      );
       if (column.key === 'password') td.classList.add('entry-table-protected');
-      wireCopyOnDblClick(td, entryColumnValue(entry, column.key));
       tr.appendChild(td);
     }
 
-    tr.addEventListener('click', () => openEntryDetailDelayed(entry));
+    // The only way into the card, so opening to edit stays a deliberate act (#67).
+    const openTd = document.createElement('td');
+    openTd.className = 'entry-table-open';
+    openTd.appendChild(makeIconButton('icon-btn', 'Open entry', '›', () => openEntry(entry)));
+    tr.appendChild(openTd);
+
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -1068,12 +1118,8 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
     actions.appendChild(revealBtn);
   }
 
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
-    await copyToClipboard(value);
-    copyBtn.textContent = '✓';
-    setTimeout(() => {
-      copyBtn.textContent = '📋';
-    }, 1500);
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
+    copyToClipboard(value, fieldLabel(key));
   });
   actions.appendChild(copyBtn);
 
@@ -1298,14 +1344,10 @@ function buildEditField(
     row.appendChild(toggle);
   }
 
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    await copyToClipboard(valueInput.value);
-    copyBtn.textContent = '✓';
-    setTimeout(() => {
-      copyBtn.textContent = '📋';
-    }, 1500);
+    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
   });
   row.appendChild(copyBtn);
 

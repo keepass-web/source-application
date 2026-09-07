@@ -1234,30 +1234,42 @@ test('0x67 app', async (t) => {
   });
 
   await t.test(
-    'copying a field writes to the clipboard, flips the icon, then reverts on a timer',
+    'copying a field writes to the clipboard, announces it, and clears on a timer',
     (t) => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
+      const usernameRow = Array.from(root().querySelectorAll('.detail-field')).find(
+        (row) => row.querySelector('.detail-label')?.textContent === 'UserName',
+      ) as HTMLElement;
       const passwordRow = Array.from(root().querySelectorAll('.detail-field')).find(
         (row) => row.querySelector('.detail-label')?.textContent === 'Password',
       ) as HTMLElement;
       const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
 
       clipboardWritesShouldFail = false;
-      copyBtn?.click();
-      // The write and the icon flip both happen inside an async click handler;
-      // let its microtasks settle before advancing fake timers.
+      usernameRow.querySelector<HTMLButtonElement>('[title="Copy"]')?.click();
+      // The write happens inside an async handler; let its microtasks settle
+      // before advancing fake timers.
       return Promise.resolve()
         .then(() => Promise.resolve())
         .then(() => {
-          assert.equal(copyBtn?.textContent, '✓');
+          assert.equal(
+            byId<HTMLElement>('toast').textContent,
+            'Username copied to clipboard',
+            "not KeePass's own 'UserName'",
+          );
+          copyBtn?.click();
+          return Promise.resolve().then(() => Promise.resolve());
+        })
+        .then(() => {
+          // The toast names the field and never carries the value itself (#67).
+          assert.equal(byId<HTMLElement>('toast').hidden, false);
+          assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
           // Second, immediate copy exercises the "clear the pending timer"
           // branch in copyToClipboard before advancing time at all.
           copyBtn?.click();
           return Promise.resolve().then(() => Promise.resolve());
         })
         .then(() => {
-          t.mock.timers.tick(1500);
-          assert.equal(copyBtn?.textContent, '📋');
           // The clipboard-clear timer (app.clipboardTimeout, still the
           // default 30s here) was reset by the second copy above; advance
           // past it to cover the auto-clear callback itself. Force this
@@ -1274,6 +1286,19 @@ test('0x67 app', async (t) => {
           // The rejected write must not throw, and must not have "succeeded"
           // in clearing the (mock) clipboard either.
           assert.equal(clipboardText, 'still there before the timer fires');
+          // The clear failed, so the value is still on the clipboard and the
+          // reminder must not retire as though it were gone.
+          assert.equal(byId<HTMLElement>('toast').hidden, false);
+          copyBtn?.click();
+          return Promise.resolve().then(() => Promise.resolve());
+        })
+        .then(() => {
+          t.mock.timers.tick(30_000);
+          return Promise.resolve().then(() => Promise.resolve());
+        })
+        .then(() => {
+          assert.equal(clipboardText, '', 'this clear succeeded');
+          assert.equal(byId<HTMLElement>('toast').hidden, true, 'so the reminder retires');
         });
     },
   );
@@ -1295,15 +1320,20 @@ test('0x67 app', async (t) => {
     // value the field was opened with.
     valueInput.value = 'not-yet-saved-password';
     clipboardWritesShouldFail = false;
+    const keyInput = passwordRow.querySelector<HTMLInputElement>('.edit-key') as HTMLInputElement;
+    keyInput.value = '';
     copyBtn?.click();
+    keyInput.value = 'Password';
 
     return Promise.resolve()
       .then(() => Promise.resolve())
       .then(() => {
         assert.equal(clipboardText, 'not-yet-saved-password');
-        assert.equal(copyBtn?.textContent, '✓');
-        t.mock.timers.tick(1500);
-        assert.equal(copyBtn?.textContent, '📋');
+        assert.equal(
+          byId<HTMLElement>('toast').textContent,
+          'Value copied to clipboard',
+          'an unnamed field still names something',
+        );
         q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       });
   });
@@ -2085,7 +2115,7 @@ test('entry list sorting: by title, username, or modified time, in either direct
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
-test('entry list table view: default columns, masked password, column toggling, and click vs double-click', async (t) => {
+test('entry list table view: columns, masked password, click to copy, button to open', async (t) => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {
     version: 4,
@@ -2129,12 +2159,15 @@ test('entry list table view: default columns, masked password, column toggling, 
     Array.from(root().querySelectorAll('.entry-table th')).map((th) => th.textContent ?? '');
   assert.deepEqual(
     headerText(),
-    ['Title', 'Username', 'Password', 'URL', 'Modified'],
-    'default visible columns',
+    ['Title', 'Username', 'Password', 'URL', 'Modified', 'Open'],
+    "default visible columns, plus the open column's screen-reader-only name",
   );
 
+  // The cell's own text, without the copy hint appended beside it.
   const bodyCells = (): string[] =>
-    Array.from(root().querySelectorAll('.entry-table tbody td')).map((td) => td.textContent ?? '');
+    Array.from(root().querySelectorAll('.entry-table tbody td')).map(
+      (td) => td.firstChild?.textContent ?? '',
+    );
   const [titleCell, usernameCell, passwordCell, urlCell] = bodyCells();
   assert.ok(titleCell?.includes('GitHub'));
   assert.equal(usernameCell, 'octocat');
@@ -2162,29 +2195,40 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.ok(bodyCells().includes('work account'));
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const row = q('.entry-table tbody tr') as HTMLElement;
-  dispatch(row, 'click');
-  assert.equal(q('#detail-title'), null, 'not yet — still within the delay window');
-  t.mock.timers.tick(250);
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
-
-  // Back to the entry list, table view, to exercise the double-click path.
-  dispatch(q('[data-action="back"]'), 'click');
-  dispatch(q('[data-action="view-table"]'), 'click');
-
   clipboardWritesShouldFail = false;
-  const passwordTd = Array.from(root().querySelectorAll('.entry-table tbody td')).find(
-    (td) => td.textContent === '••••••••',
-  ) as HTMLElement;
-  dispatch(passwordTd, 'click');
-  dispatch(passwordTd, 'dblclick');
-  // The double-click's own handler cancels the pending single-click timer —
-  // advancing past its delay must not open the entry.
-  t.mock.timers.tick(250);
-  assert.equal(q('#detail-title'), null, 'the double-click cancelled the pending open');
+  const maskedCell = (): HTMLElement =>
+    Array.from(root().querySelectorAll('.entry-table tbody td')).find(
+      (td) => td.firstChild?.textContent === '••••••••',
+    ) as HTMLElement;
+
+  // A click copies the real value, names it, and leaves the card shut.
+  dispatch(maskedCell(), 'click');
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the real password was copied, not the mask');
+  assert.equal(byId<HTMLElement>('toast').hidden, false);
+  assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
+  assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
+  assert.equal(q('#detail-title'), null, 'copying never opens the card');
+
+  // The 📋 is a real button, so a keyboard reaches it; its click must not also
+  // run the cell's own handler underneath.
+  clipboardText = '';
+  const hintBtn = maskedCell().querySelector('.copy-hint') as HTMLButtonElement;
+  assert.equal(hintBtn.title, 'Copy password', 'the button carries its own name');
+  dispatch(hintBtn, 'click');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(clipboardText, 'hunter2', 'the copy button copies exactly once');
+
+  // Opening the card is its own button, never a gesture over the values.
+  const openBtn = (q('.entry-table tbody tr') as HTMLElement).querySelector(
+    '.entry-table-open button',
+  ) as HTMLButtonElement;
+  dispatch(openBtn, 'click');
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'the › opens it');
+  dispatch(q('[data-action="back"]'), 'click');
+  dispatch(q('[data-action="view-table"]'), 'click');
 
   // Turn on Created and Attachments too — Created exercises the other half
   // of entryColumnDisplayValue's date-formatting check, and Attachments (0,
@@ -2208,24 +2252,12 @@ test('entry list table view: default columns, masked password, column toggling, 
   const attachmentsTd = (q('.entry-table tbody tr') as HTMLElement).querySelectorAll('td')[
     columnIndex
   ] as HTMLElement;
-  assert.equal(attachmentsTd.textContent, '', 'no attachments on this entry');
-  dispatch(attachmentsTd, 'dblclick');
+  assert.equal(attachmentsTd.firstChild?.textContent, '', 'no attachments on this entry');
+  assert.equal(attachmentsTd.querySelector('.copy-hint'), null, 'and so no copy hint');
+  clipboardText = '';
+  dispatch(attachmentsTd, 'click');
   await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(
-    clipboardText,
-    'hunter2',
-    'still the last real copy — the empty cell copied nothing',
-  );
-
-  // Clicking the same row twice before the delay elapses reschedules rather
-  // than opening the entry twice.
-  const row2 = q('.entry-table tbody tr') as HTMLElement;
-  dispatch(row2, 'click');
-  dispatch(row2, 'click');
-  t.mock.timers.tick(250);
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'));
-  dispatch(q('[data-action="back"]'), 'click');
+  assert.equal(clipboardText, '', 'a cell with nothing in it copies nothing');
 
   dispatch(q('[data-action="view-tile"]'), 'click');
   assert.equal(root().querySelectorAll('.entry-row').length, 2);

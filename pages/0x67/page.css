@@ -791,7 +791,12 @@ so an absolutely positioned menu would be cut off. */
   white-space: nowrap;
 }
 
+/* A tap on a cell copies (#67), so the cell must not start a text selection or
+wait on a double-tap-to-zoom before that tap registers. */
 .entry-table td {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-touch-callout: none;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   max-width: 220px;
@@ -799,6 +804,30 @@ so an absolutely positioned menu would be cut off. */
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* Present at rest, brighter on hover or focus (#67): hover may raise emphasis,
+never be what makes the affordance discoverable, since touch has none. */
+.copy-hint {
+  margin-left: 0.35rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.8em;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.entry-table td:hover .copy-hint,
+.copy-hint:focus-visible {
+  opacity: 1;
+}
+
+.entry-table-open {
+  width: 1px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .entry-table tbody tr:hover {
@@ -1463,4 +1492,33 @@ body.embedded footer {
   .detail-header {
     display: none;
   }
+}
+
+/* Visible for exactly as long as the clipboard holds the value (#67). */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: min(90vw, 32rem);
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* Announced but not drawn: gives the open column a name for table navigation. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
