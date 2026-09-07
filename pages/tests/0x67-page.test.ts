@@ -1668,15 +1668,42 @@ test('0x67 app', async (t) => {
     },
   );
 
-  await t.test(
-    'closing with nothing changed since the save-then-lock skips the confirm dialog',
-    () => {
-      q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      assert.ok(q('#drop-zone'), 'closing with nothing unsaved skips the confirm dialog entirely');
-      assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
-      assert.equal(dom.window.document.title, 'KeePass Web');
-    },
-  );
+  await t.test('closing a saved database still asks, and cancelling leaves it open', () => {
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    const dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
+    assert.equal(
+      dlg.open,
+      true,
+      'nothing is unsaved, but the open database is still worth a question',
+    );
+    assert.equal(byId<HTMLElement>('confirm-discard-title').textContent, 'Close this database?');
+    const confirmBtn = dq<HTMLButtonElement>(
+      '#dlg-confirm-discard [data-action="confirm-discard"]',
+    );
+    assert.equal(confirmBtn.textContent, 'Close');
+    assert.equal(confirmBtn.className, 'btn btn-primary', 'the only affirmative action here');
+    assert.equal(
+      dq<HTMLButtonElement>('#dlg-confirm-discard [data-action="confirm-save"]').hidden,
+      true,
+      'nothing to save, so no Save button',
+    );
+
+    dq('#dlg-confirm-discard [data-action="cancel-discard"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.equal(dlg.open, false);
+    assert.ok(dom.window.document.body.classList.contains('app-mode'), 'still open');
+  });
+
+  await t.test('confirming the close returns to the upload screen and clears the tab', () => {
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.ok(q('#drop-zone'));
+    assert.equal(dom.window.document.body.classList.contains('app-mode'), false);
+    assert.equal(dom.window.document.title, 'KeePass Web');
+  });
 });
 
 test('closing with unsaved changes prompts to discard, and confirming discards them', async () => {
@@ -1720,11 +1747,24 @@ test('closing with unsaved changes prompts to discard, and confirming discards t
   assert.ok(q('#drop-zone'), 'confirming discard returns to the upload screen');
 });
 
-test('beforeunload is only blocked while there are unsaved edits', async () => {
+test('beforeunload is blocked for as long as this tab holds a database', async () => {
+  const fireBeforeUnload = (): Event => dispatch(dom.window, 'beforeunload');
+  assert.equal(
+    fireBeforeUnload().defaultPrevented,
+    false,
+    'an empty tab has nothing to lose, so it closes freely',
+  );
+
   const fileInput = q<HTMLInputElement>('#file-input');
   setFiles(fileInput, [makeFile('beforeunload-test.kdbx', dbBytes)]);
   dispatch(fileInput, 'change');
   await waitFor(() => q('#master-password') !== null);
+
+  assert.equal(
+    fireBeforeUnload().defaultPrevented,
+    true,
+    'the file is in the tab already; finding it again would cost what it cost the first time',
+  );
 
   q<HTMLInputElement>('#master-password').value = PASSWORD;
   const keyfileInput = q<HTMLInputElement>('#keyfile-input');
@@ -1734,17 +1774,11 @@ test('beforeunload is only blocked while there are unsaved edits', async () => {
   dispatch(q('#unlock-form'), 'submit');
   await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
 
-  const fireBeforeUnload = (): Event => dispatch(dom.window, 'beforeunload');
-
-  assert.equal(
-    fireBeforeUnload().defaultPrevented,
-    false,
-    'nothing unsaved yet, so the tab may close freely',
-  );
+  assert.equal(fireBeforeUnload().defaultPrevented, true, 'an unlocked database blocks the unload');
 
   q('[data-action="add-entry"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
-  assert.equal(fireBeforeUnload().defaultPrevented, true, 'an unsaved edit blocks the unload');
+  assert.equal(fireBeforeUnload().defaultPrevented, true, 'and so does an unsaved edit');
 
   // Return to the entry list (the close button lives in its header, not the
   // entry-edit screen add-entry leaves us on — same recovery as the test
@@ -1760,6 +1794,11 @@ test('beforeunload is only blocked while there are unsaved edits', async () => {
     new dom.window.Event('click', { bubbles: true }),
   );
   assert.ok(q('#drop-zone'));
+  assert.equal(
+    fireBeforeUnload().defaultPrevented,
+    false,
+    'a closed database lets the tab go again',
+  );
 });
 
 // ============================================================
@@ -1889,6 +1928,9 @@ test('an entry with Expires=True but no ExpiryTime, and no CreationTime either (
   q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('attachments can be added, shown, and survive save/reload on KDBX 3.1 files', async () => {
@@ -1967,6 +2009,9 @@ test('a stale attachment Ref (pointing to no pool data) is shown but downloading
 
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('entry history: edits are snapshotted, and a past version can be restored or deleted', async () => {
@@ -2119,6 +2164,9 @@ test('entry list sorting: by title, username, or modified time, in either direct
   assert.ok(titles()[0]?.includes('Bob'));
 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('entry list table view: columns, masked password, click to copy, button to open', async (t) => {
@@ -2270,6 +2318,9 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
@@ -2341,6 +2392,9 @@ test('entry list: the sidebar drawer and panel overflow menu (mobile layout) ope
   assert.equal(panelMenu.classList.contains('panel-menu-open'), false);
 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('exporting entries as CSV or XML downloads an unencrypted plaintext file', async () => {
@@ -2412,6 +2466,9 @@ test('exporting entries as CSV or XML downloads an unencrypted plaintext file', 
   assert.equal(created.length, 2, 'closing must not trigger another export');
 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('exporting falls back to "entries" as the base filename when none is set', async () => {
@@ -2456,6 +2513,9 @@ test('exporting falls back to "entries" as the base filename when none is set', 
   assert.deepEqual(downloadNames, ['entries.csv']);
 
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 });
 
 test('must() throws when a screen template is missing an element it depends on', async () => {
@@ -2481,9 +2541,9 @@ test('must() throws when a screen template is missing an element it depends on',
   // call directly). Per spec, DOM event listener exceptions are reported to
   // the console, not rethrown to dispatchEvent's caller — jsdom's virtual
   // console surfaces them as a 'jsdomError' event instead. Close (not lock)
-  // is used here specifically because it stays synchronous when nothing is
-  // dirty — lock always awaits Kdbx#save() first, which would make the
-  // throw happen after this test's synchronous assertion already ran.
+  // is used here specifically because confirming it renders the next screen
+  // synchronously — lock always awaits Kdbx#save() first, which would make
+  // the throw happen after this test's synchronous assertion already ran.
   const closeBtn = q('[data-action="close"]');
   root().remove();
 
@@ -2491,7 +2551,11 @@ test('must() throws when a screen template is missing an element it depends on',
   dom.virtualConsole.on('jsdomError', (err: Error) => {
     captured = err;
   });
+  // Closing a saved database asks first, so the render happens on confirming.
   closeBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
 
   assert.ok(captured, 'removing #root should make the next screen render throw');
   assert.match(String(captured?.message ?? captured), /expected element not found/);

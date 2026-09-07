@@ -44,6 +44,11 @@ const app: AppState = {
 // True once a trusted parent frame has handed this app a vault (see "Host integration").
 let hostSession = false;
 
+// True while this tab holds a database: loaded, newly created, or locked (#66).
+function hasDatabase(): boolean {
+  return app.db !== null || app.file !== null;
+}
+
 // The one place app.dirty changes, so the persistent save indicator can never drift from it.
 function setDirty(value: boolean): void {
   app.dirty = value;
@@ -899,7 +904,7 @@ function wireEntryListEvents(): void {
   });
 
   qs('[data-action="close"]').addEventListener('click', () => {
-    confirmUnsavedChanges(DISCARD_PROMPT, closeDatabase);
+    confirmUnsavedChanges(DISCARD_PROMPT, closeDatabase, CLOSE_PROMPT);
   });
 
   qs('[data-action="settings"]').addEventListener('click', openSettings);
@@ -1650,28 +1655,49 @@ const DISCARD_PROMPT: UnsavedChangesPrompt = {
   discardDanger: true,
 };
 
-/** Run `proceed` immediately if there's nothing unsaved to lose. Otherwise
-ask: discard (proceed without saving), save first and then proceed, or
-cancel (stay put). The one place a user can act on unsaved edits, reused by
-every action that would otherwise risk losing or hiding them — closing,
-locking, exporting, and a host's close request. */
-function confirmUnsavedChanges(prompt: UnsavedChangesPrompt, proceed: () => void): void {
+/* Closing loses no data once everything is saved, so this asks without the
+danger styling a real discard gets; it asks at all because reopening the
+database can cost another sign-in or another hunt for the file (#66). */
+const CLOSE_PROMPT: UnsavedChangesPrompt = {
+  title: 'Close this database?',
+  message: 'Opening it again means finding and unlocking the file.',
+  discardLabel: 'Close',
+  discardDanger: false,
+};
+
+/** Run `proceed` immediately when nothing is at stake. With unsaved edits,
+ask: discard, save first, or cancel — reused by closing, locking, exporting,
+and a host's close request. `cleanPrompt`, passed only by the paths that give
+the database up, asks a cheaper question when nothing is unsaved but
+reopening would still cost a sign-in or a hunt for the file (#66). */
+function confirmUnsavedChanges(
+  prompt: UnsavedChangesPrompt,
+  proceed: () => void,
+  cleanPrompt?: UnsavedChangesPrompt,
+): void {
+  let active = prompt;
   if (!app.dirty) {
-    proceed();
-    return;
+    if (cleanPrompt === undefined || !hasDatabase()) {
+      proceed();
+      return;
+    }
+    active = cleanPrompt;
   }
 
   const dlg = byId<HTMLDialogElement>('dlg-confirm-discard');
-  byId('confirm-discard-title').textContent = prompt.title;
-  byId('confirm-discard-message').textContent = prompt.message;
+  byId('confirm-discard-title').textContent = active.title;
+  byId('confirm-discard-message').textContent = active.message;
   const status = must(dlg.querySelector<HTMLElement>('[data-role="confirm-discard-status"]'));
   status.hidden = true;
   status.textContent = '';
   status.className = 'save-status';
 
   const discardBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]'));
-  discardBtn.textContent = prompt.discardLabel;
-  discardBtn.className = `btn ${prompt.discardDanger ? 'btn-danger' : 'btn-secondary'}`;
+  discardBtn.textContent = active.discardLabel;
+  // With no Save beside it, confirming is the dialog's only affirmative action (#66).
+  let discardStyle = app.dirty ? 'btn-secondary' : 'btn-primary';
+  if (active.discardDanger) discardStyle = 'btn-danger';
+  discardBtn.className = `btn ${discardStyle}`;
   discardBtn.disabled = false;
   discardBtn.onclick = () => {
     dlg.close();
@@ -1683,6 +1709,7 @@ function confirmUnsavedChanges(prompt: UnsavedChangesPrompt, proceed: () => void
 
   const saveBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-save"]'));
   saveBtn.textContent = hostSession ? 'Save' : 'Download';
+  saveBtn.hidden = !app.dirty; // there is nothing to save when the prompt is only about closing
   saveBtn.disabled = false;
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
@@ -1949,7 +1976,7 @@ function handleHostMessage(event: MessageEvent): void {
     const { ok, error } = event.data;
     resolve?.(error === undefined ? { ok } : { ok, error });
   } else if (isCloseRequestMessage(event.data)) {
-    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeAckMessage()));
+    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeAckMessage()), CLOSE_PROMPT);
   }
 }
 
@@ -1976,11 +2003,12 @@ if (isEmbedded()) {
 // leave the app permanently blank instead of at least usable standalone.
 showUpload();
 
-// Closing the tab, reloading, or navigating away with unsaved edits would
-// otherwise discard them with no warning — there's no autosave to fall back
-// on. This is the browser's own native prompt, not a custom dialog.
+/* Closing the tab, reloading, or navigating away takes the whole session
+with it: unsaved edits, which have no autosave to fall back on, and the file
+itself, which cost a sign-in or a hunt for a USB stick to get here (#66).
+This is the browser's own native prompt, not a custom dialog. */
 window.addEventListener('beforeunload', (e) => {
-  if (!app.dirty) return;
+  if (!hasDatabase()) return;
   e.preventDefault();
   e.returnValue = true;
 });

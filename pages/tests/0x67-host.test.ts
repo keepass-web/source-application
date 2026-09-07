@@ -230,6 +230,14 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(hostInbox.length, before, 'nothing posted back');
   });
 
+  await t.test('kw-close-request with nothing open acks at once', () => {
+    const before = hostInbox.length;
+    sendFromHost({ type: 'kw-close-request' });
+    assert.equal(hostInbox.length, before + 1, 'no database in the tab, nothing to ask about');
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+    assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
+  });
+
   await t.test('kw-open loads the host-supplied vault into the unlock screen', async () => {
     sendFromHost({
       type: 'kw-open',
@@ -344,14 +352,19 @@ test('0x67 embedded in a host frame', async (t) => {
     },
   );
 
-  await t.test('kw-close-request acks immediately when nothing is dirty', () => {
-    // The retry above succeeded and its dialog was closed — nothing unsaved
-    // since then.
+  await t.test('kw-close-request still asks when the database is saved', () => {
+    // The retry above succeeded and its dialog was closed, so nothing is
+    // unsaved — but the open database itself is still worth a question.
     const before = hostInbox.length;
     sendFromHost({ type: 'kw-close-request' });
-    assert.equal(hostInbox.length, before + 1);
+    assert.equal(hostInbox.length, before, 'no ack until the user decides');
+    const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
+    assert.equal(dlg.open, true);
+    assert.equal(dq<HTMLElement>('#confirm-discard-title').textContent, 'Close this database?');
+
+    click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+    assert.equal(dlg.open, false);
     assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
-    assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
   });
 
   await t.test(

@@ -78,8 +78,12 @@ test('the tab names the open database and tracks its lock state', async () => {
   await iframeFrame.waitForSelector('.entry-table');
   await waitForTitle(`🔓 ${filename} - ${BASE_TITLE}`);
 
-  // Nothing is unsaved, so the app acks the close request immediately.
+  // Nothing is unsaved, but the app still asks before giving the database up.
   await page.click('[data-action="back-to-chooser"]');
+  await iframeFrame.waitForFunction(
+    () => document.querySelector<HTMLDialogElement>('#dlg-confirm-discard')?.open === true,
+  );
+  await iframeFrame.click('#dlg-confirm-discard [data-action="confirm-discard"]');
   await page.waitForSelector('#drop-zone');
   await waitForTitle(BASE_TITLE);
 });
