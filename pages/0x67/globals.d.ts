@@ -201,6 +201,7 @@ interface EditedField {
 declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
 declare function isCustomField(key: string): boolean;
 declare function isValidClipboardTimeout(seconds: number): boolean;
+declare function isValidAutoLockTimeout(seconds: number): boolean;
 
 interface PasswordGeneratorOptions {
   length: number;

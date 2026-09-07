@@ -29,6 +29,7 @@ import {
   isCustomField,
   isDescendantGroup,
   isoToLocalInputValue,
+  isValidAutoLockTimeout,
   isValidClipboardTimeout,
   localInputValueToIso,
   sortEntries,
@@ -393,6 +394,13 @@ test('isValidClipboardTimeout requires a real number of at least 5 seconds', () 
   assert.equal(isValidClipboardTimeout(30), true);
   assert.equal(isValidClipboardTimeout(4), false);
   assert.equal(isValidClipboardTimeout(Number.NaN), false);
+});
+
+test('isValidAutoLockTimeout requires a real number of at least 10 seconds', () => {
+  assert.equal(isValidAutoLockTimeout(10), true);
+  assert.equal(isValidAutoLockTimeout(3600), true);
+  assert.equal(isValidAutoLockTimeout(9), false);
+  assert.equal(isValidAutoLockTimeout(Number.NaN), false);
 });
 
 test('generatePassword produces a password of the requested length', () => {

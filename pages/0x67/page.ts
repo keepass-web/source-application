@@ -10,6 +10,7 @@ interface AppState {
   currentEntry: XmlElement | null;
   searchQuery: string;
   clipboardTimeout: number; // seconds
+  autoLockTimeout: number; // seconds hidden before the database locks itself
   dirty: boolean; // unsaved edits exist
   sortField: EntrySortField;
   sortDir: EntrySortDirection;
@@ -25,6 +26,7 @@ const app: AppState = {
   currentEntry: null,
   searchQuery: '',
   clipboardTimeout: 30,
+  autoLockTimeout: 30,
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
@@ -845,10 +847,32 @@ function updateViewToggleUI(): void {
   qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
 }
 
+let autoLockTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelAutoLock(): void {
+  if (autoLockTimer === null) return;
+  clearTimeout(autoLockTimer);
+  autoLockTimer = null;
+}
+
+/* A tab nobody is looking at is an unattended screen: the database sits there
+decrypted in memory for as long as it stays that way. Locking re-encrypts the
+current state, unsaved edits included, so this can fire on its own without
+asking anything of someone who has already walked away (#64). */
+function handleVisibilityChange(): void {
+  cancelAutoLock();
+  if (document.visibilityState !== 'hidden' || app.db === null) return;
+  autoLockTimer = setTimeout(() => {
+    autoLockTimer = null;
+    void lockDatabase();
+  }, app.autoLockTimeout * 1000);
+}
+
 /** Re-encrypts the current in-memory state (including anything not yet
 saved) rather than reloading the original file, so locking never loses an
 edit on its own — only choosing to discard at the prompt above does that. */
 async function lockDatabase(): Promise<void> {
+  cancelAutoLock();
   const bytes = await must(app.db).save();
   app.file = bytes.buffer as ArrayBuffer;
   const wasDirty = app.dirty;
@@ -857,6 +881,7 @@ async function lockDatabase(): Promise<void> {
 }
 
 function closeDatabase(): void {
+  cancelAutoLock();
   Object.assign(app, {
     db: null,
     file: null,
@@ -1419,6 +1444,8 @@ function openSettings(): void {
   const dlg = byId<HTMLDialogElement>('dlg-settings');
   const timeoutInput = byId<HTMLInputElement>('clipboard-timeout');
   timeoutInput.value = String(app.clipboardTimeout);
+  const autoLockInput = byId<HTMLInputElement>('auto-lock-timeout');
+  autoLockInput.value = String(app.autoLockTimeout);
 
   const newPasswordInput = byId<HTMLInputElement>('settings-new-password');
   const confirmInput = byId<HTMLInputElement>('settings-new-password-confirm');
@@ -1446,6 +1473,8 @@ function openSettings(): void {
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
     if (isValidClipboardTimeout(v)) app.clipboardTimeout = v;
+    const autoLock = Number.parseInt(autoLockInput.value, 10);
+    if (isValidAutoLockTimeout(autoLock)) app.autoLockTimeout = autoLock;
 
     if (newPasswordInput.value || confirmInput.value) {
       if (newPasswordInput.value !== confirmInput.value) {
@@ -2012,3 +2041,5 @@ window.addEventListener('beforeunload', (e) => {
   e.preventDefault();
   e.returnValue = true;
 });
+
+document.addEventListener('visibilitychange', handleVisibilityChange);

@@ -75,6 +75,7 @@
     "applyEntryEdits",
     "isCustomField",
     "isValidClipboardTimeout",
+    "isValidAutoLockTimeout",
     "generatePassword",
     "elementIconId",
     "iconEmoji",

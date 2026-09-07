@@ -1496,12 +1496,14 @@ test('0x67 app', async (t) => {
     },
   );
 
-  await t.test('settings: a valid timeout is saved, an invalid one is silently ignored', () => {
+  await t.test('settings: valid timeouts are saved, out-of-range ones are ignored', () => {
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     let dlg = byId<HTMLDialogElement>('dlg-settings');
     assert.equal(byId<HTMLInputElement>('clipboard-timeout').value, '30');
+    assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '30');
 
     byId<HTMLInputElement>('clipboard-timeout').value = '10';
+    byId<HTMLInputElement>('auto-lock-timeout').value = '45';
     dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
       new dom.window.Event('click', { bubbles: true }),
     );
@@ -1509,7 +1511,9 @@ test('0x67 app', async (t) => {
 
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(byId<HTMLInputElement>('clipboard-timeout').value, '10');
+    assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '45');
     byId<HTMLInputElement>('clipboard-timeout').value = '2';
+    byId<HTMLInputElement>('auto-lock-timeout').value = '5';
     dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
       new dom.window.Event('click', { bubbles: true }),
     );
@@ -1519,6 +1523,11 @@ test('0x67 app', async (t) => {
       byId<HTMLInputElement>('clipboard-timeout').value,
       '10',
       'an out-of-range timeout must not overwrite the saved one',
+    );
+    assert.equal(
+      byId<HTMLInputElement>('auto-lock-timeout').value,
+      '45',
+      'and neither must an out-of-range auto-lock delay',
     );
     dlg = byId<HTMLDialogElement>('dlg-settings');
     dq('#dlg-settings [data-action="close"]').dispatchEvent(
@@ -1799,6 +1808,75 @@ test('beforeunload is blocked for as long as this tab holds a database', async (
     false,
     'a closed database lets the tab go again',
   );
+});
+
+/** jsdom's visibilityState is a read-only getter, so it is redefined on the
+ * document instance; the app reads document.visibilityState and listens for
+ * the event, which is exactly what a real tab switch produces. */
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(dom.window.document, 'visibilityState', {
+    value: state,
+    configurable: true,
+  });
+  dispatch(dom.window.document, 'visibilitychange');
+}
+
+test('a tab left hidden locks itself, and coming back in time calls it off', async (t) => {
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('auto-lock.kdbx', dbBytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  // Pin the delay, so the ticks below mean something no matter what an
+  // earlier test left in the settings.
+  q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  byId<HTMLInputElement>('auto-lock-timeout').value = '30';
+  dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+
+  // Away, then back before the delay is up: the countdown is called off, and
+  // no amount of later time locks anything.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  setVisibility('hidden');
+  t.mock.timers.tick(29_000);
+  setVisibility('visible');
+  t.mock.timers.tick(60_000);
+  t.mock.timers.reset();
+  assert.ok(dom.window.document.body.classList.contains('app-mode'), 'still unlocked');
+
+  // Away for the whole delay: it locks on its own, with nothing to confirm.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  setVisibility('hidden');
+  t.mock.timers.tick(30_000);
+  t.mock.timers.reset();
+
+  await waitFor(() => q('#master-password') !== null);
+  assert.equal(q<HTMLElement>('#db-filename').textContent, 'auto-lock.kdbx');
+  assert.equal(
+    dom.window.document.title,
+    '🔒 auto-lock.kdbx - KeePass Web',
+    'the tab bar says so without being opened',
+  );
+
+  // Already locked, so hiding again has nothing to arm.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  setVisibility('hidden');
+  t.mock.timers.tick(60_000);
+  t.mock.timers.reset();
+  assert.ok(q('#master-password'), 'still on the unlock screen, no second lock attempted');
+
+  setVisibility('visible');
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.ok(q('#drop-zone'));
 });
 
 // ============================================================
