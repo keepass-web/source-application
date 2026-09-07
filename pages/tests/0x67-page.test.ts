@@ -1234,7 +1234,7 @@ test('0x67 app', async (t) => {
   });
 
   await t.test(
-    'copying a field writes to the clipboard, flips the icon, then reverts on a timer',
+    'copying a field writes to the clipboard, announces it, and clears on a timer',
     (t) => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
       const usernameRow = Array.from(root().querySelectorAll('.detail-field')).find(
@@ -1247,8 +1247,8 @@ test('0x67 app', async (t) => {
 
       clipboardWritesShouldFail = false;
       usernameRow.querySelector<HTMLButtonElement>('[title="Copy"]')?.click();
-      // The write and the icon flip both happen inside an async click handler;
-      // let its microtasks settle before advancing fake timers.
+      // The write happens inside an async handler; let its microtasks settle
+      // before advancing fake timers.
       return Promise.resolve()
         .then(() => Promise.resolve())
         .then(() => {
@@ -1261,7 +1261,6 @@ test('0x67 app', async (t) => {
           return Promise.resolve().then(() => Promise.resolve());
         })
         .then(() => {
-          assert.equal(copyBtn?.textContent, '✓');
           // The toast names the field and never carries the value itself (#67).
           assert.equal(byId<HTMLElement>('toast').hidden, false);
           assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
@@ -1271,8 +1270,6 @@ test('0x67 app', async (t) => {
           return Promise.resolve().then(() => Promise.resolve());
         })
         .then(() => {
-          t.mock.timers.tick(1500);
-          assert.equal(copyBtn?.textContent, '📋');
           // The clipboard-clear timer (app.clipboardTimeout, still the
           // default 30s here) was reset by the second copy above; advance
           // past it to cover the auto-clear callback itself. Force this
@@ -1332,9 +1329,11 @@ test('0x67 app', async (t) => {
       .then(() => Promise.resolve())
       .then(() => {
         assert.equal(clipboardText, 'not-yet-saved-password');
-        assert.equal(copyBtn?.textContent, '✓');
-        t.mock.timers.tick(1500);
-        assert.equal(copyBtn?.textContent, '📋');
+        assert.equal(
+          byId<HTMLElement>('toast').textContent,
+          'Value copied to clipboard',
+          'an unnamed field still names something',
+        );
         q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       });
   });
@@ -2116,7 +2115,7 @@ test('entry list sorting: by title, username, or modified time, in either direct
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
 
-test('entry list table view: default columns, masked password, column toggling, and click vs double-click', async (t) => {
+test('entry list table view: columns, masked password, click to copy, button to open', async (t) => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {
     version: 4,
@@ -2160,8 +2159,8 @@ test('entry list table view: default columns, masked password, column toggling, 
     Array.from(root().querySelectorAll('.entry-table th')).map((th) => th.textContent ?? '');
   assert.deepEqual(
     headerText(),
-    ['Title', 'Username', 'Password', 'URL', 'Modified', ''],
-    'default visible columns, plus the unlabelled open-entry column',
+    ['Title', 'Username', 'Password', 'URL', 'Modified', 'Open'],
+    "default visible columns, plus the open column's screen-reader-only name",
   );
 
   // The cell's own text, without the copy hint appended beside it.

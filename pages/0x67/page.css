@@ -816,7 +816,7 @@ never be what makes the affordance discoverable, since touch has none. */
   cursor: pointer;
   font-size: 0.8em;
   line-height: 1;
-  opacity: 0.25;
+  opacity: 0.55;
 }
 
 .entry-table td:hover .copy-hint,
@@ -1509,4 +1509,16 @@ body.embedded footer {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   color: var(--text);
   font-size: 0.85rem;
+}
+
+/* Announced but not drawn: gives the open column a name for table navigation. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

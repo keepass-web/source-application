@@ -117,6 +117,11 @@ logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
 let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
 
+/* The most recent auto-clear (#67). Every copy waits for it before writing, so
+a clear can never resolve on top of a newer value and wipe it; a settled one
+costs nothing to await, which is why this is never null. */
+let clipboardClear: Promise<unknown> = Promise.resolve();
+
 const FIELD_LABELS: Record<string, string> = { UserName: 'Username' };
 
 // KeePass's own field keys are not what the rest of the app calls them (#67).
@@ -134,6 +139,7 @@ function showClipboardToast(label: string): void {
 
 async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
   try {
+    await clipboardClear;
     await navigator.clipboard.writeText(text);
     if (clipboardTimer) clearTimeout(clipboardTimer);
     showClipboardToast(label);
@@ -141,7 +147,7 @@ async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
     exactly when the clipboard is, rather than on a schedule of its own. */
     clipboardTimer = setTimeout(() => {
       clipboardTimer = null;
-      navigator.clipboard
+      clipboardClear = navigator.clipboard
         .writeText('')
         .then(() => {
           byId('toast').hidden = true;
@@ -722,7 +728,7 @@ browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
 function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
   cell.addEventListener('click', (event) => {
-    if (event.target !== cell) return; // the copy button runs its own handler
+    if (event.target !== event.currentTarget) return; // the copy button runs its own handler
     if (value) copyToClipboard(value, label);
   });
 }
@@ -759,7 +765,12 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     th.textContent = column.label;
     headRow.appendChild(th);
   }
-  headRow.appendChild(document.createElement('th'));
+  const openTh = document.createElement('th');
+  const openLabel = document.createElement('span');
+  openLabel.className = 'visually-hidden';
+  openLabel.textContent = 'Open';
+  openTh.appendChild(openLabel);
+  headRow.appendChild(openTh);
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -1107,12 +1118,8 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
     actions.appendChild(revealBtn);
   }
 
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
-    await copyToClipboard(value, fieldLabel(key));
-    copyBtn.textContent = '✓';
-    setTimeout(() => {
-      copyBtn.textContent = '📋';
-    }, 1500);
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
+    copyToClipboard(value, fieldLabel(key));
   });
   actions.appendChild(copyBtn);
 
@@ -1337,14 +1344,10 @@ function buildEditField(
     row.appendChild(toggle);
   }
 
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', async () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    await copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
-    copyBtn.textContent = '✓';
-    setTimeout(() => {
-      copyBtn.textContent = '📋';
-    }, 1500);
+    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
   });
   row.appendChild(copyBtn);
 

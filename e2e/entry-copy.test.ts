@@ -65,7 +65,7 @@ async function usernameCellCentre(): Promise<{ x: number; y: number }> {
 test('clicking a value never opens the entry', async () => {
   const { x, y } = await usernameCellCentre();
   await page.mouse.click(x, y);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // Opening is synchronous now, so there is nothing to wait out.
   assert.equal(await app.$('#detail-title'), null, 'the card stayed shut');
 });
 
