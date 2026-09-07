@@ -712,57 +712,18 @@ function entryColumnDisplayValue(entry: XmlElement, column: EntryColumnKey): str
   return raw;
 }
 
-const ENTRY_HOLD_MS = 500;
-const ENTRY_HOLD_SLOP_PX = 8;
-
 function openEntry(entry: XmlElement): void {
   app.currentEntry = entry;
   showEntryDetail();
 }
 
-/* A tap copies, a hold opens the card (#67). The hold fires on its own timer
-while the pointer is still down, and a release before then copies instead, so
-neither gesture waits on the other the way click-versus-double-click did. The
-slop check matters on touch, where scrolling the table starts on a cell. */
-function wireCellPress(
-  cell: HTMLTableCellElement,
-  entry: XmlElement,
-  value: string,
-  label: string,
-): void {
-  let holdTimer: ReturnType<typeof setTimeout> | null = null;
-  let startX = 0;
-  let startY = 0;
-
-  const cancelHold = (): void => {
-    if (holdTimer) clearTimeout(holdTimer);
-    holdTimer = null;
-  };
-
-  cell.addEventListener('pointerdown', (down) => {
-    if (down.button !== 0) return; // a right- or middle-click is not a copy (#67)
-    if (down.target !== cell) return; // the copy button runs its own handler
-    /* Capture, so a release outside the cell still ends the gesture here; without
-    it the hold timer survives and opens the card on its own. */
-    cell.setPointerCapture(down.pointerId);
-    startX = down.clientX;
-    startY = down.clientY;
-    holdTimer = setTimeout(() => {
-      holdTimer = null;
-      openEntry(entry);
-    }, ENTRY_HOLD_MS);
-  });
-
-  cell.addEventListener('pointermove', (move) => {
-    if (Math.hypot(move.clientX - startX, move.clientY - startY) > ENTRY_HOLD_SLOP_PX) cancelHold();
-  });
-
-  cell.addEventListener('pointercancel', cancelHold);
-
-  cell.addEventListener('pointerup', (up) => {
-    const tapped = holdTimer !== null && up.button === 0;
-    cancelHold();
-    if (tapped && value) copyToClipboard(value, label);
+/* A click copies (#67); opening the card is the row's own button instead. The
+browser already decides what counts as a click, so a scroll that starts on a
+cell copies nothing and a secondary button never reaches here at all. */
+function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
+  cell.addEventListener('click', (event) => {
+    if (event.target !== cell) return; // the copy button runs its own handler
+    if (value) copyToClipboard(value, label);
   });
 }
 
@@ -774,16 +735,11 @@ function copyHint(value: string, label: string): HTMLButtonElement {
   });
 }
 
-function buildEntryCell(
-  entry: XmlElement,
-  display: string,
-  value: string,
-  label: string,
-): HTMLTableCellElement {
+function buildEntryCell(display: string, value: string, label: string): HTMLTableCellElement {
   const td = document.createElement('td');
   td.appendChild(document.createTextNode(display));
   if (value) td.appendChild(copyHint(value, label));
-  wireCellPress(td, entry, value, label);
+  wireCellCopy(td, value, label);
   return td;
 }
 
@@ -812,7 +768,6 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     const tr = document.createElement('tr');
 
     const titleTd = buildEntryCell(
-      entry,
       `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`,
       entryTitle(entry),
       'Title',
@@ -822,7 +777,6 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
 
     for (const column of visibleColumns) {
       const td = buildEntryCell(
-        entry,
         entryColumnDisplayValue(entry, column.key),
         entryColumnValue(entry, column.key),
         column.label,
@@ -831,7 +785,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
       tr.appendChild(td);
     }
 
-    // A visible way in, since a hold is not discoverable on its own (#67).
+    // The only way into the card, so opening to edit stays a deliberate act (#67).
     const openTd = document.createElement('td');
     openTd.className = 'entry-table-open';
     openTd.appendChild(makeIconButton('icon-btn', 'Open entry', '›', () => openEntry(entry)));

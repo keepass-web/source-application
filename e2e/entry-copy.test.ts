@@ -1,10 +1,11 @@
-/** Real-browser coverage for the table's copy gesture (issue #67). Pointer
- * capture is a no-op in jsdom, so a release routed back to the cell is only
- * observable here — which is what keeps a tap from becoming a hold.
+/** Real-browser coverage for the entry table's controls (issue #67). jsdom
+ * dispatches events straight at an element; only a real browser hit-tests a
+ * coordinate, so this is what proves the cells and the open control are
+ * actually clickable where they render.
  *
- * What is copied is asserted in the jsdom tests instead: headless Chrome
- * refuses `navigator.clipboard.writeText` outright ("Write permission denied")
- * even with the permission overridden, so the toast never appears here. */
+ * What gets copied is asserted in the jsdom tests instead: headless Chrome
+ * refuses `navigator.clipboard.writeText` outright ("Write permission denied"),
+ * so no toast ever appears here. */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -61,39 +62,23 @@ async function usernameCellCentre(): Promise<{ x: number; y: number }> {
   return { x: frameBox.x + box.x, y: frameBox.y + box.y };
 }
 
-test('a tap copies without opening the entry, even past the hold delay', async () => {
+test('clicking a value never opens the entry', async () => {
   const { x, y } = await usernameCellCentre();
   await page.mouse.click(x, y);
-
-  // Past the threshold: had the release not reached the cell, the pending
-  // hold timer would open the card right about here.
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(await app.$('#detail-title'), null, 'the card stayed shut');
 });
 
-test('releasing outside the cell abandons the press rather than opening the entry', async () => {
-  const { x, y } = await usernameCellCentre();
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 300, y + 200, { steps: 4 });
-  await page.mouse.up();
-
-  await new Promise((resolve) => setTimeout(resolve, 900));
-  assert.equal(await app.$('#detail-title'), null, 'dragging off the cell opened nothing');
-});
-
-test('holding the cell opens the entry instead', async () => {
-  const { x, y } = await usernameCellCentre();
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await new Promise((resolve) => setTimeout(resolve, 700));
-  await page.mouse.up();
+test('the row control is the way into the card', async () => {
+  const openButton = await app.$('.entry-table-open button');
+  assert.ok(openButton, 'every row carries one');
+  await openButton.click();
 
   const title = await app.waitForSelector('#detail-title');
   assert.ok(title, 'the card opened');
   assert.match(
     (await title.evaluate((el) => el.textContent)) ?? '',
     /Example Entry/,
-    'and it is the entry that was held',
+    'and it is the row that was clicked',
   );
 });

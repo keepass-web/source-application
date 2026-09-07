@@ -2196,89 +2196,38 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.ok(bodyCells().includes('work account'));
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const press = (el: EventTarget, type: string, x = 0, y = 0, button = 0): void => {
-    dispatch(el, type, { clientX: x, clientY: y, pointerId: 1, button });
-  };
-
   clipboardWritesShouldFail = false;
   const maskedCell = (): HTMLElement =>
     Array.from(root().querySelectorAll('.entry-table tbody td')).find(
       (td) => td.firstChild?.textContent === '••••••••',
     ) as HTMLElement;
 
-  // A tap copies the real value, names it, and does not open the card.
-  press(maskedCell(), 'pointerdown');
-  press(maskedCell(), 'pointerup');
+  // A click copies the real value, names it, and leaves the card shut.
+  dispatch(maskedCell(), 'click');
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the real password was copied, not the mask');
   assert.equal(byId<HTMLElement>('toast').hidden, false);
   assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
   assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
-  assert.equal(q('#detail-title'), null, 'a tap does not open the card');
+  assert.equal(q('#detail-title'), null, 'copying never opens the card');
 
-  // A drag that begins on a cell is a scroll, not a tap.
-  clipboardText = '';
-  press(maskedCell(), 'pointerdown', 0, 0);
-  press(maskedCell(), 'pointermove', 0, 40);
-  press(maskedCell(), 'pointerup', 0, 40);
-  await Promise.resolve();
-  assert.equal(clipboardText, '', 'moving past the slop cancels the copy');
-
-  // Staying inside the slop is still a tap.
-  press(maskedCell(), 'pointerdown', 0, 0);
-  press(maskedCell(), 'pointermove', 0, 2);
-  press(maskedCell(), 'pointerup', 0, 2);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(clipboardText, 'hunter2', 'a small wobble still copies');
-
-  // A cancelled press neither copies nor opens.
-  clipboardText = '';
-  press(maskedCell(), 'pointerdown');
-  press(maskedCell(), 'pointercancel');
-  t.mock.timers.tick(500);
-  await Promise.resolve();
-  assert.equal(clipboardText, '', 'a cancelled press copies nothing');
-  assert.equal(q('#detail-title'), null, 'and opens nothing');
-
-  // Only the primary button copies: a right-click must not put a password on
-  // the clipboard, and neither must a primary press released with another.
-  clipboardText = '';
-  press(maskedCell(), 'pointerdown', 0, 0, 2);
-  press(maskedCell(), 'pointerup', 0, 0, 2);
-  await Promise.resolve();
-  assert.equal(clipboardText, '', 'a right-click copies nothing');
-  press(maskedCell(), 'pointerdown');
-  press(maskedCell(), 'pointerup', 0, 0, 2);
-  await Promise.resolve();
-  assert.equal(clipboardText, '', 'nor a primary press released with another button');
-
+  // The 📋 is a real button, so a keyboard reaches it; its click must not also
+  // run the cell's own handler underneath.
   clipboardText = '';
   const hintBtn = maskedCell().querySelector('.copy-hint') as HTMLButtonElement;
   assert.equal(hintBtn.title, 'Copy password', 'the button carries its own name');
-  press(hintBtn, 'pointerdown');
-  press(hintBtn, 'pointerup');
-  await Promise.resolve();
-  assert.equal(clipboardText, '', 'pressing the button does not also run the cell handler');
   dispatch(hintBtn, 'click');
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(clipboardText, 'hunter2', 'clicking it copies, so a keyboard can reach it');
+  assert.equal(clipboardText, 'hunter2', 'the copy button copies exactly once');
 
-  // A hold opens the card.
-  press(maskedCell(), 'pointerdown');
-  t.mock.timers.tick(500);
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'a hold opens it');
-  dispatch(q('[data-action="back"]'), 'click');
-  dispatch(q('[data-action="view-table"]'), 'click');
-
-  // The visible way in, for anyone who never discovers the hold.
+  // Opening the card is its own button, never a gesture over the values.
   const openBtn = (q('.entry-table tbody tr') as HTMLElement).querySelector(
     '.entry-table-open button',
   ) as HTMLButtonElement;
   dispatch(openBtn, 'click');
-  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'the › opens it too');
+  assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'the › opens it');
   dispatch(q('[data-action="back"]'), 'click');
   dispatch(q('[data-action="view-table"]'), 'click');
 
@@ -2307,12 +2256,10 @@ test('entry list table view: default columns, masked password, column toggling, 
   assert.equal(attachmentsTd.firstChild?.textContent, '', 'no attachments on this entry');
   assert.equal(attachmentsTd.querySelector('.copy-hint'), null, 'and so no copy hint');
   clipboardText = '';
-  press(attachmentsTd, 'pointerdown');
-  press(attachmentsTd, 'pointerup');
+  dispatch(attachmentsTd, 'click');
   await Promise.resolve();
   assert.equal(clipboardText, '', 'a cell with nothing in it copies nothing');
 
-  t.mock.timers.reset();
   dispatch(q('[data-action="view-tile"]'), 'click');
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
