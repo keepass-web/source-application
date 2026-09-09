@@ -37,6 +37,7 @@ import {
   setText,
 } from '../../packages/kdbx/src/index.ts';
 import * as logic from '../0x67/logic.ts';
+import { applyTabState } from '../shared/logic.ts';
 
 // ============================================================
 // jsdom environment at a phone-width viewport
@@ -75,6 +76,7 @@ dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement
 };
 
 Object.assign(globalThis, {
+  applyTabState,
   Kdbx,
   Credentials,
   getChildren,

@@ -17,6 +17,7 @@ import { JSDOM } from 'jsdom';
 import * as embedProtocol from '../../packages/embed-protocol/src/index.ts';
 import { identifyFormat } from '../../packages/router/src/index.ts';
 import * as logic from '../cloud-google-drive/logic.ts';
+import * as shared from '../shared/logic.ts';
 
 // ============================================================
 // Environment
@@ -141,7 +142,7 @@ Object.defineProperty(globalThis, 'google', {
 });
 Object.defineProperty(globalThis, 'gapi', { value: gapiMock, configurable: true, writable: true });
 
-Object.assign(globalThis, { identifyFormat, ...embedProtocol, ...logic });
+Object.assign(globalThis, { identifyFormat, ...embedProtocol, ...logic, ...shared });
 
 await import('../cloud-google-drive/page.ts');
 
@@ -391,14 +392,45 @@ test('Google Drive connector', async (t) => {
 
   await t.test('kw-title names the open database in the tab', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
-    assert.equal(doc.title, '🔒 vault.kdbx - KeePass Web - Google Drive');
+    assert.equal(doc.title, '🔒 vault.kdbx - Locked - KeePass Web - Google Drive');
 
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
-    assert.equal(doc.title, '🔓 vault.kdbx - KeePass Web - Google Drive');
+    assert.equal(doc.title, '🔓 vault.kdbx - Unlocked - KeePass Web - Google Drive');
 
     // An app with nothing open reports no filename, leaving this page's own title.
     sendMessage({ type: 'kw-title', filename: '', locked: true }, { source: frameWin });
     assert.equal(doc.title, 'KeePass Web - Google Drive');
+  });
+
+  await t.test('the find keystroke reaches the app, but only once it is unlocked', () => {
+    const findKey = (init: Record<string, unknown> = { key: 'f', metaKey: true }): Event => {
+      const evt = new dom.window.Event('keydown', { bubbles: true, cancelable: true });
+      Object.assign(evt, init);
+      dom.window.dispatchEvent(evt);
+      return evt;
+    };
+
+    // Locked, so there is nothing to search and the browser keeps its own find.
+    sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
+    const whileLocked = frameInbox.length;
+    assert.equal(findKey().defaultPrevented, false);
+    assert.equal(frameInbox.length, whileLocked, 'nothing forwarded');
+
+    sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
+    assert.equal(findKey().defaultPrevented, true);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-find' });
+
+    // Ctrl for everyone who is not on a Mac.
+    assert.equal(findKey({ key: 'f', ctrlKey: true }).defaultPrevented, true);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-find' });
+
+    // Nothing else is that chord, so nothing else is taken.
+    const taken = frameInbox.length;
+    assert.equal(findKey({ key: 'g', metaKey: true }).defaultPrevented, false);
+    assert.equal(findKey({ key: 'f' }).defaultPrevented, false);
+    assert.equal(findKey({ key: 'f', metaKey: true, shiftKey: true }).defaultPrevented, false);
+    assert.equal(findKey({ key: 'f', ctrlKey: true, altKey: true }).defaultPrevented, false);
+    assert.equal(frameInbox.length, taken, 'and nothing more was forwarded');
   });
 
   await t.test('a stray kw-close-ack with nothing pending is a harmless no-op', () => {

@@ -141,8 +141,20 @@ interface GooglePicker {
   PickerBuilder: new () => PickerBuilderInstance;
 }
 
+declare function applyTabState(
+  doc: Document,
+  baseTitle: string,
+  filename: string,
+  locked: boolean,
+): void;
+
 declare const gapi: GapiLoadable;
 declare const google: {
   picker: GooglePicker;
   accounts: { oauth2: GoogleOAuth2 };
 };
+
+interface FindMessage {
+  type: 'kw-find';
+}
+declare function findMessage(): FindMessage;

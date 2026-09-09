@@ -3,13 +3,10 @@
   "output": "../../build/pages/0x67/bundle.js",
   "files": [
     "embed-protocol/src/index.js",
-
     "chacha20/src/index.js",
-
     "argon2/src/blake2b.js",
     "argon2/src/argon2.js",
     "argon2/src/index.js",
-
     "kdbx/src/bytes.js",
     "kdbx/src/xml.js",
     "kdbx/src/constants.js",
@@ -26,7 +23,7 @@
     "kdbx/src/model.js",
     "kdbx/src/meta-binaries.js",
     "kdbx/src/kdbx.js",
-
+    "../pages/shared/logic.js",
     "../pages/0x67/logic.js",
     "../pages/0x67/page.js"
   ],
@@ -59,7 +56,6 @@
     "pushHistorySnapshot",
     "restoreHistoryEntry",
     "deleteHistoryEntry",
-
     "entryField",
     "entryTitle",
     "groupName",
@@ -83,7 +79,6 @@
     "isoToLocalInputValue",
     "localInputValueToIso",
     "defaultExpiryLocalInputValue",
-
     "isOpenMessage",
     "isCreateMessage",
     "isSavedMessage",
@@ -92,6 +87,8 @@
     "saveMessage",
     "titleMessage",
     "closeAckMessage",
-    "closeMessage"
+    "closeMessage",
+    "applyTabState",
+    "isFindMessage"
   ]
 }

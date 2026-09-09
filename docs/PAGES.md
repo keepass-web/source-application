@@ -37,6 +37,8 @@ flowchart TD
 
 "Create a new database" is the other way into the same iframe: with no file to sniff, the connector embeds `0x67.html` straight away and, once it announces readiness, tells it to start a fresh database instead of opening one (`kw-create`, the create-side counterpart to `kw-open` in `packages/embed-protocol`). Naming and creating the database — `Kdbx.create` and everything it depends on — happens exactly where opening one does, inside `0x67.html`; the connector never gains its own copy of that logic, it only decides which of the two messages to send.
 
+A connector owns two things beyond the file itself, both because the browser gives them to whichever document owns the tab rather than to the one inside the iframe. The first is the tab: the app knows which database is open and whether it is locked, but only the connector can name the tab and mark it with that state, so the app reports and the connector applies — which is why that logic lives in `pages/shared/` rather than in either page. The second is the keyboard: a keystroke goes to whichever document has focus, so a find pressed while the visitor is on the connector's own chrome would search the connector's page instead of the database, and the connector forwards it to the app rather than let that happen.
+
 On save, since there is nowhere to write back to, the local connector downloads the updated bytes the same way `0x67.html` would if opened standalone — the only piece of this connector that's genuinely local-specific. This applies equally to a freshly created database: its first save is just a download, named for whatever the create screen's own form was given.
 
 ## How the Google Drive connector works

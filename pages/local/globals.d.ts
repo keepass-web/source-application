@@ -66,3 +66,15 @@ declare function savedMessage(ok: boolean, error?: string): SavedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 
 declare function must<T>(value: T | null | undefined): T;
+
+declare function applyTabState(
+  doc: Document,
+  baseTitle: string,
+  filename: string,
+  locked: boolean,
+): void;
+
+interface FindMessage {
+  type: 'kw-find';
+}
+declare function findMessage(): FindMessage;

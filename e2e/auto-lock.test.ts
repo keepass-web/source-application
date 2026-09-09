@@ -81,7 +81,7 @@ test('a tab left hidden locks the embedded database on its own', async () => {
   await otherTab.close();
   assert.equal(
     await page.title(),
-    `🔒 ${basename(fixture.path)} - KeePass Web - Local file`,
+    `🔒 ${basename(fixture.path)} - Locked - KeePass Web - Local file`,
     'and the tab bar shows it locked, without being opened',
   );
 });

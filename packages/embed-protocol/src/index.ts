@@ -2,7 +2,8 @@
 keepass-web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders (previously duplicated per side) so
 both ends provably agree on the wire format: kw-ready, kw-open, kw-create,
-kw-save, kw-saved, kw-title, kw-close-request, kw-close-ack, kw-close. */
+kw-save, kw-saved, kw-title, kw-find, kw-close-request, kw-close-ack,
+kw-close. */
 
 export interface ReadyMessage {
   type: 'kw-ready';
@@ -36,6 +37,13 @@ export interface TitleMessage {
   type: 'kw-title';
   filename: string;
   locked: boolean;
+}
+
+/* Whichever document has focus receives the keystroke, and outside the iframe
+that is the host; it forwards the find rather than letting the browser's own
+search the one page it can see (#78). */
+export interface FindMessage {
+  type: 'kw-find';
 }
 
 export interface CloseRequestMessage {
@@ -96,6 +104,10 @@ export function isTitleMessage(data: unknown): data is TitleMessage {
   return typeof rec.filename === 'string' && typeof rec.locked === 'boolean';
 }
 
+export function isFindMessage(data: unknown): data is FindMessage {
+  return hasType(data, 'kw-find');
+}
+
 export function isCloseRequestMessage(data: unknown): data is CloseRequestMessage {
   return hasType(data, 'kw-close-request');
 }
@@ -132,6 +144,10 @@ export function savedMessage(ok: boolean, error?: string): SavedMessage {
 
 export function titleMessage(filename: string, locked: boolean): TitleMessage {
   return { type: 'kw-title', filename, locked };
+}
+
+export function findMessage(): FindMessage {
+  return { type: 'kw-find' };
 }
 
 export function closeRequestMessage(): CloseRequestMessage {

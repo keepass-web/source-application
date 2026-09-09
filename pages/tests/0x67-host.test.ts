@@ -50,6 +50,7 @@ import {
   touchLastModified,
 } from '../../packages/kdbx/src/index.ts';
 import * as logic from '../0x67/logic.ts';
+import { applyTabState } from '../shared/logic.ts';
 
 // ============================================================
 // jsdom environment with a mocked parent frame
@@ -96,6 +97,7 @@ dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement
 };
 
 Object.assign(globalThis, {
+  applyTabState,
   Kdbx,
   Credentials,
   getChildren,
@@ -538,4 +540,28 @@ test('0x67 embedded in a host frame: choosing Save from the unsaved-changes prom
       assert.deepEqual(lastHostMessage(), { type: 'kw-close' }, 'Close was the pending action');
     },
   );
+});
+
+test('0x67 embedded in a host frame: the host forwards the find keystroke', async (t) => {
+  await t.test('kw-find puts the caret in the search field', async () => {
+    // Focus outside the iframe means the host is the one that receives the
+    // keystroke, so what crosses to the app is the message, not the key (#78).
+    sendFromHost({
+      type: 'kw-open',
+      filename: 'find-me.kdbx',
+      bytes: new Uint8Array(dbBytes).buffer,
+    });
+    await waitFor(() => q('#master-password') !== null);
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    q('#unlock-form').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(() => q('#search-input') !== null);
+
+    q<HTMLInputElement>('#search-input').blur();
+    assert.notEqual(dom.window.document.activeElement, q('#search-input'));
+
+    sendFromHost({ type: 'kw-find' });
+    assert.equal(dom.window.document.activeElement, q('#search-input'));
+  });
 });

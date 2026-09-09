@@ -112,6 +112,14 @@ function makeIconButton(
   return btn;
 }
 
+/* A pointer press moves focus to the button before the click lands, so a
+control that acts on a field takes the caret out of that field; suppressing
+the press's default leaves focus and caret exactly where they were, while a
+keyboard user still reaches the button by tabbing to it (#72). */
+function keepFieldFocus(button: HTMLElement): void {
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+}
+
 // Wire a dialog's ✕ button to close it, replacing a repeated line in every openXDialog.
 function wireClose(dlg: HTMLDialogElement): void {
   must(dlg.querySelector<HTMLButtonElement>('[data-action="close"]')).onclick = () => dlg.close();
@@ -230,6 +238,7 @@ function showUnlock(preserveDirty = false): void {
   });
 
   const togglePasswordBtn = qs('[data-action="toggle-password"]');
+  keepFieldFocus(togglePasswordBtn);
   togglePasswordBtn.addEventListener('click', () => {
     passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
     togglePasswordBtn.textContent = passwordInput.type === 'password' ? '👁' : '🙈';
@@ -661,7 +670,9 @@ function renderEntryPanel(): void {
   rows = sortEntries(rows, app.sortField, app.sortDir);
 
   if (app.entryView === 'table') {
-    listEl.appendChild(buildEntryTable(rows));
+    const table = buildEntryTable(rows);
+    listEl.appendChild(table);
+    publishColumnWidths(table);
   } else {
     for (const { entry, group } of rows) {
       listEl.appendChild(buildEntryRow(entry, group));
@@ -739,7 +750,8 @@ browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
 function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
   cell.addEventListener('click', (event) => {
-    if (event.target !== event.currentTarget) return; // the copy button runs its own handler
+    // Anywhere but the copy button, which runs its own handler (#76).
+    if ((event.target as Element).closest('.copy-hint')) return;
     if (value) copyToClipboard(value, label);
   });
 }
@@ -752,12 +764,103 @@ function copyHint(value: string, label: string): HTMLButtonElement {
   });
 }
 
+/* The text ellipsizes inside its own box so the copy control keeps its place at
+the cell's right edge (#76); appended straight after the text it rode past the
+edge and out of sight the moment a value was longer than its column. */
 function buildEntryCell(display: string, value: string, label: string): HTMLTableCellElement {
   const td = document.createElement('td');
-  td.appendChild(document.createTextNode(display));
-  if (value) td.appendChild(copyHint(value, label));
+  const inner = document.createElement('div');
+  inner.className = 'entry-cell';
+  const text = document.createElement('span');
+  text.className = 'entry-cell-text';
+  text.textContent = display;
+  inner.appendChild(text);
+  if (value) inner.appendChild(copyHint(value, label));
+  td.appendChild(inner);
   wireCellCopy(td, value, label);
   return td;
+}
+
+const COLUMN_WIDTH_MIN = 80;
+const COLUMN_WIDTH_MAX = 640;
+const COLUMN_WIDTH_STEP = 16;
+
+/* Widths stay in memory for the same reason the group rail's does (#63, #77):
+one silently restored forever would be state nobody asked to keep, yet it has
+to outlive the table, which is rebuilt from scratch on every render. */
+const columnWidths = new Map<string, number>();
+
+// The column as rendered until the user picks a width; their choice after that (#77).
+function currentColumnWidth(th: HTMLTableCellElement): number {
+  return columnWidths.get(must(th.dataset.column)) ?? th.getBoundingClientRect().width;
+}
+
+function setColumnWidth(th: HTMLTableCellElement, px: number): void {
+  const width = Math.min(COLUMN_WIDTH_MAX, Math.max(COLUMN_WIDTH_MIN, Math.round(px)));
+  columnWidths.set(must(th.dataset.column), width);
+  th.style.width = `${width}px`;
+  must(th.querySelector<HTMLElement>('.col-resize')).setAttribute('aria-valuenow', String(width));
+}
+
+/* Pointer events rather than mouse events (#77), as the group rail does: one
+path covers mouse, touch and pen, so a column resizes wherever it is visible. */
+function addColumnHandle(th: HTMLTableCellElement, label: string): void {
+  const handle = document.createElement('span');
+  handle.className = 'col-resize';
+  handle.tabIndex = 0;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-label', `Resize ${label} column`);
+  handle.setAttribute('aria-valuemin', String(COLUMN_WIDTH_MIN));
+  handle.setAttribute('aria-valuemax', String(COLUMN_WIDTH_MAX));
+
+  handle.addEventListener('pointerdown', (down) => {
+    down.preventDefault();
+    handle.setPointerCapture(down.pointerId);
+    const startX = down.clientX;
+    const startWidth = currentColumnWidth(th);
+
+    const onMove = (move: PointerEvent) => setColumnWidth(th, startWidth + move.clientX - startX);
+    const onDone = () => {
+      handle.releasePointerCapture(down.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onDone);
+      handle.removeEventListener('pointercancel', onDone);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onDone);
+    handle.addEventListener('pointercancel', onDone);
+  });
+
+  handle.addEventListener('keydown', (key) => {
+    if (key.key !== 'ArrowLeft' && key.key !== 'ArrowRight') return;
+    key.preventDefault();
+    const step = key.key === 'ArrowLeft' ? -COLUMN_WIDTH_STEP : COLUMN_WIDTH_STEP;
+    setColumnWidth(th, currentColumnWidth(th) + step);
+  });
+
+  th.appendChild(handle);
+}
+
+function buildColumnHeader(id: string, label: string): HTMLTableCellElement {
+  const th = document.createElement('th');
+  th.textContent = label;
+  th.dataset.column = id;
+  const chosen = columnWidths.get(id);
+  if (chosen !== undefined) th.style.width = `${chosen}px`;
+  addColumnHandle(th, label);
+  return th;
+}
+
+/* A column only has a measurable width once the table is in the document, so
+the starting value a screen reader reads out is published after it is attached
+rather than while it is being built (#77). */
+function publishColumnWidths(table: HTMLTableElement): void {
+  for (const handle of table.querySelectorAll<HTMLElement>('.col-resize')) {
+    const th = must(handle.parentElement) as HTMLTableCellElement;
+    handle.setAttribute('aria-valuenow', String(Math.round(currentColumnWidth(th))));
+  }
 }
 
 function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
@@ -768,15 +871,13 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
-  const titleTh = document.createElement('th');
-  titleTh.textContent = 'Title';
-  headRow.appendChild(titleTh);
+  headRow.appendChild(buildColumnHeader('title', 'Title'));
   for (const column of visibleColumns) {
-    const th = document.createElement('th');
-    th.textContent = column.label;
-    headRow.appendChild(th);
+    headRow.appendChild(buildColumnHeader(column.key, column.label));
   }
+  // Only wide enough for the row control, and not the user's to resize.
   const openTh = document.createElement('th');
+  openTh.className = 'entry-table-open';
   const openLabel = document.createElement('span');
   openLabel.className = 'visually-hidden';
   openLabel.textContent = 'Open';
@@ -993,6 +1094,25 @@ function wireEntryListEvents(): void {
 
   buildColumnPickerMenu();
   updateViewToggleUI();
+}
+
+/* What someone pressing find wants is an entry, not a word on the screen in
+front of them, and the search field looks through the whole database rather
+than the page (#78). The edit screen keeps the browser's own find: it holds
+typing nobody has committed, and leaving would throw it away. */
+function startFind(): boolean {
+  if (app.db === null) return false;
+  // A dialog holds the keyboard while it is open, so the list behind it is not the subject.
+  if (document.querySelector('dialog[open]') !== null) return false;
+  if (document.querySelector('#root .screen-edit') !== null) return false;
+  if (document.querySelector('#root .screen-detail') !== null) {
+    app.currentEntry = null;
+    showEntryList();
+  }
+  const search = qs<HTMLInputElement>('#search-input');
+  search.focus();
+  search.select();
+  return true;
 }
 
 // ============================================================
@@ -1375,6 +1495,7 @@ function buildEditField(
       valueInput.type = valueInput.type === 'password' ? 'text' : 'password';
       toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
     });
+    keepFieldFocus(toggle);
     row.appendChild(toggle);
   }
 
@@ -1383,6 +1504,7 @@ function buildEditField(
     // with — the user may have already edited it.
     copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
   });
+  keepFieldFocus(copyBtn);
   row.appendChild(copyBtn);
 
   if (key === 'Password') {
@@ -1391,6 +1513,7 @@ function buildEditField(
         valueInput.value = password;
       });
     });
+    keepFieldFocus(generateBtn);
     row.appendChild(generateBtn);
   }
 
@@ -1948,6 +2071,7 @@ function openMoveToDialog(
 //   app  → host : kw-ready          app booted, send a vault or a create instruction
 //   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer)
 //   host → app  : kw-create         start a brand-new, empty vault
+//   host → app  : kw-find           host saw the find keystroke; take it
 //   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
 //   host → app  : kw-saved          result of that persist (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
@@ -1975,17 +2099,16 @@ function postToHost(message: object): void {
   window.parent.postMessage(message, HOST_ORIGIN);
 }
 
-/** The tab title belongs to whichever document owns the tab: the host when
-embedded, this page when standalone. Every screen announces itself, so the
-tab bar names the open database and its lock state without being opened (#65). */
+/** The tab belongs to whichever document owns it: the host when embedded, this
+page when standalone. Every screen announces itself, so the tab bar names the
+open database and shows its lock state without being opened (#65, #73). */
 function publishTitle(): void {
   const locked = app.db === null;
   if (isEmbedded()) {
     postToHost(titleMessage(app.filename, locked));
     return;
   }
-  const icon = locked ? '🔒' : '🔓';
-  document.title = app.filename ? `${icon} ${app.filename} - ${BASE_TITLE}` : BASE_TITLE;
+  applyTabState(document, BASE_TITLE, app.filename, locked);
 }
 
 function handleHostMessage(event: MessageEvent): void {
@@ -2004,6 +2127,9 @@ function handleHostMessage(event: MessageEvent): void {
     pendingSave = null;
     const { ok, error } = event.data;
     resolve?.(error === undefined ? { ok } : { ok, error });
+  } else if (isFindMessage(event.data)) {
+    // The host already swallowed the keystroke, so its outcome is nothing to report.
+    startFind();
   } else if (isCloseRequestMessage(event.data)) {
     confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeAckMessage()), CLOSE_PROMPT);
   }
@@ -2043,3 +2169,10 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 document.addEventListener('visibilitychange', handleVisibilityChange);
+
+/* Only taken when there is something to search; on the upload, unlock and edit
+screens the browser's own find is still the right answer (#78). */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'f' || e.altKey || e.shiftKey || !(e.metaKey || e.ctrlKey)) return;
+  if (startFind()) e.preventDefault();
+});

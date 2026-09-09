@@ -4,7 +4,7 @@
   "files": [
     "router/src/index.js",
     "embed-protocol/src/index.js",
-
+    "../pages/shared/logic.js",
     "../pages/cloud-google-drive/logic.js",
     "../pages/cloud-google-drive/page.js"
   ],
@@ -23,6 +23,8 @@
     "openMessage",
     "createMessage",
     "savedMessage",
-    "closeRequestMessage"
+    "closeRequestMessage",
+    "applyTabState",
+    "findMessage"
   ]
 }

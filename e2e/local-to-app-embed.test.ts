@@ -69,10 +69,55 @@ test('dropping a file on local.html embeds a working 0x67 app that unlocks the s
   await iframeFrame.click('#unlock-btn');
 
   await iframeFrame.waitForSelector('.entry-table');
-  const titleText = await iframeFrame.$eval('.entry-table-title', (el) => el.textContent);
+  const titleText = await iframeFrame.$eval(
+    '.entry-table-title .entry-cell-text',
+    (el) => el.textContent,
+  );
   assert.ok(
     titleText?.includes(fixture.entryTitle),
     `unlocked vault shows the fixture entry, got "${titleText}"`,
+  );
+});
+
+test('the find keystroke reaches the app even when focus is on the host page', async () => {
+  const fixture = await writeKdbxFixture();
+
+  await page.goto(`${server.origin}/local.html`, { waitUntil: 'networkidle0' });
+  const fileInput = (await page.waitForSelector('#file-input')) as ElementHandle<HTMLInputElement>;
+  assert.ok(fileInput, 'the file input exists');
+  await fileInput.uploadFile(fixture.path);
+
+  const iframeElement = await page.waitForSelector('#app-frame');
+  assert.ok(iframeElement, 'the app is embedded');
+  const app = await iframeElement.contentFrame();
+  assert.ok(app, 'the iframe has a content frame');
+
+  const passwordInput = await app.waitForSelector('#master-password');
+  assert.ok(passwordInput, 'the app shows its unlock screen');
+  await passwordInput.type(fixture.password);
+  await app.click('#unlock-btn');
+  await app.waitForSelector('.entry-table');
+
+  // Click the host's own chrome, so this document — not the iframe — is the
+  // one holding focus and the one the keystroke will be delivered to. Without
+  // the host forwarding it, the app would never see it at all.
+  await page.click('#host-filename');
+  await app.$eval('#search-input', (el) => (el as HTMLElement).blur());
+  assert.notEqual(
+    await app.evaluate(() => document.activeElement?.id),
+    'search-input',
+    'focus really is off the search field to begin with',
+  );
+
+  await page.keyboard.down('Control');
+  await page.keyboard.press('f');
+  await page.keyboard.up('Control');
+
+  await app.waitForFunction(() => document.activeElement?.id === 'search-input');
+  assert.equal(
+    await app.evaluate(() => document.activeElement?.id),
+    'search-input',
+    'the find crossed into the app and landed in its database-wide search',
   );
 });
 
