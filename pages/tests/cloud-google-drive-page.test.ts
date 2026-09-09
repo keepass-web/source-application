@@ -392,10 +392,10 @@ test('Google Drive connector', async (t) => {
 
   await t.test('kw-title names the open database in the tab', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
-    assert.equal(doc.title, '🔒 vault.kdbx - Locked - KeePass Web - Google Drive');
+    assert.equal(doc.title, 'vault.kdbx - Locked - KeePass Web - Google Drive');
 
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
-    assert.equal(doc.title, '🔓 vault.kdbx - Unlocked - KeePass Web - Google Drive');
+    assert.equal(doc.title, 'vault.kdbx - Unlocked - KeePass Web - Google Drive');
 
     // An app with nothing open reports no filename, leaving this page's own title.
     sendMessage({ type: 'kw-title', filename: '', locked: true }, { source: frameWin });

@@ -13,11 +13,12 @@ const LOCKED_ICON =
 const UNLOCKED_ICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3.4' fill='%238a5a1e'/%3E%3Crect x='3.7' y='4.4' width='8.6' height='1.9' rx='.95' fill='%23fff'/%3E%3Crect x='3.7' y='7.05' width='8.6' height='1.9' rx='.95' fill='%23fff'/%3E%3Crect x='3.7' y='9.7' width='8.6' height='1.9' rx='.95' fill='%23fff'/%3E%3C/svg%3E";
 
-/** The tab's name. It spells the state out as well as showing it, because 🔒
-and 🔓 are as hard to tell apart in a title as they are in a tab (#73). */
+/** The tab's name. The state is named in words and not repeated as a glyph:
+the icon beside it already carries it as a picture, and the padlock emoji says
+the same thing a second time in the form that reads least well (#73). */
 export function tabTitle(baseTitle: string, filename: string, locked: boolean): string {
   if (!filename) return baseTitle;
-  return `${locked ? '🔒' : '🔓'} ${filename} - ${locked ? 'Locked' : 'Unlocked'} - ${baseTitle}`;
+  return `${filename} - ${locked ? 'Locked' : 'Unlocked'} - ${baseTitle}`;
 }
 
 /** Name the tab and mark it with the database's state; no filename means no
