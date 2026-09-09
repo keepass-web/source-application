@@ -774,8 +774,12 @@ so an absolutely positioned menu would be cut off. */
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  /* Only under fixed layout does a column's width mean anything (#77). */
+  table-layout: fixed;
 }
 
+/* Starting proportions, not caps: spare width is shared out among them, and a
+drag replaces the value outright (#77). */
 .entry-table th {
   position: sticky;
   top: 0;
@@ -789,6 +793,45 @@ so an absolutely positioned menu would be cut off. */
   text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 10rem;
+}
+
+.entry-table th[data-column="title"],
+.entry-table th[data-column="url"] {
+  width: 15rem;
+}
+
+.entry-table th[data-column="password"] {
+  width: 8rem;
+}
+
+/* Sits inside the sticky header, which is its containing block (#77). */
+.col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-resize::before {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 5px;
+  width: 1px;
+  background: var(--border);
+}
+
+.col-resize:hover::before,
+.col-resize:focus-visible::before {
+  width: 2px;
+  background: var(--accent);
 }
 
 /* A tap on a cell copies (#67), so the cell must not start a text selection or
@@ -799,17 +842,30 @@ wait on a double-tap-to-zoom before that tap registers. */
   -webkit-touch-callout: none;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  max-width: 220px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* min-width:0 is what lets the text box shrink below its content, so it is the
+text that ellipsizes and the copy control that keeps its place (#76). */
+.entry-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.entry-cell-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 /* Present at rest, brighter on hover or focus (#67): hover may raise emphasis,
 never be what makes the affordance discoverable, since touch has none. */
 .copy-hint {
-  margin-left: 0.35rem;
+  margin-left: auto;
+  flex: 0 0 auto;
   padding: 0;
   border: none;
   background: none;
@@ -824,8 +880,11 @@ never be what makes the affordance discoverable, since touch has none. */
   opacity: 1;
 }
 
+.entry-table th.entry-table-open {
+  width: 2.5rem;
+}
+
 .entry-table-open {
-  width: 1px;
   text-align: right;
   white-space: nowrap;
 }

@@ -5,10 +5,12 @@ import {
   closeMessage,
   closeRequestMessage,
   createMessage,
+  findMessage,
   isCloseAckMessage,
   isCloseMessage,
   isCloseRequestMessage,
   isCreateMessage,
+  isFindMessage,
   isOpenMessage,
   isReadyMessage,
   isSavedMessage,
@@ -82,6 +84,14 @@ test('titleMessage / isTitleMessage round-trip', () => {
   assert.equal(isTitleMessage(null), false);
   assert.equal(isTitleMessage({ type: 'kw-title', filename: 'vault.kdbx' }), false);
   assert.equal(isTitleMessage({ type: 'kw-title', filename: 42, locked: true }), false);
+});
+
+test('findMessage / isFindMessage round-trip', () => {
+  assert.deepEqual(findMessage(), { type: 'kw-find' });
+  assert.equal(isFindMessage(findMessage()), true);
+  assert.equal(isFindMessage(null), false);
+  assert.equal(isFindMessage(42), false);
+  assert.equal(isFindMessage({ type: 'nope' }), false);
 });
 
 test('closeRequestMessage / isCloseRequestMessage round-trip', () => {

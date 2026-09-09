@@ -59,6 +59,7 @@ import {
 } from '../../packages/kdbx/src/index.ts';
 import type { generatePassword } from '../0x67/logic.ts';
 import * as logic from '../0x67/logic.ts';
+import { applyTabState } from '../shared/logic.ts';
 
 // ============================================================
 // jsdom environment, built from the real page.html
@@ -142,6 +143,7 @@ dom.window.HTMLElement.prototype.releasePointerCapture = () => {};
 // --- exactly like bundle.js does in the real browser build (see
 // --- bundle-iife.json's "exports" list, which this mirrors exactly). ---
 Object.assign(globalThis, {
+  applyTabState,
   Kdbx,
   Credentials,
   getChildren,
@@ -313,7 +315,7 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => q('#master-password') !== null);
     assert.equal(q<HTMLElement>('#db-filename').textContent, 'dropped.kdbx');
-    assert.equal(dom.window.document.title, '🔒 dropped.kdbx - KeePass Web');
+    assert.equal(dom.window.document.title, '🔒 dropped.kdbx - Locked - KeePass Web');
   });
 
   await t.test('unlock screen "back" returns to upload and clears the file', () => {
@@ -422,13 +424,22 @@ test('0x67 app', async (t) => {
     assert.equal(passwordInput.type, 'password');
   });
 
+  // jsdom never moves focus on a press, so the observable here is that the
+  // handler cancels it; e2e/reveal-focus.test.ts proves the real outcome.
+  await t.test('revealing the master password does not steal the caret', () => {
+    assert.ok(
+      dispatch(q('[data-action="toggle-password"]'), 'mousedown').defaultPrevented,
+      'the press that would move focus to the button is suppressed',
+    );
+  });
+
   await t.test('the correct password and key file unlock into the entry list', async () => {
     q<HTMLInputElement>('#master-password').value = PASSWORD;
     dispatch(q('#unlock-form'), 'submit');
 
     await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
     assert.ok(q('#group-tree').querySelector('.group-btn'));
-    assert.equal(dom.window.document.title, '🔓 real.kdbx - KeePass Web');
+    assert.equal(dom.window.document.title, '🔓 real.kdbx - Unlocked - KeePass Web');
     // Table view is the default.
     assert.equal(root().querySelectorAll('.entry-table').length, 1);
     // Switch to tile view, which the rest of this suite's entry-list
@@ -1188,6 +1199,21 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test('no control in the edit row takes the caret out of the value field', () => {
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+    ) as HTMLElement;
+
+    for (const title of ['Show / hide', 'Copy', 'Generate password']) {
+      const control = passwordRow.querySelector<HTMLButtonElement>(`[title="${title}"]`);
+      assert.ok(control, `the password row carries a "${title}" control`);
+      assert.ok(dispatch(control, 'mousedown').defaultPrevented, `"${title}" keeps the caret put`);
+    }
+
+    q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  });
+
   await t.test('editing an existing entry (not new) cancels back to the detail screen', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(q<HTMLElement>('#edit-title').textContent, 'Edit Entry');
@@ -1610,7 +1636,7 @@ test('0x67 app', async (t) => {
       assert.equal(lockDlg.open, false);
       await waitFor(() => q('#master-password') !== null);
       assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
-      assert.equal(dom.window.document.title, '🔒 real.kdbx - KeePass Web');
+      assert.equal(dom.window.document.title, '🔒 real.kdbx - Locked - KeePass Web');
 
       // A wrong password on the relocked (freshly re-encrypted) state is
       // still rejected — locking doesn't weaken the credential check.
@@ -1863,7 +1889,7 @@ test('a tab left hidden locks itself, and coming back in time calls it off', asy
   assert.equal(q<HTMLElement>('#db-filename').textContent, 'auto-lock.kdbx');
   assert.equal(
     dom.window.document.title,
-    '🔒 auto-lock.kdbx - KeePass Web',
+    '🔒 auto-lock.kdbx - Locked - KeePass Web',
     'the tab bar says so without being opened',
   );
 
@@ -2270,6 +2296,10 @@ test('entry list table view: columns, masked password, click to copy, button to 
   appendChild(rootGroup, createEntry({ title: 'No Password', username: 'bare' }));
   const bytes = await kdbx.save();
 
+  const findKey = (init: Record<string, unknown> = { key: 'f', metaKey: true }): Event =>
+    dispatch(dom.window.document, 'keydown', init);
+  assert.equal(findKey().defaultPrevented, false, 'no database, so no in-app find (#78)');
+
   const fileInput = q<HTMLInputElement>('#file-input');
   setFiles(fileInput, [makeFile('views.kdbx', bytes)]);
   dispatch(fileInput, 'change');
@@ -2295,13 +2325,63 @@ test('entry list table view: columns, masked password, click to copy, button to 
     "default visible columns, plus the open column's screen-reader-only name",
   );
 
-  // The cell's own text, without the copy hint appended beside it.
+  // Columns resize the way the group rail does. jsdom has no layout engine, so
+  // every drag starts from a zero-width column; that still proves the
+  // arithmetic, the clamps, and that a width survives the table being rebuilt.
+  const urlTh = (): HTMLElement => q<HTMLElement>('th[data-column="url"]');
+  const urlHandle = (): HTMLElement => q<HTMLElement>('th[data-column="url"] .col-resize');
+  assert.equal(urlHandle().getAttribute('aria-label'), 'Resize URL column');
+
+  dispatch(urlHandle(), 'pointerdown', { clientX: 100, pointerId: 1 });
+  dispatch(urlHandle(), 'pointermove', { clientX: 420, pointerId: 1 });
+  assert.equal(urlTh().style.width, '320px');
+  assert.equal(urlHandle().getAttribute('aria-valuenow'), '320');
+
+  dispatch(urlHandle(), 'pointermove', { clientX: 0, pointerId: 1 });
+  assert.equal(urlTh().style.width, '80px', 'clamped at the narrow end');
+  dispatch(urlHandle(), 'pointermove', { clientX: 9000, pointerId: 1 });
+  assert.equal(urlTh().style.width, '640px', 'clamped at the wide end');
+
+  dispatch(urlHandle(), 'pointerup', { clientX: 9000, pointerId: 1 });
+  dispatch(urlHandle(), 'pointermove', { clientX: 250, pointerId: 1 });
+  assert.equal(urlTh().style.width, '640px', 'releasing stops tracking the pointer');
+
+  dispatch(urlHandle(), 'keydown', { key: 'ArrowLeft' });
+  assert.equal(urlTh().style.width, '624px', 'one step narrower than the 640 just dragged to');
+  dispatch(urlHandle(), 'keydown', { key: 'a' });
+  assert.equal(urlTh().style.width, '624px', 'unchanged by a non-arrow key');
+  dispatch(urlHandle(), 'keydown', { key: 'ArrowRight' });
+  assert.equal(urlTh().style.width, '640px', 'one step wider, back at the ceiling');
+
+  dispatch(q('[data-action="view-tile"]'), 'click');
+  dispatch(q('[data-action="view-table"]'), 'click');
+  assert.equal(urlTh().style.width, '640px', 'the rebuilt column kept its width');
+  assert.equal(urlHandle().getAttribute('aria-valuenow'), '640');
+
+  // A column nobody has touched carries no width of its own and reports what it
+  // was laid out at, which under jsdom is zero.
+  assert.equal(q<HTMLElement>('th[data-column="title"]').style.width, '');
+  assert.equal(
+    q<HTMLElement>('th[data-column="title"] .col-resize').getAttribute('aria-valuenow'),
+    '0',
+  );
+
+  // The cell's own text, without the copy control beside it (#76).
   const bodyCells = (): string[] =>
-    Array.from(root().querySelectorAll('.entry-table tbody td')).map(
-      (td) => td.firstChild?.textContent ?? '',
+    Array.from(root().querySelectorAll('.entry-table tbody .entry-cell-text')).map(
+      (text) => text.textContent ?? '',
     );
   const [titleCell, usernameCell, passwordCell, urlCell] = bodyCells();
   assert.ok(titleCell?.includes('GitHub'));
+
+  // The copy control is the cell's own trailing element rather than something
+  // glued to the end of the text, which is what keeps it in view (#76).
+  const firstCell = q<HTMLElement>('.entry-table tbody td');
+  assert.equal(
+    firstCell.querySelector('.entry-cell')?.lastElementChild?.className,
+    'copy-hint',
+    'it comes after the text box, as a sibling of it',
+  );
   assert.equal(usernameCell, 'octocat');
   assert.equal(passwordCell, '••••••••', 'password is masked on screen');
   assert.equal(urlCell, 'https://github.com');
@@ -2330,7 +2410,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
   clipboardWritesShouldFail = false;
   const maskedCell = (): HTMLElement =>
     Array.from(root().querySelectorAll('.entry-table tbody td')).find(
-      (td) => td.firstChild?.textContent === '••••••••',
+      (td) => td.querySelector('.entry-cell-text')?.textContent === '••••••••',
     ) as HTMLElement;
 
   // A click copies the real value, names it, and leaves the card shut.
@@ -2353,12 +2433,46 @@ test('entry list table view: columns, masked password, click to copy, button to 
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the copy button copies exactly once');
 
+  // Find looks through the database rather than the page, so it takes the
+  // keystroke and puts the caret in the search field with whatever was already
+  // typed selected, ready to be replaced (#78).
+  q<HTMLInputElement>('#search-input').value = 'stale';
+  assert.equal(findKey().defaultPrevented, true);
+  assert.equal(dom.window.document.activeElement, q('#search-input'), 'the caret moved there');
+  assert.equal(q<HTMLInputElement>('#search-input').selectionStart, 0, 'over the whole value');
+  assert.equal(q<HTMLInputElement>('#search-input').selectionEnd, 'stale'.length);
+
+  assert.equal(findKey({ key: 'f', ctrlKey: true }).defaultPrevented, true, 'ctrl works too');
+  assert.equal(findKey({ key: 'g', metaKey: true }).defaultPrevented, false);
+  assert.equal(findKey({ key: 'f' }).defaultPrevented, false, 'unmodified f is just typing');
+  assert.equal(findKey({ key: 'f', metaKey: true, shiftKey: true }).defaultPrevented, false);
+  assert.equal(findKey({ key: 'f', ctrlKey: true, altKey: true }).defaultPrevented, false);
+  q<HTMLInputElement>('#search-input').value = '';
+
+  // A modal has the keyboard; the list behind it is not what find is about.
+  dispatch(q('[data-action="settings"]'), 'click');
+  assert.equal(findKey().defaultPrevented, false, 'the dialog keeps the keystroke');
+  dispatch(dq('#dlg-settings [data-action="close"]'), 'click');
+  assert.equal(findKey().defaultPrevented, true, 'and find works again once it is gone');
+
   // Opening the card is its own button, never a gesture over the values.
   const openBtn = (q('.entry-table tbody tr') as HTMLElement).querySelector(
     '.entry-table-open button',
   ) as HTMLButtonElement;
   dispatch(openBtn, 'click');
   assert.ok(q<HTMLElement>('#detail-title')?.textContent?.includes('GitHub'), 'the › opens it');
+
+  // The card is read-only, so find can leave it and go back to the list (#78).
+  assert.equal(findKey().defaultPrevented, true);
+  assert.equal(q('#detail-title'), null, 'the card gave way to the list');
+  assert.equal(dom.window.document.activeElement, q('#search-input'));
+
+  // The edit screen holds typing nobody has committed, so find stays out of it.
+  dispatch(q('.entry-table tbody .entry-table-open button'), 'click');
+  dispatch(q('[data-action="edit"]'), 'click');
+  assert.equal(findKey().defaultPrevented, false, 'the browser keeps its own find here');
+  assert.ok(q('#edit-title'), 'and the edit screen is still the one showing');
+  dispatch(q('[data-action="cancel"]'), 'click');
   dispatch(q('[data-action="back"]'), 'click');
   dispatch(q('[data-action="view-table"]'), 'click');
 
@@ -2384,7 +2498,11 @@ test('entry list table view: columns, masked password, click to copy, button to 
   const attachmentsTd = (q('.entry-table tbody tr') as HTMLElement).querySelectorAll('td')[
     columnIndex
   ] as HTMLElement;
-  assert.equal(attachmentsTd.firstChild?.textContent, '', 'no attachments on this entry');
+  assert.equal(
+    attachmentsTd.querySelector('.entry-cell-text')?.textContent,
+    '',
+    'no attachments on this entry',
+  );
   assert.equal(attachmentsTd.querySelector('.copy-hint'), null, 'and so no copy hint');
   clipboardText = '';
   dispatch(attachmentsTd, 'click');

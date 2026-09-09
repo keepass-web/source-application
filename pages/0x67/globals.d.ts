@@ -41,6 +41,9 @@ interface TitleMessage {
 interface CloseRequestMessage {
   type: 'kw-close-request';
 }
+interface FindMessage {
+  type: 'kw-find';
+}
 interface ReadyMessage {
   type: 'kw-ready';
 }
@@ -55,9 +58,17 @@ declare function isOpenMessage(data: unknown): data is OpenMessage;
 declare function isCreateMessage(data: unknown): data is CreateMessage;
 declare function isSavedMessage(data: unknown): data is SavedMessage;
 declare function isCloseRequestMessage(data: unknown): data is CloseRequestMessage;
+declare function isFindMessage(data: unknown): data is FindMessage;
 declare function readyMessage(): ReadyMessage;
 declare function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage;
 declare function titleMessage(filename: string, locked: boolean): TitleMessage;
+
+declare function applyTabState(
+  doc: Document,
+  baseTitle: string,
+  filename: string,
+  locked: boolean,
+): void;
 declare function closeAckMessage(): CloseAckMessage;
 declare function closeMessage(): CloseMessage;
 

@@ -124,13 +124,32 @@ function embedApp(headerLabel: string, implementation: string): void {
     requestCloseIframe(tearDownIframe);
   });
   window.addEventListener('message', handleFrameMessage);
+  window.addEventListener('keydown', handleFindKey);
   // src is set last so the iframe's kw-ready can't fire before the listener attaches.
   qs<HTMLIFrameElement>('#app-frame').src = implementation;
 }
 
+/* The app reports its lock state for the tab (#65); a find is only worth
+forwarding once it is unlocked and has entries to look through (#78). */
+let appUnlocked = false;
+
+/* Focus outside the iframe means this document gets the keystroke, so the find
+is forwarded rather than left to the browser's own, which can only see this
+page's chrome (#78). */
+function handleFindKey(event: KeyboardEvent): void {
+  if (event.key !== 'f' || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) {
+    return;
+  }
+  if (!appUnlocked) return;
+  event.preventDefault();
+  must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(findMessage(), APP_ORIGIN);
+}
+
 function tearDownIframe(): void {
   window.removeEventListener('message', handleFrameMessage);
-  document.title = BASE_TITLE;
+  window.removeEventListener('keydown', handleFindKey);
+  appUnlocked = false;
+  applyTabState(document, BASE_TITLE, '', true);
   pendingAction = null;
   showChooser();
 }
@@ -160,9 +179,8 @@ function handleFrameMessage(event: MessageEvent): void {
     qs('#host-filename').textContent = event.data.filename;
     downloadAndAck(event.data.filename, event.data.bytes, source);
   } else if (isTitleMessage(event.data)) {
-    const { filename, locked } = event.data;
-    const icon = locked ? '🔒' : '🔓';
-    document.title = filename ? `${icon} ${filename} - ${BASE_TITLE}` : BASE_TITLE;
+    appUnlocked = !event.data.locked;
+    applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
   } else if (isCloseAckMessage(event.data)) {
     const afterClose = pendingClose;
     pendingClose = null;

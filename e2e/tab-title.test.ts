@@ -1,9 +1,9 @@
-/** The tab title belongs to local.html, but only the embedded 0x67 app knows
- * which database is open and whether it is locked — so the title is right
- * only if a real cross-document postMessage is delivered and handled. The
- * jsdom suites test each page in its own isolated window and cannot show
- * that; this drives the built distributables in Chrome, where the two
- * documents really are separate. */
+/** The tab belongs to local.html, but only the embedded 0x67 app knows which
+ * database is open and whether it is locked — so the tab's name and its icon
+ * are right only if a real cross-document postMessage is delivered and
+ * handled. The jsdom suites test each page in its own isolated window and
+ * cannot show that; this drives the built distributables in Chrome, where the
+ * two documents really are separate. */
 import assert from 'node:assert/strict';
 import { basename } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -51,12 +51,16 @@ async function waitForTitle(expected: string): Promise<void> {
   }
 }
 
+const tabIcon = (): Promise<string> =>
+  page.$eval('link[rel="icon"]', (link) => link.getAttribute('href') ?? '');
+
 test('the tab names the open database and tracks its lock state', async () => {
   const fixture = await writeKdbxFixture();
   const filename = basename(fixture.path);
 
   await page.goto(`${server.origin}/local.html`, { waitUntil: 'networkidle0' });
   assert.equal(await page.title(), BASE_TITLE, 'nothing open, so the tab is just this page');
+  const pageIcon = await tabIcon();
 
   // waitForSelector can't infer the element type from an id selector.
   const fileInput = (await page.waitForSelector('#file-input')) as ElementHandle<HTMLInputElement>;
@@ -68,7 +72,9 @@ test('the tab names the open database and tracks its lock state', async () => {
   const iframeFrame = await iframeElement.contentFrame();
   assert.ok(iframeFrame, 'the iframe has a content frame');
 
-  await waitForTitle(`🔒 ${filename} - ${BASE_TITLE}`);
+  await waitForTitle(`🔒 ${filename} - Locked - ${BASE_TITLE}`);
+  const lockedIcon = await tabIcon();
+  assert.notEqual(lockedIcon, pageIcon, 'a held database is not the page at rest');
 
   const passwordInput = await iframeFrame.waitForSelector('#master-password');
   assert.ok(passwordInput, 'the embedded app went straight to its unlock screen');
@@ -76,7 +82,9 @@ test('the tab names the open database and tracks its lock state', async () => {
   await iframeFrame.click('#unlock-btn');
 
   await iframeFrame.waitForSelector('.entry-table');
-  await waitForTitle(`🔓 ${filename} - ${BASE_TITLE}`);
+  await waitForTitle(`🔓 ${filename} - Unlocked - ${BASE_TITLE}`);
+  const unlockedIcon = await tabIcon();
+  assert.notEqual(unlockedIcon, lockedIcon, 'and the two states do not share an icon');
 
   // Nothing is unsaved, but the app still asks before giving the database up.
   await page.click('[data-action="back-to-chooser"]');
@@ -86,4 +94,5 @@ test('the tab names the open database and tracks its lock state', async () => {
   await iframeFrame.click('#dlg-confirm-discard [data-action="confirm-discard"]');
   await page.waitForSelector('#drop-zone');
   await waitForTitle(BASE_TITLE);
+  assert.equal(await tabIcon(), pageIcon, 'closing hands the page its own icon back');
 });

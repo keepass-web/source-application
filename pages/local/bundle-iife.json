@@ -4,7 +4,7 @@
   "files": [
     "router/src/index.js",
     "embed-protocol/src/index.js",
-
+    "../pages/shared/logic.js",
     "../pages/local/logic.js",
     "../pages/local/page.js"
   ],
@@ -19,6 +19,8 @@
     "createMessage",
     "savedMessage",
     "closeRequestMessage",
-    "must"
+    "must",
+    "applyTabState",
+    "findMessage"
   ]
 }
