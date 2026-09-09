@@ -315,7 +315,7 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => q('#master-password') !== null);
     assert.equal(q<HTMLElement>('#db-filename').textContent, 'dropped.kdbx');
-    assert.equal(dom.window.document.title, '🔒 dropped.kdbx - Locked - KeePass Web');
+    assert.equal(dom.window.document.title, 'dropped.kdbx - Locked - KeePass Web');
   });
 
   await t.test('unlock screen "back" returns to upload and clears the file', () => {
@@ -439,7 +439,7 @@ test('0x67 app', async (t) => {
 
     await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
     assert.ok(q('#group-tree').querySelector('.group-btn'));
-    assert.equal(dom.window.document.title, '🔓 real.kdbx - Unlocked - KeePass Web');
+    assert.equal(dom.window.document.title, 'real.kdbx - Unlocked - KeePass Web');
     // Table view is the default.
     assert.equal(root().querySelectorAll('.entry-table').length, 1);
     // Switch to tile view, which the rest of this suite's entry-list
@@ -1636,7 +1636,7 @@ test('0x67 app', async (t) => {
       assert.equal(lockDlg.open, false);
       await waitFor(() => q('#master-password') !== null);
       assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
-      assert.equal(dom.window.document.title, '🔒 real.kdbx - Locked - KeePass Web');
+      assert.equal(dom.window.document.title, 'real.kdbx - Locked - KeePass Web');
 
       // A wrong password on the relocked (freshly re-encrypted) state is
       // still rejected — locking doesn't weaken the credential check.
@@ -1889,7 +1889,7 @@ test('a tab left hidden locks itself, and coming back in time calls it off', asy
   assert.equal(q<HTMLElement>('#db-filename').textContent, 'auto-lock.kdbx');
   assert.equal(
     dom.window.document.title,
-    '🔒 auto-lock.kdbx - Locked - KeePass Web',
+    'auto-lock.kdbx - Locked - KeePass Web',
     'the tab bar says so without being opened',
   );
 

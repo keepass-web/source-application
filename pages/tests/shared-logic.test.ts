@@ -24,11 +24,15 @@ const iconHref = (doc: Document): string =>
   doc.querySelector('link[rel="icon"]')?.getAttribute('href') ?? '';
 
 test('the title names the database and spells its state out', () => {
-  assert.equal(tabTitle('KeePass Web', 'vault.kdbx', true), '🔒 vault.kdbx - Locked - KeePass Web');
-  assert.equal(
-    tabTitle('KeePass Web', 'vault.kdbx', false),
-    '🔓 vault.kdbx - Unlocked - KeePass Web',
-  );
+  assert.equal(tabTitle('KeePass Web', 'vault.kdbx', true), 'vault.kdbx - Locked - KeePass Web');
+  assert.equal(tabTitle('KeePass Web', 'vault.kdbx', false), 'vault.kdbx - Unlocked - KeePass Web');
+});
+
+test('the title never repeats the state as a padlock glyph', () => {
+  for (const locked of [true, false]) {
+    const title = tabTitle('KeePass Web', 'vault.kdbx', locked);
+    assert.ok(!title.includes('\u{1F512}') && !title.includes('\u{1F513}'), title);
+  }
 });
 
 test('no database means the page keeps its own name', () => {
@@ -41,12 +45,12 @@ test('the icon tracks the lock state and hands the page its own back', () => {
 
   applyTabState(doc, 'Base', 'vault.kdbx', true);
   const locked = iconHref(doc);
-  assert.equal(doc.title, '🔒 vault.kdbx - Locked - Base');
+  assert.equal(doc.title, 'vault.kdbx - Locked - Base');
   assert.notEqual(locked, PAGE_ICON, 'a held database is not the page at rest');
 
   applyTabState(doc, 'Base', 'vault.kdbx', false);
   const unlocked = iconHref(doc);
-  assert.equal(doc.title, '🔓 vault.kdbx - Unlocked - Base');
+  assert.equal(doc.title, 'vault.kdbx - Unlocked - Base');
   assert.notEqual(unlocked, locked, 'and the two states are not the same icon');
 
   // Hue and glyph are what carry at 16px, so the two must differ in both.
@@ -72,6 +76,6 @@ test('a page whose icon link carries no href still gets one back', () => {
 test('a page with no icon link is titled anyway, not crashed', () => {
   const doc = pageDocument(false);
   applyTabState(doc, 'Base', 'vault.kdbx', true);
-  assert.equal(doc.title, '🔒 vault.kdbx - Locked - Base');
+  assert.equal(doc.title, 'vault.kdbx - Locked - Base');
   assert.equal(doc.querySelector('link[rel="icon"]'), null);
 });

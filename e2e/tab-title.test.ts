@@ -72,7 +72,7 @@ test('the tab names the open database and tracks its lock state', async () => {
   const iframeFrame = await iframeElement.contentFrame();
   assert.ok(iframeFrame, 'the iframe has a content frame');
 
-  await waitForTitle(`🔒 ${filename} - Locked - ${BASE_TITLE}`);
+  await waitForTitle(`${filename} - Locked - ${BASE_TITLE}`);
   const lockedIcon = await tabIcon();
   assert.notEqual(lockedIcon, pageIcon, 'a held database is not the page at rest');
 
@@ -82,7 +82,7 @@ test('the tab names the open database and tracks its lock state', async () => {
   await iframeFrame.click('#unlock-btn');
 
   await iframeFrame.waitForSelector('.entry-table');
-  await waitForTitle(`🔓 ${filename} - Unlocked - ${BASE_TITLE}`);
+  await waitForTitle(`${filename} - Unlocked - ${BASE_TITLE}`);
   const unlockedIcon = await tabIcon();
   assert.notEqual(unlockedIcon, lockedIcon, 'and the two states do not share an icon');
 
