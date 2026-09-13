@@ -89,6 +89,7 @@
     "closeAckMessage",
     "closeMessage",
     "applyTabState",
-    "isFindMessage"
+    "isFindMessage",
+    "peerOrigin"
   ]
 }

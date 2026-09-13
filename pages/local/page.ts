@@ -5,7 +5,7 @@ for creating, embeds the same implementation with nothing to hand over and
 lets it drive its own create-database screen — nothing leaves the browser
 either way. Differs from Drive only in what "save" means: here, a download. */
 
-const APP_ORIGIN = window.location.origin;
+const PEER = peerOrigin(window.location.protocol, window.location.origin);
 // The only current KDBX implementation. Opening detects this from a file's
 // bytes via packages/router; creating has no bytes to sniff, so it's named directly.
 const APP_IMPLEMENTATION = '0x67.html';
@@ -16,8 +16,10 @@ const BASE_TITLE = document.title;
 
 type PendingAction = { kind: 'open'; filename: string; bytes: ArrayBuffer } | { kind: 'create' };
 let pendingAction: PendingAction | null = null;
-// Set while waiting for a kw-close-ack, so handleFrameMessage knows what to run once safe.
-let pendingClose: (() => void) | null = null;
+/* Whether the embedded app has announced itself with kw-ready. A frame that
+never did cannot answer a close request, and holds nothing the user reached
+through this page, so it is removed without asking (#83). */
+let appReady = false;
 
 // DOM helpers
 
@@ -121,7 +123,7 @@ function embedApp(headerLabel: string, implementation: string): void {
   setRoot(cloneTemplate('tpl-host'));
   qs('#host-filename').textContent = headerLabel;
   qs('[data-action="back-to-chooser"]').addEventListener('click', () => {
-    requestCloseIframe(tearDownIframe);
+    requestCloseIframe();
   });
   window.addEventListener('message', handleFrameMessage);
   window.addEventListener('keydown', handleFindKey);
@@ -142,38 +144,46 @@ function handleFindKey(event: KeyboardEvent): void {
   }
   if (!appUnlocked) return;
   event.preventDefault();
-  must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(findMessage(), APP_ORIGIN);
+  must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(findMessage(), PEER.target);
 }
 
 function tearDownIframe(): void {
   window.removeEventListener('message', handleFrameMessage);
   window.removeEventListener('keydown', handleFindKey);
+  appReady = false;
   appUnlocked = false;
   applyTabState(document, BASE_TITLE, '', true);
   pendingAction = null;
   showChooser();
 }
 
-// Ask the embedded app if it's safe to remove the iframe (it may confirm discard first).
-function requestCloseIframe(afterClose: () => void): void {
-  pendingClose = afterClose;
+/* Ask the embedded app whether it's safe to remove the iframe; it may have
+unsaved edits, in which case it confirms discard first and only sends kw-close
+if the user agrees. A user who cancels sends nothing and the iframe stays, the
+same as cancelling that dialog standalone (#83). */
+function requestCloseIframe(): void {
+  if (!appReady) {
+    tearDownIframe();
+    return;
+  }
   must(qs<HTMLIFrameElement>('#app-frame').contentWindow).postMessage(
     closeRequestMessage(),
-    APP_ORIGIN,
+    PEER.target,
   );
 }
 
 function handleFrameMessage(event: MessageEvent): void {
-  if (event.origin !== APP_ORIGIN) return;
+  if (event.origin !== PEER.accept) return;
   const iframe = document.getElementById('app-frame') as HTMLIFrameElement | null;
   if (iframe === null || event.source === null || event.source !== iframe.contentWindow) return;
 
   const source = event.source as Window;
   if (isReadyMessage(event.data)) {
+    appReady = true;
     const action = must(pendingAction);
     source.postMessage(
       action.kind === 'open' ? openMessage(action.filename, action.bytes) : createMessage(),
-      APP_ORIGIN,
+      PEER.target,
     );
   } else if (isSaveMessage(event.data)) {
     qs('#host-filename').textContent = event.data.filename;
@@ -181,12 +191,7 @@ function handleFrameMessage(event: MessageEvent): void {
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
-  } else if (isCloseAckMessage(event.data)) {
-    const afterClose = pendingClose;
-    pendingClose = null;
-    afterClose?.();
   } else if (isCloseMessage(event.data)) {
-    // App-initiated (its own ✕ button) — no request/ack round-trip needed.
     tearDownIframe();
   }
 }
@@ -203,7 +208,7 @@ function downloadAndAck(filename: string, bytes: ArrayBuffer, source: Window): v
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  source.postMessage(savedMessage(true), APP_ORIGIN);
+  source.postMessage(savedMessage(true), PEER.target);
 }
 
 // Boot

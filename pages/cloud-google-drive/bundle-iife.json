@@ -18,13 +18,13 @@
     "isReadyMessage",
     "isSaveMessage",
     "isTitleMessage",
-    "isCloseAckMessage",
     "isCloseMessage",
     "openMessage",
     "createMessage",
     "savedMessage",
     "closeRequestMessage",
     "applyTabState",
-    "findMessage"
+    "findMessage",
+    "peerOrigin"
   ]
 }

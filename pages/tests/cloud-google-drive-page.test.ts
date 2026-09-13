@@ -433,21 +433,24 @@ test('Google Drive connector', async (t) => {
     assert.equal(frameInbox.length, taken, 'and nothing more was forwarded');
   });
 
-  await t.test('a stray kw-close-ack with nothing pending is a harmless no-op', () => {
+  await t.test('an unsolicited kw-close-ack is a harmless no-op', () => {
     const before = frameInbox.length;
     sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
     assert.equal(frameInbox.length, before, 'nothing posted back');
     assert.ok(q('#app-frame'), 'still showing the host screen');
   });
 
-  await t.test('back to Drive asks the app first, and only leaves once it acks', () => {
+  await t.test('back to Drive asks the app first, and only leaves once it closes', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: false }, { source: frameWin });
     click(q('[data-action="back-to-drive"]'));
-    assert.ok(q('#app-frame'), 'still on the host screen — waiting for the app to confirm');
+    assert.ok(q('#app-frame'), 'still on the host screen — waiting for the app to decide');
     const req = frameInbox.at(-1)?.message;
     assert.equal(req?.type, 'kw-close-request');
 
     sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
+    assert.ok(q('#app-frame'), 'receipt is not consent; the app may still be asking (#83)');
+
+    sendMessage({ type: 'kw-close' }, { source: frameWin });
     assert.ok(q('[data-action="pick"]'), 'now back at the chooser');
     assert.equal(doc.title, 'KeePass Web - Google Drive', 'the tab is this page again');
   });
@@ -488,6 +491,27 @@ test('Google Drive connector', async (t) => {
     sendMessage({ type: 'kw-close' }, { source: frameWin });
     assert.equal(frameInbox.length, before, 'no reply expected — the app already confirmed itself');
     assert.ok(q('[data-action="pick"]'), 'back at the chooser, no request/ack round trip needed');
+  });
+
+  await t.test('back to Drive leaves at once when the app never announced itself', async () => {
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => kdbxBytes(),
+    });
+    await pick({ id: 'f3', name: 'vault3.kdbx' });
+    await waitFor(() => q('#app-frame') !== null);
+    Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+      value: frameWin,
+      configurable: true,
+    });
+
+    // No kw-ready from this frame, so it can neither answer a close request nor
+    // hold anything the user reached through this page (#83).
+    const before = frameInbox.length;
+    click(q('[data-action="back-to-drive"]'));
+    assert.equal(frameInbox.length, before, 'nothing asked of a frame that never spoke');
+    assert.ok(q('[data-action="pick"]'), 'back at the chooser without waiting');
   });
 
   // --- Create a new database ----------------------------------------------
@@ -547,7 +571,7 @@ test('Google Drive connector', async (t) => {
       click(q('[data-action="back-to-drive"]'));
       const req = frameInbox.at(-1)?.message;
       assert.equal(req?.type, 'kw-close-request');
-      sendMessage({ type: 'kw-close-ack' }, { source: frameWin });
+      sendMessage({ type: 'kw-close' }, { source: frameWin });
       assert.ok(q('[data-action="pick"]'));
     },
   );
