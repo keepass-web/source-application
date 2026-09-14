@@ -1,6 +1,6 @@
 /**
  * Coverage for 0x67/page.ts's optional "Host integration" path — the code
- * that only runs when the app is embedded in a same-origin parent frame (the
+ * that only runs when the app is embedded in an equivalent-origin parent frame (the
  * cloud connector). 0x67-page.test.ts boots the app standalone (a top-level
  * jsdom window is its own parent, so isEmbedded() is false there); this file
  * boots a *fresh* copy with window.parent overridden to a mock, so the
@@ -196,12 +196,12 @@ const lastHostMessage = (): Record<string, unknown> =>
 // ============================================================
 
 test('0x67 embedded in a host frame', async (t) => {
-  await t.test('announces readiness and an empty title to the host on boot', () => {
-    assert.equal(hostInbox.length, 2);
+  await t.test('announces readiness to the host on boot', () => {
+    // Only kw-ready: until a host answers, this app does not yet know it has one,
+    // so it keeps its own title rather than telling anyone to set theirs (#83).
+    assert.equal(hostInbox.length, 1);
     assert.deepEqual(hostInbox[0]?.message, { type: 'kw-ready' });
     assert.equal(hostInbox[0]?.origin, 'https://example.com');
-    // Nothing is open yet, so the host is told to keep its own title.
-    assert.deepEqual(lastHostMessage(), { type: 'kw-title', filename: '', locked: true });
     // Still shows the normal upload screen underneath, untouched.
     assert.ok(q('#drop-zone'));
     assert.ok(doc.body.classList.contains('embedded')); // suppresses this document's own footer
@@ -232,11 +232,12 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(hostInbox.length, before, 'nothing posted back');
   });
 
-  await t.test('kw-close-request with nothing open acks at once', () => {
+  await t.test('kw-close-request with nothing open acks receipt, then closes at once', () => {
     const before = hostInbox.length;
     sendFromHost({ type: 'kw-close-request' });
-    assert.equal(hostInbox.length, before + 1, 'no database in the tab, nothing to ask about');
-    assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+    assert.equal(hostInbox.length, before + 2, 'no database in the tab, nothing to ask about');
+    assert.deepEqual(hostInbox[before]?.message, { type: 'kw-close-ack' });
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
     assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
   });
 
@@ -359,18 +360,19 @@ test('0x67 embedded in a host frame', async (t) => {
     // unsaved — but the open database itself is still worth a question.
     const before = hostInbox.length;
     sendFromHost({ type: 'kw-close-request' });
-    assert.equal(hostInbox.length, before, 'no ack until the user decides');
+    assert.equal(hostInbox.length, before + 1, 'receipt is immediate; the outcome is not');
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
     const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
     assert.equal(dlg.open, true);
     assert.equal(dq<HTMLElement>('#confirm-discard-title').textContent, 'Close this database?');
 
     click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
     assert.equal(dlg.open, false);
-    assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+    assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
   });
 
   await t.test(
-    'kw-close-request with unsaved changes opens the confirm dialog; confirming acks the host',
+    'kw-close-request with unsaved changes opens the confirm dialog; confirming closes',
     () => {
       // The walkthrough above left us on the entry-detail screen (commitEdits
       // returns there); back to the list, where a fresh edit can be made.
@@ -379,14 +381,15 @@ test('0x67 embedded in a host frame', async (t) => {
 
       const before = hostInbox.length;
       sendFromHost({ type: 'kw-close-request' });
-      assert.equal(hostInbox.length, before, 'no ack until the user decides');
+      assert.equal(hostInbox.length, before + 1, 'receipt is immediate; the outcome is not');
+      assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
       const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
       assert.equal(dlg.open, true);
 
       click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
       assert.equal(dlg.open, false);
-      assert.equal(hostInbox.length, before + 1);
-      assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
+      assert.equal(hostInbox.length, before + 2);
+      assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
     },
   );
 

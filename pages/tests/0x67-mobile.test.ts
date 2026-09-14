@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { peerOrigin } from '../../packages/embed-protocol/src/index.ts';
 import {
   appendChild,
   Credentials,
@@ -77,6 +78,7 @@ dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement
 
 Object.assign(globalThis, {
   applyTabState,
+  peerOrigin,
   Kdbx,
   Credentials,
   getChildren,

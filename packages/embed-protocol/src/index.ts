@@ -1,9 +1,8 @@
-/** `embed-protocol` — the same-origin postMessage contract between a
+/** `embed-protocol` — the equivalent-origin postMessage contract between a
 keepass-web implementation and whatever host embeds it in an iframe.
-Centralizes shapes/guards/builders (previously duplicated per side) so
-both ends provably agree on the wire format: kw-ready, kw-open, kw-create,
-kw-save, kw-saved, kw-title, kw-find, kw-close-request, kw-close-ack,
-kw-close. */
+Centralizes shapes/guards/builders so both ends provably agree on the wire
+format: kw-ready, kw-open, kw-create, kw-save, kw-saved, kw-title, kw-find,
+kw-close-request, kw-close-ack, kw-close (#1). */
 
 export interface ReadyMessage {
   type: 'kw-ready';
@@ -50,6 +49,7 @@ export interface CloseRequestMessage {
   type: 'kw-close-request';
 }
 
+// Receipt, not consent: the outcome follows as kw-close, or not at all if the user declines (#83).
 export interface CloseAckMessage {
   type: 'kw-close-ack';
 }
@@ -160,4 +160,17 @@ export function closeAckMessage(): CloseAckMessage {
 
 export function closeMessage(): CloseMessage {
   return { type: 'kw-close' };
+}
+
+// --- Origins ------------------------------------------------------------
+
+/* Each file:// document gets its own opaque origin, so neither side can name
+the other; a tuple target is never delivered and arriving messages read "null"
+(#83). Widening the target is safe there because nothing crossing it is a secret
+the filesystem does not already hold; the master password and the decrypted
+entries never leave the implementation. */
+export function peerOrigin(protocol: string, origin: string): { target: string; accept: string } {
+  return protocol === 'file:'
+    ? { target: '*', accept: 'null' }
+    : { target: origin, accept: origin };
 }

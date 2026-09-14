@@ -17,6 +17,7 @@ import {
   isSaveMessage,
   isTitleMessage,
   openMessage,
+  peerOrigin,
   readyMessage,
   savedMessage,
   saveMessage,
@@ -115,4 +116,22 @@ test('closeMessage / isCloseMessage round-trip', () => {
   assert.equal(isCloseMessage(null), false);
   assert.equal(isCloseMessage(42), false);
   assert.equal(isCloseMessage({ type: 'nope' }), false);
+});
+
+test('peerOrigin names the origin when served', () => {
+  assert.deepEqual(peerOrigin('https:', 'https://keepass-web.app'), {
+    target: 'https://keepass-web.app',
+    accept: 'https://keepass-web.app',
+  });
+  assert.deepEqual(peerOrigin('http:', 'http://localhost:8080'), {
+    target: 'http://localhost:8080',
+    accept: 'http://localhost:8080',
+  });
+});
+
+// Chrome and Safari report location.origin as "file://" here and Firefox as "null"; both arrive
+// as "null", so the accepted value cannot be derived from the origin the page reads for itself.
+test('peerOrigin widens on file://, whichever origin the browser reports', () => {
+  assert.deepEqual(peerOrigin('file:', 'file://'), { target: '*', accept: 'null' });
+  assert.deepEqual(peerOrigin('file:', 'null'), { target: '*', accept: 'null' });
 });

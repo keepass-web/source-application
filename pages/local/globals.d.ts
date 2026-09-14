@@ -48,9 +48,6 @@ interface TitleMessage {
 interface CloseRequestMessage {
   type: 'kw-close-request';
 }
-interface CloseAckMessage {
-  type: 'kw-close-ack';
-}
 interface CloseMessage {
   type: 'kw-close';
 }
@@ -58,7 +55,6 @@ interface CloseMessage {
 declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isTitleMessage(data: unknown): data is TitleMessage;
-declare function isCloseAckMessage(data: unknown): data is CloseAckMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
 declare function createMessage(): CreateMessage;
@@ -78,3 +74,5 @@ interface FindMessage {
   type: 'kw-find';
 }
 declare function findMessage(): FindMessage;
+
+declare function peerOrigin(protocol: string, origin: string): { target: string; accept: string };

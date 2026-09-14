@@ -231,3 +231,5 @@ declare const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: st
 declare function isoToLocalInputValue(iso: string): string;
 declare function localInputValueToIso(value: string): string;
 declare function defaultExpiryLocalInputValue(): string;
+
+declare function peerOrigin(protocol: string, origin: string): { target: string; accept: string };

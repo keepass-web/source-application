@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The same-origin postMessage protocol between a keepass-web implementation (e.g. 0x67) and whatever host page embeds it in an iframe.",
+  "description": "The equivalent-origin postMessage protocol between a keepass-web implementation (e.g. 0x67) and whatever host page embeds it in an iframe.",
   "sideEffects": false,
   "scripts": {
     "build": "tsc --project tsconfig.build.json",

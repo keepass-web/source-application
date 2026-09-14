@@ -43,8 +43,15 @@ const app: AppState = {
   },
 };
 
-// True once a trusted parent frame has handed this app a vault (see "Host integration").
-let hostSession = false;
+/* Whether a parent frame has handed this app a vault (see "Host integration").
+Three states, not two: an embedded app whose host never answers resolves to
+standalone rather than waiting forever (#83). */
+type HostState = 'standalone' | 'awaiting' | 'hosted';
+let hostState: HostState = 'standalone';
+
+function isHosted(): boolean {
+  return hostState === 'hosted';
+}
 
 // True while this tab holds a database: loaded, newly created, or locked (#66).
 function hasDatabase(): boolean {
@@ -992,7 +999,7 @@ function closeDatabase(): void {
     searchQuery: '',
   });
   setDirty(false);
-  if (isEmbedded()) {
+  if (isHosted()) {
     postToHost(closeMessage());
   } else {
     showUpload();
@@ -1671,10 +1678,10 @@ function openSaveDialog(): void {
   status.hidden = true;
   status.textContent = '';
   status.className = 'save-status';
-  localMsg.hidden = hostSession;
-  hostMsg.hidden = !hostSession;
-  downloadBtn.hidden = hostSession;
-  hostBtn.hidden = !hostSession;
+  localMsg.hidden = isHosted();
+  hostMsg.hidden = !isHosted();
+  downloadBtn.hidden = isHosted();
+  hostBtn.hidden = !isHosted();
   laterBtn.textContent = 'Later';
 
   downloadBtn.onclick = async () => {
@@ -1717,7 +1724,7 @@ consistent, awaitable outcome regardless of destination. Never rejects —
 failure comes back as `{ ok: false }` so callers can show it inline rather
 than an unhandled rejection. */
 async function performSave(): Promise<{ ok: boolean; error?: string }> {
-  if (!hostSession) {
+  if (!isHosted()) {
     const bytes = await must(app.db).save();
     const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
@@ -1860,7 +1867,7 @@ function confirmUnsavedChanges(
     dlg.close();
 
   const saveBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-save"]'));
-  saveBtn.textContent = hostSession ? 'Save' : 'Download';
+  saveBtn.textContent = isHosted() ? 'Save' : 'Download';
   saveBtn.hidden = !app.dirty; // there is nothing to save when the prompt is only about closing
   saveBtn.disabled = false;
   saveBtn.onclick = async () => {
@@ -2059,8 +2066,8 @@ function openMoveToDialog(
 // ============================================================
 //
 // This app is self-contained: opened directly, it never talks to another
-// window, and everything below is dormant. When it is embedded in a
-// same-origin parent frame — any chooser page, e.g. the local-file page or
+// window, and everything below is dormant. When it is embedded in an
+// equivalent-origin parent frame — any chooser page, e.g. the local-file page or
 // the Google Drive connector — that parent can hand it a vault to open and
 // receive the edited vault back, without the app reimplementing any of its
 // own file handling.
@@ -2075,14 +2082,15 @@ function openMoveToDialog(
 //   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
 //   host → app  : kw-saved          result of that persist (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
-//   app  → host : kw-close-ack      yes — nothing unsaved, or the user chose to discard
-//   app  → host : kw-close          app's own ✕ was clicked; safe to remove me now
+//   app  → host : kw-close-ack      request received; outcome follows as kw-close, or not at all
+//   app  → host : kw-close          app is closing: its own ✕, or consent to a close request
 //
-// Every inbound message is checked to come from the parent frame at this
-// page's own origin; anything else is ignored. Nothing here runs unless the
+// Every inbound message is checked to come from the parent frame at the origin
+// peerOrigin accepts; anything else is ignored. Nothing here runs unless the
 // app is actually framed, so standalone use is entirely unaffected.
 
-const HOST_ORIGIN = window.location.origin;
+const PEER = peerOrigin(window.location.protocol, window.location.origin);
+const HOST_REPLY_GRACE_MS = 1000;
 
 // This page's own title, kept so a closed database can hand the tab back (#65).
 const BASE_TITLE = document.title;
@@ -2096,7 +2104,7 @@ function isEmbedded(): boolean {
 }
 
 function postToHost(message: object): void {
-  window.parent.postMessage(message, HOST_ORIGIN);
+  window.parent.postMessage(message, PEER.target);
 }
 
 /** The tab belongs to whichever document owns it: the host when embedded, this
@@ -2104,7 +2112,7 @@ page when standalone. Every screen announces itself, so the tab bar names the
 open database and shows its lock state without being opened (#65, #73). */
 function publishTitle(): void {
   const locked = app.db === null;
-  if (isEmbedded()) {
+  if (isHosted()) {
     postToHost(titleMessage(app.filename, locked));
     return;
   }
@@ -2112,15 +2120,15 @@ function publishTitle(): void {
 }
 
 function handleHostMessage(event: MessageEvent): void {
-  if (event.origin !== HOST_ORIGIN || event.source !== window.parent) return;
+  if (event.origin !== PEER.accept || event.source !== window.parent) return;
 
   if (isOpenMessage(event.data)) {
-    hostSession = true;
+    hostState = 'hosted';
     app.filename = event.data.filename;
     app.file = event.data.bytes;
     showUnlock();
   } else if (isCreateMessage(event.data)) {
-    hostSession = true;
+    hostState = 'hosted';
     showCreateDatabase();
   } else if (isSavedMessage(event.data)) {
     const resolve = pendingSave;
@@ -2131,7 +2139,8 @@ function handleHostMessage(event: MessageEvent): void {
     // The host already swallowed the keystroke, so its outcome is nothing to report.
     startFind();
   } else if (isCloseRequestMessage(event.data)) {
-    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeAckMessage()), CLOSE_PROMPT);
+    postToHost(closeAckMessage());
+    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeMessage()), CLOSE_PROMPT);
   }
 }
 
@@ -2140,22 +2149,27 @@ function handleHostMessage(event: MessageEvent): void {
 // ============================================================
 
 if (isEmbedded()) {
-  document.body.classList.add('embedded'); // the host page has its own footer
+  // The host's chrome is on screen whether or not it answers, so its footer wins (#83).
+  document.body.classList.add('embedded');
   window.addEventListener('message', handleHostMessage);
+  hostState = 'awaiting';
   // Announce readiness so the host knows it can send a vault or a create
   // instruction. Handshaking this way (rather than the host racing the
   // iframe's load event) means the host only sends once the listener above is
   // definitely attached.
   postToHost(readyMessage());
+  /* A host replies to kw-ready in the same tick, so silence past this point
+  means no host is coming and this app runs as it does standalone (#83). */
+  window.setTimeout(() => {
+    if (hostState !== 'awaiting') return;
+    hostState = 'standalone';
+    publishTitle();
+  }, HOST_REPLY_GRACE_MS);
 }
 
-// Shows the upload screen even when embedded: kw-open/kw-create (almost
-// always arriving within the same tick, since the host already has its bytes
-// or its create decision ready before it ever sets this iframe's src)
-// immediately replaces it. Without this fallback, a host whose reply
-// postMessage never arrives — e.g. file://, where each document gets its own
-// opaque origin and same-origin delivery silently never matches — would
-// leave the app permanently blank instead of at least usable standalone.
+/* Runs even when embedded: a host that is there replaces this with kw-open or
+kw-create in the same tick, and one that never answers leaves it standing, so
+the app is usable rather than blank either way (#83). */
 showUpload();
 
 /* Closing the tab, reloading, or navigating away takes the whole session
