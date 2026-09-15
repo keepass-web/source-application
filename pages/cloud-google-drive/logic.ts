@@ -49,3 +49,42 @@ export function buildMultipartBody(
   ]);
   return { body, boundary };
 }
+
+// How a Drive response should be handled.
+export type DriveOutcome = 'ok' | 'auth-expired' | 'retry' | 'fail';
+
+// The reasons Drive gives when a 403 is a throttle rather than a permission failure.
+const RETRYABLE_403_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded'];
+
+/** Drive reports a throttle as a 403 carrying the reason only in its body, so
+the body is the one way to tell it from a permanent permission failure (#85). */
+export function driveErrorReason(body: unknown): string | undefined {
+  const reason = (body as { error?: { errors?: { reason?: unknown }[] } } | null)?.error
+    ?.errors?.[0]?.reason;
+  return typeof reason === 'string' ? reason : undefined;
+}
+
+/** Classify a Drive status. 'auth-expired' stays separate from 'fail' because
+renewing the token opens Google's popup, which a blocker stops unless a user
+gesture drives it; the UI has to ask rather than the request path retrying on
+its own (#85). */
+export function classifyDriveResponse(status: number, reason?: string): DriveOutcome {
+  if (status >= 200 && status < 300) return 'ok';
+  if (status === 401) return 'auth-expired';
+  if (status === 429 || status >= 500) return 'retry';
+  if (status === 403 && reason !== undefined && RETRYABLE_403_REASONS.includes(reason)) {
+    return 'retry';
+  }
+  return 'fail';
+}
+
+// Counts the first try, so this allows two retries (#85).
+export const MAX_DRIVE_ATTEMPTS = 3;
+const BASE_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 8000;
+
+/** Full jitter over an exponentially growing window, so retries from separate
+tabs spread out instead of landing together (#85). */
+export function backoffDelayMs(retry: number, random: () => number = Math.random): number {
+  return Math.round(random() * Math.min(BASE_RETRY_DELAY_MS * 2 ** retry, MAX_RETRY_DELAY_MS));
+}

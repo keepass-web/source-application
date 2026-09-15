@@ -10,10 +10,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  backoffDelayMs,
   buildDriveCreateUrl,
   buildDriveDownloadUrl,
   buildDriveUpdateUrl,
   buildMultipartBody,
+  classifyDriveResponse,
+  driveErrorReason,
+  MAX_DRIVE_ATTEMPTS,
   must,
 } from '../cloud-google-drive/logic.ts';
 
@@ -61,4 +65,71 @@ test('buildMultipartBody generates a fresh boundary each call', () => {
   const a = buildMultipartBody('a.kdbx', bytes);
   const b = buildMultipartBody('a.kdbx', bytes);
   assert.notEqual(a.boundary, b.boundary);
+});
+
+test('driveErrorReason digs the reason out of a Drive error body, or gives up quietly', () => {
+  assert.equal(
+    driveErrorReason({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }),
+    'userRateLimitExceeded',
+  );
+  assert.equal(driveErrorReason(null), undefined);
+  assert.equal(driveErrorReason({}), undefined);
+  assert.equal(driveErrorReason({ error: {} }), undefined);
+  assert.equal(driveErrorReason({ error: { errors: [] } }), undefined);
+  assert.equal(driveErrorReason({ error: { errors: [{}] } }), undefined);
+  assert.equal(driveErrorReason({ error: { errors: [{ reason: 7 }] } }), undefined);
+});
+
+test('classifyDriveResponse separates success, expiry, transient failure, and the rest', () => {
+  assert.equal(classifyDriveResponse(200), 'ok');
+  assert.equal(classifyDriveResponse(204), 'ok');
+  assert.equal(classifyDriveResponse(401), 'auth-expired');
+  assert.equal(classifyDriveResponse(429), 'retry');
+  assert.equal(classifyDriveResponse(500), 'retry');
+  assert.equal(classifyDriveResponse(503), 'retry');
+  assert.equal(classifyDriveResponse(404), 'fail');
+  assert.equal(classifyDriveResponse(400), 'fail');
+});
+
+test('a 403 is retried only when its body names a rate limit', () => {
+  assert.equal(classifyDriveResponse(403), 'fail');
+  assert.equal(classifyDriveResponse(403, 'insufficientPermissions'), 'fail');
+  assert.equal(classifyDriveResponse(403, 'rateLimitExceeded'), 'retry');
+  assert.equal(classifyDriveResponse(403, 'userRateLimitExceeded'), 'retry');
+});
+
+test('backoffDelayMs grows the window exponentially and jitters within it', () => {
+  assert.equal(
+    backoffDelayMs(0, () => 1),
+    500,
+  );
+  assert.equal(
+    backoffDelayMs(1, () => 1),
+    1000,
+  );
+  assert.equal(
+    backoffDelayMs(2, () => 1),
+    2000,
+  );
+  assert.equal(
+    backoffDelayMs(0, () => 0),
+    0,
+    'full jitter can pick the bottom of the window',
+  );
+  assert.equal(
+    backoffDelayMs(0, () => 0.5),
+    250,
+  );
+  assert.equal(
+    backoffDelayMs(99, () => 1),
+    8000,
+    'the window stops growing at the ceiling',
+  );
+
+  const sampled = backoffDelayMs(1);
+  assert.ok(sampled >= 0 && sampled <= 1000, 'the default source of jitter stays in the window');
+});
+
+test('MAX_DRIVE_ATTEMPTS leaves room to retry without hammering Drive', () => {
+  assert.ok(MAX_DRIVE_ATTEMPTS > 1 && MAX_DRIVE_ATTEMPTS <= 5);
 });

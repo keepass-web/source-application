@@ -44,6 +44,15 @@ interface SavedMessage {
   type: 'kw-saved';
   ok: boolean;
   error?: string;
+  reason?: 'auth-expired';
+}
+interface ReconnectMessage {
+  type: 'kw-reconnect';
+}
+interface ReconnectedMessage {
+  type: 'kw-reconnected';
+  ok: boolean;
+  error?: string;
 }
 interface TitleMessage {
   type: 'kw-title';
@@ -65,13 +74,20 @@ declare function buildMultipartBody(
   filename: string,
   bytes: ArrayBuffer,
 ): { body: Blob; boundary: string };
+type DriveOutcome = 'ok' | 'auth-expired' | 'retry' | 'fail';
+declare function driveErrorReason(body: unknown): string | undefined;
+declare function classifyDriveResponse(status: number, reason?: string): DriveOutcome;
+declare const MAX_DRIVE_ATTEMPTS: number;
+declare function backoffDelayMs(retry: number, random?: () => number): number;
 declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isTitleMessage(data: unknown): data is TitleMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
+declare function isReconnectMessage(data: unknown): data is ReconnectMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
 declare function createMessage(): CreateMessage;
-declare function savedMessage(ok: boolean, error?: string): SavedMessage;
+declare function savedMessage(ok: boolean, error?: string, reason?: 'auth-expired'): SavedMessage;
+declare function reconnectedMessage(ok: boolean, error?: string): ReconnectedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 
 // --- Google SDKs (loaded at runtime from Google) ---

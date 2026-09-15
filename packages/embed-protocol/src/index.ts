@@ -2,7 +2,7 @@
 keepass-web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders so both ends provably agree on the wire
 format: kw-ready, kw-open, kw-create, kw-save, kw-saved, kw-title, kw-find,
-kw-close-request, kw-close-ack, kw-close (#1). */
+kw-close-request, kw-close-ack, kw-close (#1), kw-reconnect, kw-reconnected (#85). */
 
 export interface ReadyMessage {
   type: 'kw-ready';
@@ -25,8 +25,27 @@ export interface SaveMessage {
   bytes: ArrayBuffer;
 }
 
+/* A failure the app must handle differently from a generic error, rather than
+report as a status code; the host's credential expiring is recoverable in
+place, so the app offers a reconnect instead (#85). */
+export type SavedFailureReason = 'auth-expired';
+
 export interface SavedMessage {
   type: 'kw-saved';
+  ok: boolean;
+  error?: string;
+  reason?: SavedFailureReason;
+}
+
+/* The app asks its host to renew the credential a save just failed on. The app
+re-sends the save itself once this succeeds, so the host never holds database
+bytes across a user-paced reconnect (#85). */
+export interface ReconnectMessage {
+  type: 'kw-reconnect';
+}
+
+export interface ReconnectedMessage {
+  type: 'kw-reconnected';
   ok: boolean;
   error?: string;
 }
@@ -95,6 +114,18 @@ export function isSavedMessage(data: unknown): data is SavedMessage {
   if (!hasType(data, 'kw-saved')) return false;
   const rec = data as Record<string, unknown>;
   if (typeof rec.ok !== 'boolean') return false;
+  if (rec.error !== undefined && typeof rec.error !== 'string') return false;
+  return rec.reason === undefined || rec.reason === 'auth-expired';
+}
+
+export function isReconnectMessage(data: unknown): data is ReconnectMessage {
+  return hasType(data, 'kw-reconnect');
+}
+
+export function isReconnectedMessage(data: unknown): data is ReconnectedMessage {
+  if (!hasType(data, 'kw-reconnected')) return false;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.ok !== 'boolean') return false;
   return rec.error === undefined || typeof rec.error === 'string';
 }
 
@@ -138,8 +169,25 @@ export function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage {
   return { type: 'kw-save', filename, bytes };
 }
 
-export function savedMessage(ok: boolean, error?: string): SavedMessage {
-  return error === undefined ? { type: 'kw-saved', ok } : { type: 'kw-saved', ok, error };
+export function savedMessage(
+  ok: boolean,
+  error?: string,
+  reason?: SavedFailureReason,
+): SavedMessage {
+  const message: SavedMessage = { type: 'kw-saved', ok };
+  if (error !== undefined) message.error = error;
+  if (reason !== undefined) message.reason = reason;
+  return message;
+}
+
+export function reconnectMessage(): ReconnectMessage {
+  return { type: 'kw-reconnect' };
+}
+
+export function reconnectedMessage(ok: boolean, error?: string): ReconnectedMessage {
+  return error === undefined
+    ? { type: 'kw-reconnected', ok }
+    : { type: 'kw-reconnected', ok, error };
 }
 
 export function titleMessage(filename: string, locked: boolean): TitleMessage {

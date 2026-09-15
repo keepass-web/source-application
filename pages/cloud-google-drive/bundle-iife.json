@@ -25,6 +25,12 @@
     "closeRequestMessage",
     "applyTabState",
     "findMessage",
-    "peerOrigin"
+    "peerOrigin",
+    "driveErrorReason",
+    "classifyDriveResponse",
+    "MAX_DRIVE_ATTEMPTS",
+    "backoffDelayMs",
+    "isReconnectMessage",
+    "reconnectedMessage"
   ]
 }

@@ -1662,6 +1662,11 @@ function openExportDialog(): void {
 // Dialog: Save / Download
 // ============================================================
 
+// Escape closes a <dialog> on its own, which the expired state must not allow (#85).
+function blockDismiss(event: Event): void {
+  event.preventDefault();
+}
+
 function openSaveDialog(): void {
   const dlg = byId<HTMLDialogElement>('dlg-save');
 
@@ -1673,44 +1678,99 @@ function openSaveDialog(): void {
   const status = must(dlg.querySelector<HTMLElement>('[data-role="save-status"]'));
   const downloadBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]'));
   const hostBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="save-host"]'));
+  const reconnectBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="reconnect"]'));
   const laterBtn = must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]'));
+  const dismissBtns = Array.from(dlg.querySelectorAll<HTMLButtonElement>('[data-action="close"]'));
+
+  function setStatus(text: string, kind?: 'ok' | 'error'): void {
+    status.hidden = false;
+    status.className = kind === undefined ? 'save-status' : `save-status ${kind}`;
+    status.textContent = text;
+  }
+
+  function showDefaultActions(): void {
+    downloadBtn.hidden = isHosted();
+    downloadBtn.textContent = 'Download';
+    downloadBtn.className = 'btn btn-primary';
+    hostBtn.hidden = !isHosted();
+    reconnectBtn.hidden = true;
+    for (const btn of dismissBtns) btn.hidden = false;
+    dlg.removeEventListener('cancel', blockDismiss);
+  }
+
+  /* An expired provider session is the one save failure the user can still act
+  on, so the dialog holds them here with the two moves that work; dismissing it
+  would leave the edits with nowhere to go, since the provider copy is stale and
+  the app has no autosave (#85). */
+  function showExpiredActions(): void {
+    setStatus('Your Google session expired. Reconnect to save, or download a copy.', 'error');
+    downloadBtn.hidden = false;
+    downloadBtn.textContent = 'Download a copy';
+    downloadBtn.className = 'btn btn-secondary';
+    hostBtn.hidden = true;
+    reconnectBtn.hidden = false;
+    for (const btn of dismissBtns) btn.hidden = true;
+    dlg.addEventListener('cancel', blockDismiss);
+  }
+
+  async function saveToHost(): Promise<void> {
+    setStatus('Saving…');
+    hostBtn.disabled = true;
+    const result = await performSave();
+    hostBtn.disabled = false;
+    if (result.ok) {
+      setStatus('Saved.', 'ok');
+      // Retrying no longer makes sense once the save has succeeded — collapse
+      // the footer to a single acknowledgement instead of leaving stale
+      // "Later" / "Save" actions from before the save was requested.
+      laterBtn.textContent = 'Close';
+      hostBtn.hidden = true;
+      return;
+    }
+    if (result.reason === 'auth-expired') {
+      showExpiredActions();
+      return;
+    }
+    setStatus(result.error ? `Save failed: ${result.error}` : 'Save failed.', 'error');
+  }
 
   status.hidden = true;
   status.textContent = '';
   status.className = 'save-status';
   localMsg.hidden = isHosted();
   hostMsg.hidden = !isHosted();
-  downloadBtn.hidden = isHosted();
-  hostBtn.hidden = !isHosted();
   laterBtn.textContent = 'Later';
+  showDefaultActions();
 
   downloadBtn.onclick = async () => {
+    if (isHosted()) {
+      // The provider still holds the old database, so these edits stay unsaved where they came from (#85).
+      downloadCopy(await must(app.db).save());
+      return;
+    }
     await performSave();
     dlg.close();
   };
 
   hostBtn.onclick = async () => {
-    status.hidden = false;
-    status.textContent = 'Saving…';
-    hostBtn.disabled = true;
-    const result = await performSave();
-    hostBtn.disabled = false;
-    if (result.ok) {
-      status.textContent = 'Saved.';
-      status.classList.add('ok');
-      // Retrying no longer makes sense once the save has succeeded — collapse
-      // the footer to a single acknowledgement instead of leaving stale
-      // "Later" / "Save" actions from before the save was requested.
-      laterBtn.textContent = 'Close';
-      hostBtn.hidden = true;
-    } else {
-      status.textContent = result.error ? `Save failed: ${result.error}` : 'Save failed.';
-      status.classList.add('error');
+    await saveToHost();
+  };
+
+  reconnectBtn.onclick = async () => {
+    setStatus('Reconnecting…');
+    reconnectBtn.disabled = true;
+    const result = await requestReconnect();
+    reconnectBtn.disabled = false;
+    if (!result.ok) {
+      setStatus(result.error ? `Reconnect failed: ${result.error}` : 'Reconnect failed.', 'error');
+      return;
     }
+    showDefaultActions();
+    await saveToHost();
   };
 
   // Both close buttons (Later + ✕) dismiss
-  for (const btn of dlg.querySelectorAll<HTMLButtonElement>('[data-action="close"]')) {
+  for (const btn of dismissBtns) {
     btn.onclick = () => dlg.close();
   }
 
@@ -1723,18 +1783,21 @@ a download is not, but both are awaited here so every caller sees one
 consistent, awaitable outcome regardless of destination. Never rejects —
 failure comes back as `{ ok: false }` so callers can show it inline rather
 than an unhandled rejection. */
-async function performSave(): Promise<{ ok: boolean; error?: string }> {
+function downloadCopy(bytes: Uint8Array): void {
+  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = app.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function performSave(): Promise<SaveResult> {
   if (!isHosted()) {
-    const bytes = await must(app.db).save();
-    const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = app.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadCopy(await must(app.db).save());
     setDirty(false);
     return { ok: true };
   }
@@ -1742,7 +1805,7 @@ async function performSave(): Promise<{ ok: boolean; error?: string }> {
   const bytes = await must(app.db).save();
   // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
   postToHost(saveMessage(app.filename, new Uint8Array(bytes).buffer));
-  const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+  const result = await new Promise<SaveResult>((resolve) => {
     pendingSave = resolve;
   });
   if (result.ok) setDirty(false);
@@ -2080,7 +2143,9 @@ function openMoveToDialog(
 //   host → app  : kw-create         start a brand-new, empty vault
 //   host → app  : kw-find           host saw the find keystroke; take it
 //   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
-//   host → app  : kw-saved          result of that persist (ok, error?)
+//   host → app  : kw-saved          result of that persist (ok, error?, reason?)
+//   app  → host : kw-reconnect      the host credential expired; please renew it
+//   host → app  : kw-reconnected    result of that renewal (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
 //   app  → host : kw-close-ack      request received; outcome follows as kw-close, or not at all
 //   app  → host : kw-close          app is closing: its own ✕, or consent to a close request
@@ -2095,9 +2160,32 @@ const HOST_REPLY_GRACE_MS = 1000;
 // This page's own title, kept so a closed database can hand the tab back (#65).
 const BASE_TITLE = document.title;
 
+interface SaveResult {
+  ok: boolean;
+  error?: string;
+  reason?: 'auth-expired';
+}
+
 /** Resolves the in-flight performSave()'s promise once a `kw-saved` reply
 arrives, or null when no save is outstanding. */
-let pendingSave: ((result: { ok: boolean; error?: string }) => void) | null = null;
+let pendingSave: ((result: SaveResult) => void) | null = null;
+
+interface ReconnectResult {
+  ok: boolean;
+  error?: string;
+}
+
+let pendingReconnect: ((result: ReconnectResult) => void) | null = null;
+
+/** Ask the host to renew the credential a save just failed on. Only the host
+holds it, and the app re-sends its own save once this succeeds rather than
+leaving database bytes parked over there for a user-paced reconnect (#85). */
+function requestReconnect(): Promise<ReconnectResult> {
+  postToHost(reconnectMessage());
+  return new Promise<ReconnectResult>((resolve) => {
+    pendingReconnect = resolve;
+  });
+}
 
 function isEmbedded(): boolean {
   return window.parent !== window;
@@ -2133,6 +2221,14 @@ function handleHostMessage(event: MessageEvent): void {
   } else if (isSavedMessage(event.data)) {
     const resolve = pendingSave;
     pendingSave = null;
+    const { ok, error, reason } = event.data;
+    const result: SaveResult = { ok };
+    if (error !== undefined) result.error = error;
+    if (reason !== undefined) result.reason = reason;
+    resolve?.(result);
+  } else if (isReconnectedMessage(event.data)) {
+    const resolve = pendingReconnect;
+    pendingReconnect = null;
     const { ok, error } = event.data;
     resolve?.(error === undefined ? { ok } : { ok, error });
   } else if (isFindMessage(event.data)) {

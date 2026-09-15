@@ -13,12 +13,16 @@ import {
   isFindMessage,
   isOpenMessage,
   isReadyMessage,
+  isReconnectedMessage,
+  isReconnectMessage,
   isSavedMessage,
   isSaveMessage,
   isTitleMessage,
   openMessage,
   peerOrigin,
   readyMessage,
+  reconnectedMessage,
+  reconnectMessage,
   savedMessage,
   saveMessage,
   titleMessage,
@@ -73,6 +77,42 @@ test('savedMessage / isSavedMessage round-trip, with and without an error', () =
   assert.equal(isSavedMessage(null), false);
   assert.equal(isSavedMessage({ type: 'kw-saved', ok: 'nope' }), false);
   assert.equal(isSavedMessage({ type: 'kw-saved', ok: true, error: 42 }), false);
+});
+
+test('a saved failure can name a reason the app acts on, and only a known one', () => {
+  const expired = savedMessage(false, 'HTTP 401', 'auth-expired');
+  assert.deepEqual(expired, {
+    type: 'kw-saved',
+    ok: false,
+    error: 'HTTP 401',
+    reason: 'auth-expired',
+  });
+  assert.equal(isSavedMessage(expired), true);
+
+  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 'auth-expired' }), true);
+  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 'whatever' }), false);
+  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 7 }), false);
+});
+
+test('reconnectMessage / isReconnectMessage round-trip', () => {
+  const message = reconnectMessage();
+  assert.deepEqual(message, { type: 'kw-reconnect' });
+  assert.equal(isReconnectMessage(message), true);
+  assert.equal(isReconnectMessage({ type: 'kw-close' }), false);
+});
+
+test('reconnectedMessage / isReconnectedMessage round-trip, with and without an error', () => {
+  const ok = reconnectedMessage(true);
+  assert.deepEqual(ok, { type: 'kw-reconnected', ok: true });
+  assert.equal(isReconnectedMessage(ok), true);
+
+  const refused = reconnectedMessage(false, 'popup blocked');
+  assert.deepEqual(refused, { type: 'kw-reconnected', ok: false, error: 'popup blocked' });
+  assert.equal(isReconnectedMessage(refused), true);
+
+  assert.equal(isReconnectedMessage(null), false);
+  assert.equal(isReconnectedMessage({ type: 'kw-reconnected', ok: 'nope' }), false);
+  assert.equal(isReconnectedMessage({ type: 'kw-reconnected', ok: true, error: 42 }), false);
 });
 
 test('titleMessage / isTitleMessage round-trip', () => {
