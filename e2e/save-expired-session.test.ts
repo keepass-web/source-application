@@ -86,7 +86,7 @@ test('an expired session holds the save dialog open against Escape, offering a w
   });
 
   await app.waitForFunction(() =>
-    /Your Google session expired/.test(
+    /session with the storage provider expired/.test(
       document.querySelector('[data-role="save-status"]')?.textContent ?? '',
     ),
   );
@@ -130,4 +130,32 @@ test('an expired session holds the save dialog open against Escape, offering a w
   });
   assert.equal(fit.footerOverflows, false, 'the expired footer fits at phone width');
   assert.equal(fit.dialogOverflows, false, 'the dialog fits at phone width');
+
+  // Taking a copy brings every suspended action back, so this is the fuller
+  // footer; neutralize the anchor so no real download starts.
+  await app.evaluate(() => {
+    HTMLAnchorElement.prototype.click = function neutralized(): void {};
+  });
+  await app.click('[data-action="download"]');
+  await app.waitForFunction(() =>
+    /Copy downloaded/.test(document.querySelector('[data-role="save-status"]')?.textContent ?? ''),
+  );
+
+  const released = await app.evaluate(() => {
+    const dialog = document.getElementById('dlg-save') as HTMLDialogElement;
+    const footer = dialog.querySelector('.dialog-footer') as HTMLElement;
+    const shown = Array.from(footer.querySelectorAll<HTMLElement>('button')).filter(
+      (el) => !el.hidden,
+    ).length;
+    return {
+      shown,
+      footerOverflows: footer.scrollWidth > footer.clientWidth + 1,
+      dialogOverflows: dialog.getBoundingClientRect().width > window.innerWidth,
+    };
+  });
+  assert.ok(released.shown >= 4, `the released footer carries every action (${released.shown})`);
+  assert.equal(released.footerOverflows, false, 'and still fits at phone width');
+  assert.equal(released.dialogOverflows, false, 'as does the dialog');
+
+  await page.setViewport({ width: 1280, height: 800 });
 });

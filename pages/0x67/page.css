@@ -1445,6 +1445,7 @@ input.attachment-name:focus {
 
 .dialog-footer {
   display: flex;
+  flex-wrap: wrap; /* recovering an expired session adds actions this row cannot fit at phone width (#85) */
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 1rem 1.25rem;

@@ -210,6 +210,12 @@ async function signInAgain(): Promise<void> {
 
 const errorText = (): string => q('#signin-error').textContent ?? '';
 
+const failTokenError = (error: Record<string, unknown>): void =>
+  (tokenErrorCallback as (e: Record<string, unknown>) => void)(error);
+
+const failTokenResponse = (response: Record<string, unknown>): void =>
+  (tokenCallback as (r: Record<string, unknown>) => void)(response);
+
 /** Drive the Picker through to its callback, resolving the api.js load on the
  * first call only. */
 async function pick(
@@ -222,6 +228,17 @@ async function pick(
   await waitFor(() => pickerShownCount > before);
   const cb = lastPickerCallback as (data: Record<string, unknown>) => void;
   cb(file === null ? { action: 'cancel' } : { action: 'picked', documents: [file] });
+}
+
+/** Collapse the page's minute-scale waits so a test can reach them; `waitFor`
+ * polls on node's own timers, so only the long ones are shortened. */
+function fastLongTimers(target: { setTimeout: typeof setTimeout }): () => void {
+  const real = target.setTimeout;
+  target.setTimeout = ((fn: () => void, ms?: number) =>
+    real(fn, ms !== undefined && ms >= 1000 ? 0 : ms)) as typeof setTimeout;
+  return () => {
+    target.setTimeout = real;
+  };
 }
 
 const errStatus =
@@ -247,21 +264,16 @@ test('Google Drive connector', async (t) => {
   });
 
   await t.test('sign-in reports a blocked popup, a cancel, and an empty result', async () => {
-    const errorCb = (): ((e: Record<string, unknown>) => void) =>
-      tokenErrorCallback as (e: Record<string, unknown>) => void;
-    const okCb = (): ((r: Record<string, unknown>) => void) =>
-      tokenCallback as (r: Record<string, unknown>) => void;
-
     await signInLoadingGis();
-    errorCb()({ type: 'popup_failed_to_open' });
+    failTokenError({ type: 'popup_failed_to_open' });
     await waitFor(() => /popup was blocked/.test(errorText()));
 
     await signInAgain();
-    errorCb()({ type: 'popup_closed' });
+    failTokenError({ type: 'popup_closed' });
     await waitFor(() => /cancelled/.test(errorText()));
 
     await signInAgain();
-    okCb()({}); // no access_token
+    failTokenResponse({}); // no access_token
     await waitFor(() => /did not complete/.test(errorText()));
   });
 
@@ -742,6 +754,32 @@ test('Google Drive connector', async (t) => {
     },
   );
 
+  await t.test('a create whose id is missing or blank is reported, not assumed', async () => {
+    handlers.create = async () => ({ ok: true, status: 200, json: async () => ({}) });
+    assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'unexpected response',
+    });
+
+    handlers.create = async () => ({ ok: true, status: 200, json: async () => ({ id: '' }) });
+    assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'unexpected response',
+    });
+  });
+
+  await t.test('a 401 creating the file asks the app to reconnect too', async () => {
+    handlers.create = errStatus(401);
+    assert.deepEqual(await saveAndRead('Stillborn Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'HTTP 401',
+      reason: 'auth-expired',
+    });
+  });
+
   await t.test('kw-reconnect renews the token without leaving the host screen', async () => {
     const before = frameInbox.length;
     const requestsBefore = requestCount;
@@ -769,27 +807,63 @@ test('Google Drive connector', async (t) => {
     const requestsBefore = requestCount;
     sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
     await waitFor(() => requestCount > requestsBefore);
-    (tokenErrorCallback as (e: Record<string, unknown>) => void)({ type: 'popup_failed_to_open' });
+    failTokenError({ type: 'popup_failed_to_open' });
     await waitFor(() => frameInbox.length > before);
+    /* A reconnect only ever asks silently, so any refusal means the same thing
+    however GIS phrases it. */
     assert.deepEqual(frameInbox.at(-1)?.message, {
       type: 'kw-reconnected',
       ok: false,
-      error: 'The sign-in popup was blocked. Allow popups for this site, then try again.',
+      error:
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
     });
   });
 
-  await t.test('a 401 opening a file names the expired session', async () => {
+  await t.test('an abandoned sign-in does not wedge the next reconnect', async () => {
+    const before = frameInbox.length;
+    const requestsBefore = requestCount;
+    const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+    try {
+      sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+      await waitFor(() => frameInbox.length > before); // no token callback ever comes
+    } finally {
+      restore();
+    }
+    assert.deepEqual(frameInbox.at(-1)?.message, {
+      type: 'kw-reconnected',
+      ok: false,
+      error:
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
+    });
+    assert.equal(requestCount, requestsBefore + 1);
+
+    /* The dead request must not be handed to the next attempt, or every later
+    reconnect waits on a popup that was never reopened (#85). */
+    const afterTimeout = requestCount;
+    const beforeRetry = frameInbox.length;
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    await waitFor(() => requestCount > afterTimeout);
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok-fresh' });
+    await waitFor(() => frameInbox.length > beforeRetry);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-reconnected', ok: true });
+  });
+
+  await t.test('a 401 opening a file sends the user back to sign in', async () => {
     click(q('[data-action="back-to-drive"]'));
     sendMessage({ type: 'kw-close' }, { source: frameWin });
     await waitFor(() => q('[data-action="pick"]') !== null);
 
     handlers.download = errStatus(401);
     await pick({ id: 'f4', name: 'vault4.kdbx' });
-    await waitFor(() => /Your Google session expired/.test(q('#pick-status').textContent ?? ''));
-    assert.match(q('#pick-status').textContent ?? '', /Sign in again to open vault4\.kdbx/);
+    await waitFor(() => q('[data-action="signin"]') !== null);
+    assert.match(q('#signin-error').textContent ?? '', /Your Google session expired/);
   });
 
   await t.test('a download whose body cannot be read is reported as a network error', async () => {
+    await signInAgain();
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok5' });
+    await waitFor(() => q('[data-action="pick"]') !== null);
+
     handlers.download = async () => ({
       ok: true,
       status: 200,

@@ -99,8 +99,6 @@ type DriveResult =
   | { outcome: 'ok'; response: Response }
   | { outcome: 'auth-expired' | 'unreachable' | 'fail'; error: string };
 
-type DriveFailure = Exclude<DriveResult, { outcome: 'ok' }>['outcome'];
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -139,15 +137,7 @@ async function driveFetch(url: string, init: DriveRequest): Promise<DriveResult>
   return { outcome: 'fail', error: `HTTP ${lastStatus}` };
 }
 
-// Only an expired session is recoverable in place; the rest is reported as it stands (#85).
-function failureReason(outcome: DriveFailure): 'auth-expired' | undefined {
-  return outcome === 'auth-expired' ? 'auth-expired' : undefined;
-}
-
-function openFailureText(name: string, outcome: DriveFailure, error: string): string {
-  if (outcome === 'auth-expired') {
-    return `Your Google session expired. Sign in again to open ${name}.`;
-  }
+function openFailureText(name: string, outcome: 'unreachable' | 'fail', error: string): string {
   if (outcome === 'unreachable') return `Network error while opening ${name}.`;
   return `Could not open ${name} (${error}).`;
 }
@@ -185,13 +175,15 @@ function ensureGis(): Promise<void> {
   return gisReady;
 }
 
-/** Resolve a usable access token, prompting Google when it has to. Renders
-nothing and navigates nowhere, so the sign-in screen and a mid-session
-reconnect can both await it and then decide for themselves what to show; every
-rejection carries an Error a caller can show as-is (#85). */
-function getAccessToken(): Promise<string> {
+/** Resolve a usable access token. Renders nothing and navigates nowhere, so
+the sign-in screen and a mid-session reconnect can both await it and decide for
+themselves what to show. `silent` asks Google to answer without a popup, which
+is all a reconnect can do: its click lands in the embedded app, and the gesture
+a popup needs may never reach this frame. Sign-in has that gesture, so it asks
+outright (#85). */
+function getAccessToken(silent: boolean): Promise<string> {
   if (tokenRequest === null) {
-    tokenRequest = requestToken();
+    tokenRequest = requestToken(silent);
     const clear = (): void => {
       tokenRequest = null;
       settleToken = null;
@@ -201,7 +193,13 @@ function getAccessToken(): Promise<string> {
   return tokenRequest;
 }
 
-async function requestToken(): Promise<string> {
+/* GIS never calls back when its popup is simply abandoned, and the cached
+request above would then hand every later attempt the same dead promise instead
+of opening a new one. Shorter than the app's own wait, so a stuck sign-in is
+reported from here, where the next attempt can be freed (#85). */
+const TOKEN_TIMEOUT_MS = 90_000;
+
+async function requestToken(silent: boolean): Promise<string> {
   try {
     await ensureGis();
   } catch {
@@ -209,15 +207,29 @@ async function requestToken(): Promise<string> {
     throw new Error('Could not load Google sign-in. Check your connection and try again.');
   }
   return new Promise<string>((resolve, reject) => {
-    settleToken = { resolve, reject };
-    // Opens Google's own sign-in popup; the result arrives at the callbacks below.
-    must(tokenClient).requestAccessToken();
+    const timer = window.setTimeout(() => {
+      settleToken = null;
+      reject(new Error('Google sign-in timed out. Try again.'));
+    }, TOKEN_TIMEOUT_MS);
+    settleToken = {
+      resolve: (token: string) => {
+        window.clearTimeout(timer);
+        resolve(token);
+      },
+      reject: (error: Error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    };
+    /* `prompt: ''` means Google answers without a popup for anyone who has
+    consented before, which is the ordinary hourly expiry. */
+    must(tokenClient).requestAccessToken(silent ? { prompt: '' } : undefined);
   });
 }
 
 async function onSignIn(): Promise<void> {
   try {
-    await getAccessToken();
+    await getAccessToken(false);
   } catch (error) {
     showSignInError((error as Error).message);
     return;
@@ -312,6 +324,14 @@ function handlePickerResult(data: PickerResponse): void {
 async function openPickedFile(file: DriveFile): Promise<void> {
   setPickStatus(`Opening ${file.name}…`);
   const result = await driveFetch(buildDriveDownloadUrl(DRIVE_API, file.id), {});
+  if (result.outcome === 'auth-expired') {
+    /* Nothing is unsaved on this screen, so the honest answer is the sign-in it
+    would take anyway rather than telling the user to find it (#85). */
+    accessToken = null;
+    showSignIn();
+    showSignInError('Your Google session expired. Sign in again to open your database.');
+    return;
+  }
   if (result.outcome !== 'ok') {
     setPickStatus(openFailureText(file.name, result.outcome, result.error));
     return;
@@ -452,7 +472,14 @@ async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
     source.postMessage(savedMessage(true), PEER.target);
     return;
   }
-  source.postMessage(savedMessage(false, result.error, failureReason(result.outcome)), PEER.target);
+  source.postMessage(
+    savedMessage(
+      false,
+      result.error,
+      result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
+    ),
+    PEER.target,
+  );
 }
 
 /** First save of a create-originated session: no Drive file exists yet, so
@@ -471,17 +498,26 @@ async function createFileOnDrive(
   });
   if (result.outcome !== 'ok') {
     source.postMessage(
-      savedMessage(false, result.error, failureReason(result.outcome)),
+      savedMessage(
+        false,
+        result.error,
+        result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
+      ),
       PEER.target,
     );
     return;
   }
 
-  let created: { id: string };
+  let created: { id?: unknown } = {};
   try {
-    created = (await result.response.json()) as { id: string };
+    created = (await result.response.json()) as { id?: unknown };
   } catch {
-    // Drive made the file; without its id no later save can update that same one (#85).
+    created = {};
+  }
+  /* Drive made the file, but without a usable id no later save can update that
+  same one; reporting success would clear the edits against a file this session
+  can no longer reach (#85). */
+  if (typeof created.id !== 'string' || created.id === '') {
     source.postMessage(savedMessage(false, 'unexpected response'), PEER.target);
     return;
   }
@@ -493,9 +529,19 @@ async function createFileOnDrive(
 failed on an expired session can be retried with the edits still in the app (#85). */
 async function reconnect(source: Window): Promise<void> {
   try {
-    await getAccessToken();
-  } catch (error) {
-    source.postMessage(reconnectedMessage(false, (error as Error).message), PEER.target);
+    await getAccessToken(true);
+  } catch {
+    /* A reconnect can only ask silently, so whatever went wrong the answer is
+    the same: Google wants a real sign-in, and only the chooser's own button
+    carries the gesture that can open one. Going back there closes the database,
+    so the copy has to come first (#85). */
+    source.postMessage(
+      reconnectedMessage(
+        false,
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
+      ),
+      PEER.target,
+    );
     return;
   }
   source.postMessage(reconnectedMessage(true), PEER.target);

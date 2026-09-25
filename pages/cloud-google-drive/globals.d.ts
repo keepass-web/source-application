@@ -107,7 +107,7 @@ interface TokenErrorResponse {
 }
 
 interface TokenClient {
-  requestAccessToken(): void;
+  requestAccessToken(overrideConfig?: { prompt: string }): void;
 }
 
 interface GoogleOAuth2 {

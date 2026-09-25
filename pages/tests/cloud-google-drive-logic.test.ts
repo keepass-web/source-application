@@ -91,6 +91,11 @@ test('classifyDriveResponse separates success, expiry, transient failure, and th
   assert.equal(classifyDriveResponse(400), 'fail');
 });
 
+test('a 403 that names a credential failure reconnects, like a 401', () => {
+  assert.equal(classifyDriveResponse(403, 'authError'), 'auth-expired');
+  assert.equal(classifyDriveResponse(403, 'invalidCredentials'), 'auth-expired');
+});
+
 test('a 403 is retried only when its body names a rate limit', () => {
   assert.equal(classifyDriveResponse(403), 'fail');
   assert.equal(classifyDriveResponse(403, 'insufficientPermissions'), 'fail');

@@ -55,6 +55,8 @@ export type DriveOutcome = 'ok' | 'auth-expired' | 'retry' | 'fail';
 
 // The reasons Drive gives when a 403 is a throttle rather than a permission failure.
 const RETRYABLE_403_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded'];
+// Not every expired credential comes back as a 401; these 403s mean the same thing (#85).
+const AUTH_403_REASONS = ['authError', 'invalidCredentials'];
 
 /** Drive reports a throttle as a 403 carrying the reason only in its body, so
 the body is the one way to tell it from a permanent permission failure (#85). */
@@ -72,8 +74,9 @@ export function classifyDriveResponse(status: number, reason?: string): DriveOut
   if (status >= 200 && status < 300) return 'ok';
   if (status === 401) return 'auth-expired';
   if (status === 429 || status >= 500) return 'retry';
-  if (status === 403 && reason !== undefined && RETRYABLE_403_REASONS.includes(reason)) {
-    return 'retry';
+  if (status === 403 && reason !== undefined) {
+    if (AUTH_403_REASONS.includes(reason)) return 'auth-expired';
+    if (RETRYABLE_403_REASONS.includes(reason)) return 'retry';
   }
   return 'fail';
 }

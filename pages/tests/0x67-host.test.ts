@@ -291,6 +291,9 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.ok(msg.bytes instanceof ArrayBuffer && msg.bytes.byteLength > 0);
     assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Saving…');
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, true);
+    /* A save in flight owns the one slot its reply lands in, so dismissing and
+    starting another would leave the first to settle the second's wait (#85). */
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, true);
 
     sendFromHost({ type: 'kw-saved', ok: true });
     const status = dq<HTMLElement>('[data-role="save-status"]');
@@ -379,7 +382,9 @@ test('0x67 embedded in a host frame', async (t) => {
       sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
 
       const status = dq<HTMLElement>('[data-role="save-status"]');
-      await waitFor(() => /Your Google session expired/.test(status.textContent ?? ''));
+      await waitFor(() =>
+        /session with the storage provider expired/.test(status.textContent ?? ''),
+      );
       assert.ok(status.classList.contains('error'));
       assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, false);
       const download = dq<HTMLButtonElement>('[data-action="download"]');
@@ -454,6 +459,9 @@ test('0x67 embedded in a host frame', async (t) => {
     const before = hostInbox.length;
     click(dq('[data-action="reconnect"]'));
     await waitFor(() => hostInbox.length > before);
+    // Neither way forward may start a second flow while this one is out (#85).
+    assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').disabled, true);
+    assert.equal(dq<HTMLButtonElement>('[data-action="download"]').disabled, true);
     sendFromHost({ type: 'kw-reconnected', ok: true });
 
     // The app re-sends its own save rather than the host holding the bytes (#85).
@@ -463,8 +471,118 @@ test('0x67 embedded in a host frame', async (t) => {
     await waitFor(() => status.textContent === 'Saved.');
     assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, true);
     assert.equal(dq<HTMLButtonElement>('[data-action="download"]').hidden, true);
+    // A save that landed collapses the footer; unlocking the dialog must not undo that.
+    assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, true);
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, false);
     click(dq('[data-role="save-later"]'));
   });
+
+  await t.test('a plain failure after reconnecting leaves Save reachable again', async () => {
+    await editAndOpenSaveDialog();
+    await saveAwaitingHost();
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
+
+    const before = hostInbox.length;
+    click(dq('[data-action="reconnect"]'));
+    await waitFor(() => hostInbox.length > before);
+    sendFromHost({ type: 'kw-reconnected', ok: true });
+    await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 500' });
+
+    await waitFor(() => status.textContent === 'Save failed: HTTP 500');
+    assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, false);
+    click(dq('[data-role="save-later"]'));
+  });
+
+  const discardDlg = (selector: string): HTMLButtonElement =>
+    dq<HTMLButtonElement>(`#dlg-confirm-discard ${selector}`);
+
+  await t.test('an expired session in the discard prompt offers the same way out', async () => {
+    await editAndOpenSaveDialog();
+    click(dq('[data-role="save-later"]')); // dismiss without saving, so the edits stay unsaved
+    sendFromHost({ type: 'kw-close-request' });
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-confirm-discard').open);
+
+    const before = hostInbox.length;
+    click(discardDlg('[data-action="confirm-save"]'));
+    await waitFor(() => hostInbox.length > before);
+    /* This prompt runs proceed() on success, so a cancel landing mid-save would
+    close a database the user just backed out of (#85). */
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, true);
+    assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, true);
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+
+    const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
+    assert.equal(discardDlg('[data-action="reconnect"]').hidden, false);
+    assert.equal(discardDlg('[data-action="download"]').hidden, false);
+    assert.equal(
+      discardDlg('[data-action="confirm-discard"]').hidden,
+      true,
+      'discarding is what loses the edits, so it goes with the rest',
+    );
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, true);
+  });
+
+  await t.test('downloading from the discard prompt lets the user leave again', async () => {
+    const realCreate = URL.createObjectURL.bind(URL);
+    const created: string[] = [];
+    URL.createObjectURL = (obj: Blob | MediaSource) => {
+      const url = realCreate(obj);
+      created.push(url);
+      return url;
+    };
+    try {
+      click(discardDlg('[data-action="download"]'));
+      await waitFor(() => created.length === 1);
+    } finally {
+      URL.createObjectURL = realCreate;
+    }
+    await waitFor(() => !discardDlg('[data-action="confirm-discard"]').hidden);
+    assert.equal(discardDlg('[data-action="confirm-discard"]').disabled, false);
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, false);
+    assert.equal(discardDlg('[data-action="cancel-discard"]').disabled, false);
+  });
+
+  await t.test('a retry that hits the same expired session stays locked', async () => {
+    const before = hostInbox.length;
+    click(discardDlg('[data-action="reconnect"]'));
+    await waitFor(() => hostInbox.length > before);
+    sendFromHost({ type: 'kw-reconnected', ok: true });
+    await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+
+    await waitFor(() => !discardDlg('[data-action="reconnect"]').hidden);
+    assert.equal(
+      discardDlg('[data-action="cancel-discard"]').hidden,
+      true,
+      'the lock the retry just set stands, rather than being released by the reconnect that ran it',
+    );
+  });
+
+  await t.test(
+    'reconnecting from the discard prompt saves and lets the close through',
+    async () => {
+      const before = hostInbox.length;
+      click(discardDlg('[data-action="reconnect"]'));
+      await waitFor(() => hostInbox.length > before);
+      sendFromHost({ type: 'kw-reconnected', ok: true });
+      await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
+
+      /* The retry is in flight here: nothing may dismiss the prompt, or the
+      success path below closes a database the user just said to keep (#85). */
+      assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, true);
+      assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, true);
+
+      sendFromHost({ type: 'kw-saved', ok: true });
+      await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-close');
+      assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
+    },
+  );
 
   await t.test('kw-close-request still asks when the database is saved', () => {
     // The retry above succeeded and its dialog was closed, so nothing is
@@ -475,6 +593,12 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.deepEqual(lastHostMessage(), { type: 'kw-close-ack' });
     const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
     assert.equal(dlg.open, true);
+    /* Reopening resets every control, so an expired flow that hid Discard and
+    Cancel earlier cannot leave this prompt missing them (#85). */
+    assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, false);
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, false);
+    assert.equal(discardDlg('[data-action="reconnect"]').hidden, true);
+    assert.equal(discardDlg('[data-action="download"]').hidden, true);
     assert.equal(dq<HTMLElement>('#confirm-discard-title').textContent, 'Close this database?');
 
     click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
@@ -677,5 +801,213 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
 
     sendFromHost({ type: 'kw-find' });
     assert.equal(dom.window.document.activeElement, q('#search-input'));
+  });
+
+  // --- Reconnects that never come back (#85) --------------------------------
+
+  /** Collapse the app's minute-scale waits so a test can reach them. `waitFor`
+   * polls at 5ms, so only the long ones are shortened. */
+  function fastLongTimers(target: { setTimeout: typeof setTimeout }): () => void {
+    const real = target.setTimeout;
+    target.setTimeout = ((fn: () => void, ms?: number) =>
+      real(fn, ms !== undefined && ms >= 1000 ? 0 : ms)) as typeof setTimeout;
+    return () => {
+      target.setTimeout = real;
+    };
+  }
+
+  async function reachExpiredSave(): Promise<void> {
+    // The find test leaves the entry list up, so add an entry to make an edit.
+    click(q('[data-action="add-entry"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+    const before = hostInbox.length;
+    click(dq('[data-action="save-host"]'));
+    await waitFor(() => hostInbox.length > before);
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    await waitFor(() =>
+      /session with the storage provider expired/.test(
+        dq<HTMLElement>('[data-role="save-status"]').textContent ?? '',
+      ),
+    );
+  }
+
+  await t.test(
+    'a host that never answers gives the dialog back rather than sealing it',
+    async () => {
+      await reachExpiredSave();
+      const status = dq<HTMLElement>('[data-role="save-status"]');
+      const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+      try {
+        click(dq('[data-action="reconnect"]')); // and nothing is ever sent back
+        await waitFor(() => /did not answer/.test(status.textContent ?? ''));
+      } finally {
+        restore();
+      }
+      assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').disabled, false);
+      assert.equal(dq<HTMLButtonElement>('[data-action="download"]').disabled, false);
+      assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, false);
+    },
+  );
+
+  /** Auto-lock runs off a visibility timer that knows nothing about dialogs. */
+  async function autoLockNow(): Promise<void> {
+    const restore = fastLongTimers(globalThis as unknown as { setTimeout: typeof setTimeout });
+    try {
+      Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+      doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+      await waitFor(() => q('#master-password') !== null);
+    } finally {
+      restore();
+      Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+    }
+  }
+
+  async function unlockAgain(): Promise<void> {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    q('#unlock-form').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await waitFor(() => q('#search-input') !== null);
+  }
+
+  const discardDlg = (selector: string): HTMLButtonElement =>
+    dq<HTMLButtonElement>(`#dlg-confirm-discard ${selector}`);
+
+  await t.test('a copy cannot be taken from a database that locked underneath', async () => {
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    await autoLockNow(); // no reconnect in flight; the dialog is simply sitting open
+    click(dq('[data-action="download"]'));
+    await waitFor(() => /database locked/.test(status.textContent ?? ''));
+    assert.equal(dq<HTMLButtonElement>('[data-action="download"]').hidden, true);
+    assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, true);
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, false);
+  });
+
+  await t.test('a database that auto-locks mid-reconnect is reported, not saved', async () => {
+    click(dq('[data-role="save-later"]'));
+    await unlockAgain();
+    await reachExpiredSave();
+
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    const before = hostInbox.length;
+    click(dq('[data-action="reconnect"]'));
+    await waitFor(() => hostInbox.length > before);
+    await autoLockNow();
+
+    const beforeReply = hostInbox.length;
+    sendFromHost({ type: 'kw-reconnected', ok: true });
+    await waitFor(() => /database locked/.test(status.textContent ?? ''));
+    assert.ok(
+      hostInbox.slice(beforeReply).every((sent) => sent.message.type !== 'kw-save'),
+      'a locked database has nothing to save, so nothing was sent',
+    );
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, false);
+  });
+
+  await t.test('a host that never answers the retried save unseals the dialog', async () => {
+    click(dq('[data-role="save-later"]'));
+    await unlockAgain();
+    await reachExpiredSave();
+
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    const before = hostInbox.length;
+    click(dq('[data-action="reconnect"]'));
+    await waitFor(() => hostInbox.length > before);
+
+    /* The retry runs held, with every way out gone; without its own deadline a
+    silent host would leave the edits sealed in here (#85). */
+    const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+    try {
+      sendFromHost({ type: 'kw-reconnected', ok: true });
+      await waitFor(() => /did not answer/.test(status.textContent ?? ''));
+    } finally {
+      restore();
+    }
+    assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, false);
+    assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
+    click(dq('[data-role="save-later"]'));
+  });
+
+  await t.test('a discard prompt whose database locks stops offering to discard', async () => {
+    // The previous test left the entry detail up; make an edit and leave it unsaved.
+    click(q('[data-action="edit"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+    click(dq('[data-role="save-later"]'));
+
+    sendFromHost({ type: 'kw-close-request' });
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-confirm-discard').open);
+    const before = hostInbox.length;
+    click(discardDlg('[data-action="confirm-save"]'));
+    await waitFor(() => hostInbox.length > before);
+    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
+
+    const beforeReconnect = hostInbox.length;
+    click(discardDlg('[data-action="reconnect"]'));
+    await waitFor(() => hostInbox.length > beforeReconnect);
+    await autoLockNow();
+    sendFromHost({ type: 'kw-reconnected', ok: true });
+    await waitFor(() => /database locked/.test(status.textContent ?? ''));
+
+    /* The edits are in app.file behind the unlock screen; proceeding would tear
+    the frame down and take them with it (#85). */
+    assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, true);
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, false);
+  });
+
+  await t.test('a save that cannot read the database reports rather than seals', async () => {
+    click(discardDlg('[data-action="cancel-discard"]'));
+    await unlockAgain();
+    click(q('[data-action="add-entry"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+    click(dq('[data-role="save-later"]')); // still unsaved
+
+    sendFromHost({ type: 'kw-close-request' });
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-confirm-discard').open);
+    /* Locking after the prompt is already up leaves Save on screen over a
+    database that is no longer there; this prompt holds through a save, so a
+    throw on that path would trap the edits with no way out (#85). */
+    await autoLockNow();
+
+    const before = hostInbox.length;
+    click(discardDlg('[data-action="confirm-save"]'));
+    const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() => /could not prepare the database/.test(status.textContent ?? ''));
+    assert.ok(
+      hostInbox.slice(before).every((sent) => sent.message.type !== 'kw-save'),
+      'nothing was sent, because nothing could be read',
+    );
+    assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, false, 'the way out is back');
+  });
+
+  await t.test('a copy that cannot be prepared reports rather than seals', async () => {
+    click(discardDlg('[data-action="cancel-discard"]'));
+    await unlockAgain();
+    await reachExpiredSave();
+
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    const realSave = Kdbx.prototype.save;
+    Kdbx.prototype.save = (): Promise<Uint8Array> => {
+      throw new Error('cannot serialize');
+    };
+    try {
+      click(dq('[data-action="download"]'));
+      await waitFor(() => /Could not prepare a copy/.test(status.textContent ?? ''));
+    } finally {
+      Kdbx.prototype.save = realSave;
+    }
+    // Still expired, so both ways forward are still on offer.
+    assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, false);
+    assert.equal(dq<HTMLButtonElement>('[data-action="download"]').hidden, false);
+    click(dq('[data-action="reconnect"]'));
+    sendFromHost({ type: 'kw-reconnected', ok: false, error: 'nope' });
+    await waitFor(() => /Reconnect failed/.test(status.textContent ?? ''));
   });
 });
