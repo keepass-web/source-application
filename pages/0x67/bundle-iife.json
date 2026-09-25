@@ -90,6 +90,8 @@
     "closeMessage",
     "applyTabState",
     "isFindMessage",
-    "peerOrigin"
+    "peerOrigin",
+    "isReconnectedMessage",
+    "reconnectMessage"
   ]
 }

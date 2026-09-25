@@ -47,6 +47,10 @@ through this page, so it is removed without asking (#83). */
 let appReady = false;
 // Cached so the GIS script loads at most once, and concurrent callers share it.
 let gisReady: Promise<void> | null = null;
+/* One in-flight token request shared by every caller, so a sign-in and a
+reconnect can never open two consent popups at once (#85). */
+let tokenRequest: Promise<string> | null = null;
+let settleToken: { resolve: (token: string) => void; reject: (error: Error) => void } | null = null;
 
 // DOM helpers
 
@@ -83,6 +87,61 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
+// --- Drive requests --------------------------------------------------------
+
+interface DriveRequest {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: BodyInit;
+}
+
+type DriveResult =
+  | { outcome: 'ok'; response: Response }
+  | { outcome: 'auth-expired' | 'unreachable' | 'fail'; error: string };
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+// Only a 403 carries a reason worth reading, and no other failing body is used (#85).
+async function throttleReason(response: Response): Promise<string | undefined> {
+  if (response.status !== 403) return undefined;
+  try {
+    return driveErrorReason(await response.json());
+  } catch {
+    return undefined;
+  }
+}
+
+/** Issue an authorized Drive request, backing off through transient failures.
+A thrown fetch never reached Drive at all, so only a status Drive itself chose
+is retried; a 401 comes back for the UI to offer a reconnect, because renewing
+the token needs a user gesture (#85). */
+async function driveFetch(url: string, init: DriveRequest): Promise<DriveResult> {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < MAX_DRIVE_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await delay(backoffDelayMs(attempt - 1));
+    let response: Response;
+    try {
+      response = await fetch(url, { ...init, headers: { ...authHeader(), ...init.headers } });
+    } catch {
+      return { outcome: 'unreachable', error: 'network error' };
+    }
+    const outcome = classifyDriveResponse(response.status, await throttleReason(response));
+    if (outcome === 'ok') return { outcome: 'ok', response };
+    lastStatus = response.status;
+    if (outcome !== 'retry') return { outcome, error: `HTTP ${lastStatus}` };
+  }
+  return { outcome: 'fail', error: `HTTP ${lastStatus}` };
+}
+
+function openFailureText(name: string, outcome: 'unreachable' | 'fail', error: string): string {
+  if (outcome === 'unreachable') return `Network error while opening ${name}.`;
+  return `Could not open ${name} (${error}).`;
+}
+
 // ============================================================
 // Screen: Sign in (GIS token model)
 // ============================================================
@@ -100,7 +159,7 @@ function showSignInError(message: string): void {
   error.hidden = false;
 }
 
-/** Load GIS (once) and initialise the token client, wiring the token and error
+/** Load GIS (once) and initialize the token client, wiring the token and error
  * callbacks. */
 function ensureGis(): Promise<void> {
   if (gisReady === null) {
@@ -116,32 +175,88 @@ function ensureGis(): Promise<void> {
   return gisReady;
 }
 
-async function onSignIn(): Promise<void> {
+/** Resolve a usable access token. Renders nothing and navigates nowhere, so
+the sign-in screen and a mid-session reconnect can both await it and decide for
+themselves what to show. `silent` asks Google to answer without a popup, which
+is all a reconnect can do: its click lands in the embedded app, and the gesture
+a popup needs may never reach this frame. Sign-in has that gesture, so it asks
+outright (#85). */
+function getAccessToken(silent: boolean): Promise<string> {
+  if (tokenRequest === null) {
+    tokenRequest = requestToken(silent);
+    const clear = (): void => {
+      tokenRequest = null;
+      settleToken = null;
+    };
+    tokenRequest.then(clear, clear);
+  }
+  return tokenRequest;
+}
+
+/* GIS never calls back when its popup is simply abandoned, and the cached
+request above would then hand every later attempt the same dead promise instead
+of opening a new one. Shorter than the app's own wait, so a stuck sign-in is
+reported from here, where the next attempt can be freed (#85). */
+const TOKEN_TIMEOUT_MS = 90_000;
+
+async function requestToken(silent: boolean): Promise<string> {
   try {
     await ensureGis();
   } catch {
     gisReady = null; // let a retry re-load the script
-    showSignInError('Could not load Google sign-in. Check your connection and try again.');
+    throw new Error('Could not load Google sign-in. Check your connection and try again.');
+  }
+  return new Promise<string>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      settleToken = null;
+      reject(new Error('Google sign-in timed out. Try again.'));
+    }, TOKEN_TIMEOUT_MS);
+    settleToken = {
+      resolve: (token: string) => {
+        window.clearTimeout(timer);
+        resolve(token);
+      },
+      reject: (error: Error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    };
+    /* `prompt: ''` means Google answers without a popup for anyone who has
+    consented before, which is the ordinary hourly expiry. */
+    must(tokenClient).requestAccessToken(silent ? { prompt: '' } : undefined);
+  });
+}
+
+async function onSignIn(): Promise<void> {
+  try {
+    await getAccessToken(false);
+  } catch (error) {
+    showSignInError((error as Error).message);
     return;
   }
-  // Opens Google's own sign-in popup; the result arrives at the callbacks below.
-  must(tokenClient).requestAccessToken();
+  showChooser();
 }
 
 function handleTokenResponse(response: TokenResponse): void {
+  const pending = settleToken;
+  settleToken = null;
   if (typeof response.access_token === 'string' && response.access_token !== '') {
     accessToken = response.access_token;
-    showChooser();
+    pending?.resolve(response.access_token);
     return;
   }
-  showSignInError('Google sign-in did not complete. Please try again.');
+  pending?.reject(new Error('Google sign-in did not complete. Please try again.'));
 }
 
 function handleTokenError(error: TokenErrorResponse): void {
-  showSignInError(
-    error.type === 'popup_failed_to_open'
-      ? 'The sign-in popup was blocked. Allow popups for this site, then try again.'
-      : 'Google sign-in was cancelled.',
+  const pending = settleToken;
+  settleToken = null;
+  pending?.reject(
+    new Error(
+      error.type === 'popup_failed_to_open'
+        ? 'The sign-in popup was blocked. Allow popups for this site, then try again.'
+        : 'Google sign-in was cancelled.',
+    ),
   );
 }
 
@@ -208,30 +323,39 @@ function handlePickerResult(data: PickerResponse): void {
 
 async function openPickedFile(file: DriveFile): Promise<void> {
   setPickStatus(`Opening ${file.name}…`);
-  try {
-    const response = await fetch(buildDriveDownloadUrl(DRIVE_API, file.id), {
-      headers: authHeader(),
-    });
-    if (!response.ok) {
-      setPickStatus(`Could not open ${file.name} (HTTP ${response.status}).`);
-      return;
-    }
-    const bytes = await response.arrayBuffer();
-    const header = new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength));
-    const result = identifyFormat(header);
+  const result = await driveFetch(buildDriveDownloadUrl(DRIVE_API, file.id), {});
+  if (result.outcome === 'auth-expired') {
+    /* Nothing is unsaved on this screen, so the honest answer is the sign-in it
+    would take anyway rather than telling the user to find it (#85). */
+    accessToken = null;
+    showSignIn();
+    showSignInError('Your Google session expired. Sign in again to open your database.');
+    return;
+  }
+  if (result.outcome !== 'ok') {
+    setPickStatus(openFailureText(file.name, result.outcome, result.error));
+    return;
+  }
 
-    if (result.kind === 'invalid') {
-      setPickStatus(`${file.name} doesn't look like a KDBX file — no recognized signature found.`);
-      return;
-    }
-    if (!result.implementation) {
-      setPickStatus(`${file.name} is ${result.label}, which isn't supported yet.`);
-      return;
-    }
-    showHost(file, bytes, result.implementation);
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await result.response.arrayBuffer();
   } catch {
     setPickStatus(`Network error while opening ${file.name}.`);
+    return;
   }
+  const header = new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength));
+  const identified = identifyFormat(header);
+
+  if (identified.kind === 'invalid') {
+    setPickStatus(`${file.name} doesn't look like a KDBX file — no recognized signature found.`);
+    return;
+  }
+  if (!identified.implementation) {
+    setPickStatus(`${file.name} is ${identified.label}, which isn't supported yet.`);
+    return;
+  }
+  showHost(file, bytes, identified.implementation);
 }
 
 // ============================================================
@@ -330,6 +454,8 @@ function handleFrameMessage(event: MessageEvent): void {
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
+  } else if (isReconnectMessage(event.data)) {
+    void reconnect(source);
   } else if (isCloseMessage(event.data)) {
     tearDownIframe();
   }
@@ -337,20 +463,23 @@ function handleFrameMessage(event: MessageEvent): void {
 
 async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
   const file = must(currentFile);
-  try {
-    const response = await fetch(buildDriveUpdateUrl(UPLOAD_API, file.id), {
-      method: 'PATCH',
-      headers: { ...authHeader(), 'Content-Type': 'application/octet-stream' },
-      body: bytes,
-    });
-    if (!response.ok) {
-      source.postMessage(savedMessage(false, `HTTP ${response.status}`), PEER.target);
-      return;
-    }
+  const result = await driveFetch(buildDriveUpdateUrl(UPLOAD_API, file.id), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: bytes,
+  });
+  if (result.outcome === 'ok') {
     source.postMessage(savedMessage(true), PEER.target);
-  } catch {
-    source.postMessage(savedMessage(false, 'network error'), PEER.target);
+    return;
   }
+  source.postMessage(
+    savedMessage(
+      false,
+      result.error,
+      result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
+    ),
+    PEER.target,
+  );
 }
 
 /** First save of a create-originated session: no Drive file exists yet, so
@@ -362,22 +491,60 @@ async function createFileOnDrive(
   source: Window,
 ): Promise<void> {
   const { body, boundary } = buildMultipartBody(filename, bytes);
-  try {
-    const response = await fetch(buildDriveCreateUrl(UPLOAD_API), {
-      method: 'POST',
-      headers: { ...authHeader(), 'Content-Type': `multipart/related; boundary=${boundary}` },
-      body,
-    });
-    if (!response.ok) {
-      source.postMessage(savedMessage(false, `HTTP ${response.status}`), PEER.target);
-      return;
-    }
-    const created = (await response.json()) as { id: string };
-    currentFile = { id: created.id, name: filename };
-    source.postMessage(savedMessage(true), PEER.target);
-  } catch {
-    source.postMessage(savedMessage(false, 'network error'), PEER.target);
+  const result = await driveFetch(buildDriveCreateUrl(UPLOAD_API), {
+    method: 'POST',
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (result.outcome !== 'ok') {
+    source.postMessage(
+      savedMessage(
+        false,
+        result.error,
+        result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
+      ),
+      PEER.target,
+    );
+    return;
   }
+
+  let created: { id?: unknown } = {};
+  try {
+    created = (await result.response.json()) as { id?: unknown };
+  } catch {
+    created = {};
+  }
+  /* Drive made the file, but without a usable id no later save can update that
+  same one; reporting success would clear the edits against a file this session
+  can no longer reach (#85). */
+  if (typeof created.id !== 'string' || created.id === '') {
+    source.postMessage(savedMessage(false, 'unexpected response'), PEER.target);
+    return;
+  }
+  currentFile = { id: created.id, name: filename };
+  source.postMessage(savedMessage(true), PEER.target);
+}
+
+/** Renew the Google credential without leaving the host screen, so a save that
+failed on an expired session can be retried with the edits still in the app (#85). */
+async function reconnect(source: Window): Promise<void> {
+  try {
+    await getAccessToken(true);
+  } catch {
+    /* A reconnect can only ask silently, so whatever went wrong the answer is
+    the same: Google wants a real sign-in, and only the chooser's own button
+    carries the gesture that can open one. Going back there closes the database,
+    so the copy has to come first (#85). */
+    source.postMessage(
+      reconnectedMessage(
+        false,
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
+      ),
+      PEER.target,
+    );
+    return;
+  }
+  source.postMessage(reconnectedMessage(true), PEER.target);
 }
 
 function signOut(): void {

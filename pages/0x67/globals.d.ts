@@ -32,6 +32,15 @@ interface SavedMessage {
   type: 'kw-saved';
   ok: boolean;
   error?: string;
+  reason?: 'auth-expired';
+}
+interface ReconnectMessage {
+  type: 'kw-reconnect';
+}
+interface ReconnectedMessage {
+  type: 'kw-reconnected';
+  ok: boolean;
+  error?: string;
 }
 interface TitleMessage {
   type: 'kw-title';
@@ -57,10 +66,12 @@ interface CloseMessage {
 declare function isOpenMessage(data: unknown): data is OpenMessage;
 declare function isCreateMessage(data: unknown): data is CreateMessage;
 declare function isSavedMessage(data: unknown): data is SavedMessage;
+declare function isReconnectedMessage(data: unknown): data is ReconnectedMessage;
 declare function isCloseRequestMessage(data: unknown): data is CloseRequestMessage;
 declare function isFindMessage(data: unknown): data is FindMessage;
 declare function readyMessage(): ReadyMessage;
 declare function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage;
+declare function reconnectMessage(): ReconnectMessage;
 declare function titleMessage(filename: string, locked: boolean): TitleMessage;
 
 declare function applyTabState(

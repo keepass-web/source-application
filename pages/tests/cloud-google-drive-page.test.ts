@@ -191,7 +191,7 @@ async function settleScript(match: string, kind: 'load' | 'error'): Promise<void
   script.remove();
 }
 
-/** Click Sign in and let the GIS script load, so the token client initialises
+/** Click Sign in and let the GIS script load, so the token client initializes
  * and requestAccessToken fires. */
 async function signInLoadingGis(): Promise<void> {
   const before = requestCount;
@@ -199,6 +199,22 @@ async function signInLoadingGis(): Promise<void> {
   await settleScript('gsi/client', 'load');
   await waitFor(() => requestCount > before);
 }
+
+/** Click Sign in once GIS is already loaded; no fresh script load to settle,
+ * and each click opens exactly one token request for a callback to settle. */
+async function signInAgain(): Promise<void> {
+  const before = requestCount;
+  click(q('[data-action="signin"]'));
+  await waitFor(() => requestCount > before);
+}
+
+const errorText = (): string => q('#signin-error').textContent ?? '';
+
+const failTokenError = (error: Record<string, unknown>): void =>
+  (tokenErrorCallback as (e: Record<string, unknown>) => void)(error);
+
+const failTokenResponse = (response: Record<string, unknown>): void =>
+  (tokenCallback as (r: Record<string, unknown>) => void)(response);
 
 /** Drive the Picker through to its callback, resolving the api.js load on the
  * first call only. */
@@ -212,6 +228,17 @@ async function pick(
   await waitFor(() => pickerShownCount > before);
   const cb = lastPickerCallback as (data: Record<string, unknown>) => void;
   cb(file === null ? { action: 'cancel' } : { action: 'picked', documents: [file] });
+}
+
+/** Collapse the page's minute-scale waits so a test can reach them; `waitFor`
+ * polls on node's own timers, so only the long ones are shortened. */
+function fastLongTimers(target: { setTimeout: typeof setTimeout }): () => void {
+  const real = target.setTimeout;
+  target.setTimeout = ((fn: () => void, ms?: number) =>
+    real(fn, ms !== undefined && ms >= 1000 ? 0 : ms)) as typeof setTimeout;
+  return () => {
+    target.setTimeout = real;
+  };
 }
 
 const errStatus =
@@ -238,22 +265,22 @@ test('Google Drive connector', async (t) => {
 
   await t.test('sign-in reports a blocked popup, a cancel, and an empty result', async () => {
     await signInLoadingGis();
-    const errorCb = tokenErrorCallback as (e: Record<string, unknown>) => void;
-    const okCb = tokenCallback as (r: Record<string, unknown>) => void;
+    failTokenError({ type: 'popup_failed_to_open' });
+    await waitFor(() => /popup was blocked/.test(errorText()));
 
-    errorCb({ type: 'popup_failed_to_open' });
-    assert.match(q<HTMLElement>('#signin-error').textContent ?? '', /popup was blocked/);
+    await signInAgain();
+    failTokenError({ type: 'popup_closed' });
+    await waitFor(() => /cancelled/.test(errorText()));
 
-    errorCb({ type: 'popup_closed' });
-    assert.match(q<HTMLElement>('#signin-error').textContent ?? '', /cancelled/);
-
-    okCb({}); // no access_token
-    assert.match(q<HTMLElement>('#signin-error').textContent ?? '', /did not complete/);
+    await signInAgain();
+    failTokenResponse({}); // no access_token
+    await waitFor(() => /did not complete/.test(errorText()));
   });
 
-  await t.test('a token lands on the file chooser', () => {
+  await t.test('a token lands on the file chooser', async () => {
+    await signInAgain();
     (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok' });
-    assert.ok(q('[data-action="pick"]'));
+    await waitFor(() => q('[data-action="pick"]') !== null);
   });
 
   await t.test('a Picker that fails to load is reported', async () => {
@@ -390,6 +417,24 @@ test('Google Drive connector', async (t) => {
     });
   });
 
+  await t.test(
+    'a 401 write-back asks the app to reconnect rather than reporting a status',
+    async () => {
+      handlers.save = errStatus(401);
+      sendMessage(
+        { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+        { source: frameWin },
+      );
+      await waitFor(() => frameInbox.length === 5);
+      assert.deepEqual(frameInbox[4]?.message, {
+        type: 'kw-saved',
+        ok: false,
+        error: 'HTTP 401',
+        reason: 'auth-expired',
+      });
+    },
+  );
+
   await t.test('kw-title names the open database in the tab', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
     assert.equal(doc.title, 'vault.kdbx - Locked - KeePass Web - Google Drive');
@@ -475,6 +520,7 @@ test('Google Drive connector', async (t) => {
 
   await t.test('an app-initiated close tears down the iframe without a round trip', async () => {
     (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok2' });
+    await waitFor(() => q('[data-action="pick"]') !== null);
     handlers.download = async () => ({
       ok: true,
       status: 200,
@@ -612,5 +658,222 @@ test('Google Drive connector', async (t) => {
       ok: false,
       error: 'network error',
     });
+  });
+
+  // --- Transient failures, expiry, and reconnect (#85) ----------------------
+
+  /** Fail with `status` for the first `times` calls, then succeed. */
+  function flakyCreate(status: number, times: number): Handler {
+    let seen = 0;
+    return async () => {
+      seen += 1;
+      if (seen <= times) return { ok: false, status };
+      return { ok: true, status: 200, json: async () => ({ id: 'after-retry' }) };
+    };
+  }
+
+  async function saveAndRead(filename: string): Promise<unknown> {
+    const before = frameInbox.length;
+    sendMessage({ type: 'kw-save', filename, bytes: new ArrayBuffer(8) }, { source: frameWin });
+    await waitFor(() => frameInbox.length > before);
+    return frameInbox.at(-1)?.message;
+  }
+
+  await t.test('a 5xx is retried and the save then succeeds', async () => {
+    handlers.create = flakyCreate(503, 1);
+    assert.deepEqual(await saveAndRead('Retried Vault.kdbx'), { type: 'kw-saved', ok: true });
+  });
+
+  await t.test('a 5xx that never clears is reported once the attempts run out', async () => {
+    handlers.save = errStatus(503);
+    assert.deepEqual(await saveAndRead('Doomed Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'HTTP 503',
+    });
+  });
+
+  await t.test('a throttling 403 is retried, unlike a plain one', async () => {
+    let seen = 0;
+    handlers.save = async () => {
+      seen += 1;
+      if (seen === 1) {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }),
+        };
+      }
+      return { ok: true, status: 200 };
+    };
+    assert.deepEqual(await saveAndRead('Throttled Vault.kdbx'), { type: 'kw-saved', ok: true });
+    assert.equal(seen, 2, 'the throttled attempt was retried rather than reported');
+  });
+
+  await t.test('a 401 saving asks the app to reconnect', async () => {
+    handlers.save = errStatus(401);
+    assert.deepEqual(await saveAndRead('Expired Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'HTTP 401',
+      reason: 'auth-expired',
+    });
+  });
+
+  /** Leave the current session and start a fresh create one, so the next save
+   * takes the create path rather than updating a file that is already known. */
+  async function startCreateSession(): Promise<void> {
+    click(q('[data-action="back-to-drive"]'));
+    sendMessage({ type: 'kw-close' }, { source: frameWin });
+    await waitFor(() => q('[data-action="pick"]') !== null);
+    click(q('[data-action="create-database"]'));
+    await waitFor(() => q('#app-frame') !== null);
+    Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+      value: frameWin,
+      configurable: true,
+    });
+    sendMessage({ type: 'kw-ready' }, { source: frameWin });
+  }
+
+  await t.test(
+    'a create whose response carries no usable id is reported, not assumed',
+    async () => {
+      await startCreateSession();
+      handlers.create = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('not json');
+        },
+      });
+      assert.deepEqual(await saveAndRead('Headless Vault.kdbx'), {
+        type: 'kw-saved',
+        ok: false,
+        error: 'unexpected response',
+      });
+    },
+  );
+
+  await t.test('a create whose id is missing or blank is reported, not assumed', async () => {
+    handlers.create = async () => ({ ok: true, status: 200, json: async () => ({}) });
+    assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'unexpected response',
+    });
+
+    handlers.create = async () => ({ ok: true, status: 200, json: async () => ({ id: '' }) });
+    assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'unexpected response',
+    });
+  });
+
+  await t.test('a 401 creating the file asks the app to reconnect too', async () => {
+    handlers.create = errStatus(401);
+    assert.deepEqual(await saveAndRead('Stillborn Vault.kdbx'), {
+      type: 'kw-saved',
+      ok: false,
+      error: 'HTTP 401',
+      reason: 'auth-expired',
+    });
+  });
+
+  await t.test('kw-reconnect renews the token without leaving the host screen', async () => {
+    const before = frameInbox.length;
+    const requestsBefore = requestCount;
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    await waitFor(() => requestCount > requestsBefore);
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok3' });
+    await waitFor(() => frameInbox.length > before);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-reconnected', ok: true });
+    assert.ok(q('#app-frame'), 'the embedded app is still mounted');
+  });
+
+  await t.test('two reconnects in flight share one consent popup', async () => {
+    const before = frameInbox.length;
+    const requestsBefore = requestCount;
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    await waitFor(() => requestCount > requestsBefore);
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok4' });
+    await waitFor(() => frameInbox.length >= before + 2);
+    assert.equal(requestCount, requestsBefore + 1, 'only one token request was opened');
+  });
+
+  await t.test('a refused reconnect is reported to the app', async () => {
+    const before = frameInbox.length;
+    const requestsBefore = requestCount;
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    await waitFor(() => requestCount > requestsBefore);
+    failTokenError({ type: 'popup_failed_to_open' });
+    await waitFor(() => frameInbox.length > before);
+    /* A reconnect only ever asks silently, so any refusal means the same thing
+    however GIS phrases it. */
+    assert.deepEqual(frameInbox.at(-1)?.message, {
+      type: 'kw-reconnected',
+      ok: false,
+      error:
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
+    });
+  });
+
+  await t.test('an abandoned sign-in does not wedge the next reconnect', async () => {
+    const before = frameInbox.length;
+    const requestsBefore = requestCount;
+    const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+    try {
+      sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+      await waitFor(() => frameInbox.length > before); // no token callback ever comes
+    } finally {
+      restore();
+    }
+    assert.deepEqual(frameInbox.at(-1)?.message, {
+      type: 'kw-reconnected',
+      ok: false,
+      error:
+        'Google needs a full sign-in. Download a copy first, since leaving closes this database.',
+    });
+    assert.equal(requestCount, requestsBefore + 1);
+
+    /* The dead request must not be handed to the next attempt, or every later
+    reconnect waits on a popup that was never reopened (#85). */
+    const afterTimeout = requestCount;
+    const beforeRetry = frameInbox.length;
+    sendMessage({ type: 'kw-reconnect' }, { source: frameWin });
+    await waitFor(() => requestCount > afterTimeout);
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok-fresh' });
+    await waitFor(() => frameInbox.length > beforeRetry);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-reconnected', ok: true });
+  });
+
+  await t.test('a 401 opening a file sends the user back to sign in', async () => {
+    click(q('[data-action="back-to-drive"]'));
+    sendMessage({ type: 'kw-close' }, { source: frameWin });
+    await waitFor(() => q('[data-action="pick"]') !== null);
+
+    handlers.download = errStatus(401);
+    await pick({ id: 'f4', name: 'vault4.kdbx' });
+    await waitFor(() => q('[data-action="signin"]') !== null);
+    assert.match(q('#signin-error').textContent ?? '', /Your Google session expired/);
+  });
+
+  await t.test('a download whose body cannot be read is reported as a network error', async () => {
+    await signInAgain();
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok5' });
+    await waitFor(() => q('[data-action="pick"]') !== null);
+
+    handlers.download = async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => {
+        throw new Error('stream broke');
+      },
+    });
+    await pick({ id: 'f5', name: 'vault5.kdbx' });
+    await waitFor(() =>
+      /Network error while opening vault5\.kdbx/.test(q('#pick-status').textContent ?? ''),
+    );
   });
 });
