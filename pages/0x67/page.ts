@@ -137,12 +137,25 @@ logic.ts) are globals from bundle-iife's concatenation; see globals.d.ts. */
 
 // Clipboard
 
-let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
+let clipboardTimer: ReturnType<typeof setTimeout> | undefined;
+let clipboardDeadline = 0; // Date.now() at which the copied value is cleared
 
-/* The most recent auto-clear (#67). Every copy waits for it before writing, so
-a clear can never resolve on top of a newer value and wipe it; a settled one
-costs nothing to await, which is why this is never null. */
-let clipboardClear: Promise<unknown> = Promise.resolve();
+/* Every clipboard write, copy or clear, takes its turn here and has its outcome
+applied before the next one starts, so a late result can never undo a newer
+one (#67, #88). */
+let clipboardQueue: Promise<void> = Promise.resolve();
+
+function writeClipboard(text: string, done: () => void, refused: (err: unknown) => void): void {
+  clipboardQueue = clipboardQueue.then(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      refused(err);
+      return;
+    }
+    done();
+  });
+}
 
 const FIELD_LABELS: Record<string, string> = { UserName: 'Username' };
 
@@ -154,31 +167,69 @@ function fieldLabel(key: string): string {
 /* Names the field, never the value (#67): the toast is a reminder that a secret
 is on the clipboard, so it must not put that secret on screen as well. */
 function showClipboardToast(label: string): void {
-  const toast = byId('toast');
-  toast.textContent = `${label} copied to clipboard`;
-  toast.hidden = false;
+  byId('toast-message').textContent = `${label} copied to clipboard`;
+  byId('toast-countdown').setAttribute('aria-hidden', 'true');
+  byId('toast').hidden = false;
 }
 
-async function copyToClipboard(text: string, label = 'Value'): Promise<void> {
-  try {
-    await clipboardClear;
-    await navigator.clipboard.writeText(text);
-    if (clipboardTimer) clearTimeout(clipboardTimer);
-    showClipboardToast(label);
-    /* One timer drives both the wipe and the toast (#67), so the toast is gone
-    exactly when the clipboard is, rather than on a schedule of its own. */
-    clipboardTimer = setTimeout(() => {
-      clipboardTimer = null;
-      clipboardClear = navigator.clipboard
-        .writeText('')
-        .then(() => {
-          byId('toast').hidden = true;
-        })
-        .catch(() => {}); // the clear failed, so the value is still there and the toast stays
-    }, app.clipboardTimeout * 1000);
-  } catch (err) {
-    console.error('Clipboard write failed', err);
+/* One timer drives both the countdown and the wipe (#67, #88), waking on each
+whole second left so the toast is gone exactly when the clipboard is. */
+function tickClipboard(): void {
+  const left = clipboardDeadline - Date.now();
+  if (left > 0) {
+    byId('toast-countdown').textContent = `clears in ${Math.ceil(left / 1000)}s`;
+    clipboardTimer = setTimeout(tickClipboard, left % 1000 || 1000);
+    return;
   }
+  clearClipboard();
+}
+
+/* Chromium refuses a clipboard write from an unfocused page, and Firefox and
+Safari refuse one outside a click or keypress, so the timed clear can fail; it
+then retries at the next of those rather than leaving the value behind (#88). */
+const CLEAR_RETRY_EVENTS = ['focus', 'pointerdown', 'keydown'] as const;
+
+function armClearRetry(armed: boolean): void {
+  for (const type of CLEAR_RETRY_EVENTS) {
+    if (armed) window.addEventListener(type, clearClipboard, true);
+    else window.removeEventListener(type, clearClipboard, true);
+  }
+}
+
+function clearClipboard(): void {
+  writeClipboard(
+    '',
+    () => {
+      armClearRetry(false);
+      byId('toast').hidden = true;
+    },
+    () => {
+      const countdown = byId('toast-countdown');
+      countdown.setAttribute('aria-hidden', 'false'); // a one-off status, unlike the ticks, so it is announced (#88)
+      countdown.textContent = 'clears when you next click or type';
+      armClearRetry(true);
+    },
+  );
+}
+
+function clearClipboardNow(): void {
+  if (byId('toast').hidden) return; // nothing of ours is on the clipboard
+  clearTimeout(clipboardTimer);
+  clearClipboard();
+}
+
+function copyToClipboard(text: string, label = 'Value'): void {
+  writeClipboard(
+    text,
+    () => {
+      clearTimeout(clipboardTimer);
+      armClearRetry(false); // the new value restarts the clock
+      showClipboardToast(label);
+      clipboardDeadline = Date.now() + app.clipboardTimeout * 1000;
+      tickClipboard();
+    },
+    (err) => console.error('Clipboard write failed', err),
+  );
 }
 
 // Screen: Upload
@@ -981,6 +1032,7 @@ saved) rather than reloading the original file, so locking never loses an
 edit on its own — only choosing to discard at the prompt above does that. */
 async function lockDatabase(): Promise<void> {
   cancelAutoLock();
+  clearClipboardNow(); // a copied secret must not outlast the lock (#88)
   const bytes = await must(app.db).save();
   app.file = bytes.buffer as ArrayBuffer;
   const wasDirty = app.dirty;
@@ -1000,10 +1052,19 @@ function closeDatabase(): void {
   });
   setDirty(false);
   if (isHosted()) {
-    postToHost(closeMessage());
+    closeToHost();
   } else {
+    clearClipboardNow(); // a copied secret must not outlast the database (#88)
     showUpload();
   }
+}
+
+/* A copied secret must not outlast the database, and the host tears this frame
+down on kw-close along with any clipboard write still in flight, so the close
+waits for the clear to land (#88). */
+function closeToHost(): void {
+  clearClipboardNow();
+  void clipboardQueue.then(() => postToHost(closeMessage()));
 }
 
 function wireEntryListEvents(): void {
@@ -2382,7 +2443,7 @@ function handleHostMessage(event: MessageEvent): void {
     startFind();
   } else if (isCloseRequestMessage(event.data)) {
     postToHost(closeAckMessage());
-    confirmUnsavedChanges(DISCARD_PROMPT, () => postToHost(closeMessage()), CLOSE_PROMPT);
+    confirmUnsavedChanges(DISCARD_PROMPT, closeToHost, CLOSE_PROMPT);
   }
 }
 

@@ -367,7 +367,8 @@
     </div>
   </dialog>
 
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <!-- The countdown is hidden from assistive tech so a screen reader hears the copy once, not every tick (#88). -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toast-message"></span> <span id="toast-countdown" class="toast-countdown" aria-hidden="true"></span></div>
 
   <!-- ============================================================
        Dialog: New Group

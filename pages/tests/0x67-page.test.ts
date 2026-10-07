@@ -127,10 +127,29 @@ dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement
 // --- Clipboard polyfill (see file header) ---
 let clipboardText = '';
 let clipboardWritesShouldFail = false;
+interface HeldWrite {
+  text: string;
+  settle(accepted: boolean): void;
+}
+// When set, each write waits here for the test to settle it, so writes can be held in flight.
+let heldWrites: HeldWrite[] | null = null;
 (
   dom.window.navigator as unknown as { clipboard: { writeText(text: string): Promise<void> } }
 ).clipboard = {
   async writeText(text: string): Promise<void> {
+    const held = heldWrites;
+    if (held) {
+      return new Promise((resolve, reject) => {
+        held.push({
+          text,
+          settle(accepted) {
+            if (!accepted) return reject(new Error('simulated refusal'));
+            clipboardText = text;
+            resolve();
+          },
+        });
+      });
+    }
     if (clipboardWritesShouldFail) throw new Error('simulated clipboard failure');
     clipboardText = text;
   },
@@ -1267,8 +1286,8 @@ test('0x67 app', async (t) => {
 
   await t.test(
     'copying a field writes to the clipboard, announces it, and clears on a timer',
-    (t) => {
-      t.mock.timers.enable({ apis: ['setTimeout'] });
+    async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
       const usernameRow = Array.from(root().querySelectorAll('.detail-field')).find(
         (row) => row.querySelector('.detail-label')?.textContent === 'UserName',
       ) as HTMLElement;
@@ -1276,62 +1295,143 @@ test('0x67 app', async (t) => {
         (row) => row.querySelector('.detail-label')?.textContent === 'Password',
       ) as HTMLElement;
       const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
+      const toast = byId<HTMLElement>('toast');
+      const message = (): string | null => byId<HTMLElement>('toast-message').textContent;
+      const countdown = (): string | null => byId<HTMLElement>('toast-countdown').textContent;
+      // The writes happen inside an async handler; setImmediate is not mocked,
+      // so waiting on it lets every microtask settle before the next step.
+      const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
       clipboardWritesShouldFail = false;
       usernameRow.querySelector<HTMLButtonElement>('[title="Copy"]')?.click();
-      // The write happens inside an async handler; let its microtasks settle
-      // before advancing fake timers.
-      return Promise.resolve()
-        .then(() => Promise.resolve())
-        .then(() => {
-          assert.equal(
-            byId<HTMLElement>('toast').textContent,
-            'Username copied to clipboard',
-            "not KeePass's own 'UserName'",
-          );
-          copyBtn?.click();
-          return Promise.resolve().then(() => Promise.resolve());
-        })
-        .then(() => {
-          // The toast names the field and never carries the value itself (#67).
-          assert.equal(byId<HTMLElement>('toast').hidden, false);
-          assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
-          // Second, immediate copy exercises the "clear the pending timer"
-          // branch in copyToClipboard before advancing time at all.
-          copyBtn?.click();
-          return Promise.resolve().then(() => Promise.resolve());
-        })
-        .then(() => {
-          // The clipboard-clear timer (app.clipboardTimeout, still the
-          // default 30s here) was reset by the second copy above; advance
-          // past it to cover the auto-clear callback itself. Force this
-          // specific write to reject too, so the callback's own
-          // `.catch(() => {})` — silently swallowing a failed best-effort
-          // clear — actually runs instead of just being attached.
-          clipboardText = 'still there before the timer fires';
-          clipboardWritesShouldFail = true;
-          t.mock.timers.tick(30_000);
-          return Promise.resolve().then(() => Promise.resolve());
-        })
-        .then(() => {
-          clipboardWritesShouldFail = false;
-          // The rejected write must not throw, and must not have "succeeded"
-          // in clearing the (mock) clipboard either.
-          assert.equal(clipboardText, 'still there before the timer fires');
-          // The clear failed, so the value is still on the clipboard and the
-          // reminder must not retire as though it were gone.
-          assert.equal(byId<HTMLElement>('toast').hidden, false);
-          copyBtn?.click();
-          return Promise.resolve().then(() => Promise.resolve());
-        })
-        .then(() => {
-          t.mock.timers.tick(30_000);
-          return Promise.resolve().then(() => Promise.resolve());
-        })
-        .then(() => {
-          assert.equal(clipboardText, '', 'this clear succeeded');
-          assert.equal(byId<HTMLElement>('toast').hidden, true, 'so the reminder retires');
-        });
+      await settle();
+      assert.equal(message(), 'Username copied to clipboard', "not KeePass's own 'UserName'");
+
+      copyBtn?.click();
+      await settle();
+      // The toast names the field and never carries the value itself (#67).
+      assert.equal(toast.hidden, false);
+      assert.equal(message(), 'Password copied to clipboard');
+
+      // It counts down to the clear, a whole second at a time (#88).
+      assert.equal(countdown(), 'clears in 30s');
+      t.mock.timers.tick(1_000);
+      assert.equal(countdown(), 'clears in 29s');
+      t.mock.timers.tick(500);
+      assert.equal(countdown(), 'clears in 29s', 'no tick between whole seconds');
+
+      // A fresh copy restarts the clock rather than inheriting the old one.
+      copyBtn?.click();
+      await settle();
+      assert.equal(countdown(), 'clears in 30s');
+
+      // A browser refuses a timed clear while the user is off pasting elsewhere
+      // (or, in some browsers, always), so the value is still there and the
+      // reminder must say what happens next.
+      clipboardText = 'still there when the timer fires';
+      clipboardWritesShouldFail = true;
+      t.mock.timers.tick(30_000);
+      await settle();
+      assert.equal(clipboardText, 'still there when the timer fires');
+      assert.equal(toast.hidden, false);
+      assert.equal(countdown(), 'clears when you next click or type');
+      const countdownHidden = (): string | null =>
+        byId<HTMLElement>('toast-countdown').getAttribute('aria-hidden');
+      assert.equal(countdownHidden(), 'false', 'a screen reader hears this one, not the ticks');
+
+      // A retry the browser still refuses keeps waiting for the next chance.
+      dom.window.dispatchEvent(new dom.window.Event('keydown'));
+      await settle();
+      clipboardWritesShouldFail = false;
+      assert.equal(clipboardText, 'still there when the timer fires');
+      assert.equal(toast.hidden, false);
+
+      // The next click lets it through, and nothing retries after that.
+      dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+      await settle();
+      assert.equal(clipboardText, '', 'cleared at the click');
+      assert.equal(toast.hidden, true, 'so the reminder retires');
+      clipboardText = 'copied in another app';
+      dom.window.dispatchEvent(new dom.window.Event('focus'));
+      await settle();
+      assert.equal(clipboardText, 'copied in another app', 'the retry is spent');
+
+      // A copy made while a clear is still waiting owns the clipboard now; that
+      // stale clear must not wipe it the moment focus returns.
+      copyBtn?.click();
+      await settle();
+      clipboardWritesShouldFail = true;
+      t.mock.timers.tick(30_000);
+      await settle();
+      clipboardWritesShouldFail = false;
+      copyBtn?.click();
+      await settle();
+      dom.window.dispatchEvent(new dom.window.Event('focus'));
+      await settle();
+      assert.equal(toast.hidden, false, 'the stale clear never ran');
+      assert.equal(countdown(), 'clears in 30s');
+      assert.equal(countdownHidden(), 'true', 'and the ticks are silent again');
+
+      t.mock.timers.tick(30_000);
+      await settle();
+      assert.equal(toast.hidden, true, 'the new value is cleared on its own schedule');
+    },
+  );
+
+  await t.test(
+    'clipboard writes take turns, so a late result never undoes a newer one',
+    async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+      const passwordRow = Array.from(root().querySelectorAll('.detail-field')).find(
+        (row) => row.querySelector('.detail-label')?.textContent === 'Password',
+      ) as HTMLElement;
+      const copyBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Copy"]');
+      const toast = byId<HTMLElement>('toast');
+      const countdown = (): string | null => byId<HTMLElement>('toast-countdown').textContent;
+      const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+      // Leave a refused clear behind, so focus, clicks and keys all retry it.
+      clipboardWritesShouldFail = false;
+      copyBtn?.click();
+      await settle();
+      clipboardWritesShouldFail = true;
+      t.mock.timers.tick(30_000);
+      await settle();
+      clipboardWritesShouldFail = false;
+      assert.equal(countdown(), 'clears when you next click or type');
+
+      // Clicking back in fires focus and pointerdown together, both retrying, and
+      // the click itself lands a copy straight after them.
+      const held: HeldWrite[] = [];
+      heldWrites = held;
+      try {
+        dom.window.dispatchEvent(new dom.window.Event('focus'));
+        dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+        copyBtn?.click();
+        await settle();
+        assert.equal(held.length, 1, 'one write in flight at a time');
+
+        held[0]?.settle(false); // focus alone is not enough for some browsers
+        await settle();
+        assert.equal(held.length, 2, 'the next starts only once the first is applied');
+        held[1]?.settle(true); // the click is
+        await settle();
+        assert.equal(toast.hidden, true);
+        assert.equal(held.length, 3);
+        held[2]?.settle(true);
+        await settle();
+      } finally {
+        heldWrites = null;
+      }
+      assert.equal(toast.hidden, false, 'the copy, applied last, owns the toast');
+      assert.equal(countdown(), 'clears in 30s');
+      dom.window.dispatchEvent(new dom.window.Event('keydown'));
+      await settle();
+      assert.equal(held.length, 3, 'and no stale retry is left armed to wipe it');
+
+      t.mock.timers.tick(30_000);
+      await settle();
+      assert.equal(toast.hidden, true);
     },
   );
 
@@ -1362,7 +1462,7 @@ test('0x67 app', async (t) => {
       .then(() => {
         assert.equal(clipboardText, 'not-yet-saved-password');
         assert.equal(
-          byId<HTMLElement>('toast').textContent,
+          byId<HTMLElement>('toast-message').textContent,
           'Value copied to clipboard',
           'an unnamed field still names something',
         );
@@ -1622,6 +1722,9 @@ test('0x67 app', async (t) => {
         false,
         'the persistent save indicator reflects the unsaved edits made earlier in this walkthrough',
       );
+      // A value copied earlier in this walkthrough is still on the clipboard.
+      assert.equal(byId<HTMLElement>('toast').hidden, false);
+      clipboardText = 'copied earlier';
 
       q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       const lockDlg = byId<HTMLDialogElement>('dlg-confirm-discard');
@@ -1639,6 +1742,9 @@ test('0x67 app', async (t) => {
       await waitFor(() => q('#master-password') !== null);
       assert.equal(q<HTMLElement>('#db-filename').textContent, 'real.kdbx');
       assert.equal(dom.window.document.title, 'real.kdbx - Locked - KeePass Web');
+      // It does not outlast the lock (#88).
+      assert.equal(clipboardText, '');
+      assert.equal(byId<HTMLElement>('toast').hidden, true);
 
       // A wrong password on the relocked (freshly re-encrypted) state is
       // still rejected — locking doesn't weaken the credential check.
@@ -1679,6 +1785,9 @@ test('0x67 app', async (t) => {
   await t.test(
     'locking can save first instead: choosing Download saves, then locks, and the edit counts as saved from then on',
     async () => {
+      // Nothing of the app's is on the clipboard, so locking leaves it alone (#88).
+      clipboardText = 'copied in another app';
+
       q('[data-action="lock"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       const lockDlg = byId<HTMLDialogElement>('dlg-confirm-discard');
       assert.equal(lockDlg.open, true);
@@ -1688,6 +1797,7 @@ test('0x67 app', async (t) => {
       );
       await waitFor(() => lockDlg.open === false);
       await waitFor(() => q('#master-password') !== null);
+      assert.equal(clipboardText, 'copied in another app');
 
       q<HTMLInputElement>('#master-password').value = PASSWORD;
       const keyfileInput = q<HTMLInputElement>('#keyfile-input');
@@ -2421,7 +2531,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the real password was copied, not the mask');
   assert.equal(byId<HTMLElement>('toast').hidden, false);
-  assert.equal(byId<HTMLElement>('toast').textContent, 'Password copied to clipboard');
+  assert.equal(byId<HTMLElement>('toast-message').textContent, 'Password copied to clipboard');
   assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
   assert.equal(q('#detail-title'), null, 'copying never opens the card');
 
@@ -2515,10 +2625,16 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
 
+  // The password copied above is still counting down; closing takes it along (#88).
+  assert.equal(byId<HTMLElement>('toast').hidden, false);
+  clipboardText = 'hunter2';
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(clipboardText, '');
+  assert.equal(byId<HTMLElement>('toast').hidden, true);
 });
 
 test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
