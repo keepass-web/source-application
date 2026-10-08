@@ -309,9 +309,14 @@ export function isValidClipboardTimeout(seconds: number): boolean {
   return !Number.isNaN(seconds) && seconds >= 5;
 }
 
-/** The settings dialog's minimum accepted auto-lock delay, in seconds. */
+/** The settings dialog's minimum accepted curtain delay, in seconds (#84). */
+export function isValidCurtainTimeout(seconds: number): boolean {
+  return !Number.isNaN(seconds) && seconds >= 15;
+}
+
+/** The settings dialog's minimum accepted auto-lock delay, in seconds (#84). */
 export function isValidAutoLockTimeout(seconds: number): boolean {
-  return !Number.isNaN(seconds) && seconds >= 10;
+  return !Number.isNaN(seconds) && seconds >= 30;
 }
 
 /** Character classes offered by the password generator. */

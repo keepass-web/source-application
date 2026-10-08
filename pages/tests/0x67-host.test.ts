@@ -896,16 +896,16 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     },
   );
 
-  /** Auto-lock runs off a visibility timer that knows nothing about dialogs. */
+  /** Auto-lock runs off an idle clock that knows nothing about dialogs. A day
+   * idle is past any delay, and coming back to the tab makes the page look. */
   async function autoLockNow(): Promise<void> {
-    const restore = fastLongTimers(globalThis as unknown as { setTimeout: typeof setTimeout });
+    const realNow = Date.now;
+    Date.now = () => realNow() + 24 * 3_600_000;
     try {
-      Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
       doc.dispatchEvent(new dom.window.Event('visibilitychange'));
       await waitFor(() => q('#master-password') !== null);
     } finally {
-      restore();
-      Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+      Date.now = realNow;
     }
   }
 
@@ -1054,5 +1054,7 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     click(dq('[data-action="reconnect"]'));
     sendFromHost({ type: 'kw-reconnected', ok: false, error: 'nope' });
     await waitFor(() => /Reconnect failed/.test(status.textContent ?? ''));
+    // Locking stops the idle clock (#84), which would otherwise hold this process open.
+    await autoLockNow();
   });
 });

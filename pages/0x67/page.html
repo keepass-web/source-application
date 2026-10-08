@@ -237,8 +237,12 @@
         <input type="number" id="clipboard-timeout" min="5" max="300" value="30">
       </div>
       <div class="field">
-        <label for="auto-lock-timeout">Auto-lock when tab hidden (seconds)</label>
-        <input type="number" id="auto-lock-timeout" min="10" max="3600" value="30">
+        <label for="curtain-timeout">Hide the screen after idle (seconds)</label>
+        <input type="number" id="curtain-timeout" min="15" max="3600" value="60">
+      </div>
+      <div class="field">
+        <label for="auto-lock-timeout">Lock after idle (seconds)</label>
+        <input type="number" id="auto-lock-timeout" min="30" max="3600" value="300">
       </div>
       <hr class="dialog-divider">
       <div class="field">
@@ -418,6 +422,13 @@
     <div class="dialog-body">
       <div id="icon-grid" class="icon-grid"></div>
     </div>
+  </dialog>
+
+  <!-- ============================================================
+       Curtain: a modal dialog so it covers any dialog already open (#84)
+       ============================================================ -->
+  <dialog id="dlg-curtain" class="curtain" aria-label="Hidden while idle">
+    <button type="button" class="curtain-lift">Hidden while idle. Click to show.</button>
   </dialog>
 
   <!--FOOTER-->

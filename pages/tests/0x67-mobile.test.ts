@@ -164,4 +164,12 @@ test('on a phone-width viewport, the entry list defaults to tile view', async ()
     q<HTMLButtonElement>('[data-action="view-table"]').classList.contains('active'),
     false,
   );
+
+  // Closing stops the idle clock (#84), which would otherwise hold this process open.
+  dispatch(q('[data-action="close"]'), 'click');
+  const confirmClose = dom.window.document.querySelector(
+    '#dlg-confirm-discard [data-action="confirm-discard"]',
+  );
+  dispatch(confirmClose as Element, 'click');
+  assert.ok(q('#drop-zone'));
 });

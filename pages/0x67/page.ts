@@ -10,7 +10,8 @@ interface AppState {
   currentEntry: XmlElement | null;
   searchQuery: string;
   clipboardTimeout: number; // seconds
-  autoLockTimeout: number; // seconds hidden before the database locks itself
+  curtainTimeout: number; // seconds idle before the curtain hides the page
+  autoLockTimeout: number; // seconds idle before the database locks itself
   dirty: boolean; // unsaved edits exist
   sortField: EntrySortField;
   sortDir: EntrySortDirection;
@@ -26,7 +27,8 @@ const app: AppState = {
   currentEntry: null,
   searchQuery: '',
   clipboardTimeout: 30,
-  autoLockTimeout: 30,
+  curtainTimeout: 60,
+  autoLockTimeout: 300,
   dirty: false,
   sortField: 'title',
   sortDir: 'asc',
@@ -328,6 +330,7 @@ function showUnlock(preserveDirty = false): void {
       app.searchQuery = '';
       setDirty(preserveDirty && app.dirty);
       showEntryList();
+      armIdleWatch();
     } catch (err) {
       errorEl.textContent =
         err instanceof Error ? err.message : 'Incorrect credentials or corrupt file.';
@@ -397,6 +400,7 @@ function showCreateDatabase(): void {
       app.searchQuery = '';
       setDirty(true);
       showEntryList();
+      armIdleWatch();
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : 'Could not create database.';
       errorEl.hidden = false;
@@ -1006,32 +1010,61 @@ function updateViewToggleUI(): void {
   qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
 }
 
-let autoLockTimer: ReturnType<typeof setTimeout> | null = null;
+/* An unattended screen gets two responses (#84). After a short idle the curtain
+hides the page from anyone glancing at it and lifts with a click; after a long
+one the database locks, re-encrypting the current state with unsaved edits
+included, so it can fire without asking anything of someone who has walked
+away (#64). */
+let lastActivity = 0;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
-function cancelAutoLock(): void {
-  if (autoLockTimer === null) return;
-  clearTimeout(autoLockTimer);
-  autoLockTimer = null;
+function curtain(): HTMLDialogElement {
+  return byId<HTMLDialogElement>('dlg-curtain');
 }
 
-/* A tab nobody is looking at is an unattended screen: the database sits there
-decrypted in memory for as long as it stays that way. Locking re-encrypts the
-current state, unsaved edits included, so this can fire on its own without
-asking anything of someone who has already walked away (#64). */
-function handleVisibilityChange(): void {
-  cancelAutoLock();
-  if (document.visibilityState !== 'hidden' || app.db === null) return;
-  autoLockTimer = setTimeout(() => {
-    autoLockTimer = null;
+function noteActivity(): void {
+  if (!curtain().open) lastActivity = Date.now(); // behind the curtain, only lifting it counts (#84)
+}
+
+// Wakes at the next deadline and measures from the latest input, so input costs nothing (#84).
+function checkIdle(): void {
+  const idle = Date.now() - lastActivity;
+  const lockAt = app.autoLockTimeout * 1000;
+  if (idle >= lockAt) {
     void lockDatabase();
-  }, app.autoLockTimeout * 1000);
+    return;
+  }
+  const curtainAt = app.curtainTimeout < app.autoLockTimeout ? app.curtainTimeout * 1000 : lockAt;
+  if (idle >= curtainAt && !curtain().open) curtain().showModal();
+  idleTimer = setTimeout(checkIdle, (idle < curtainAt ? curtainAt : lockAt) - idle);
+}
+
+function rescheduleIdleCheck(): void {
+  clearTimeout(idleTimer);
+  checkIdle();
+}
+
+function armIdleWatch(): void {
+  lastActivity = Date.now();
+  rescheduleIdleCheck();
+}
+
+function liftCurtain(): void {
+  curtain().close();
+  armIdleWatch();
+}
+
+// A background tab's timers can run late, so coming back checks at once (#84).
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible' && app.db !== null) rescheduleIdleCheck();
 }
 
 /** Re-encrypts the current in-memory state (including anything not yet
 saved) rather than reloading the original file, so locking never loses an
 edit on its own — only choosing to discard at the prompt above does that. */
 async function lockDatabase(): Promise<void> {
-  cancelAutoLock();
+  clearTimeout(idleTimer);
+  curtain().close();
   clearClipboardNow(); // a copied secret must not outlast the lock (#88)
   const bytes = await must(app.db).save();
   app.file = bytes.buffer as ArrayBuffer;
@@ -1041,7 +1074,7 @@ async function lockDatabase(): Promise<void> {
 }
 
 function closeDatabase(): void {
-  cancelAutoLock();
+  clearTimeout(idleTimer);
   Object.assign(app, {
     db: null,
     file: null,
@@ -1642,6 +1675,8 @@ function openSettings(): void {
   const dlg = byId<HTMLDialogElement>('dlg-settings');
   const timeoutInput = byId<HTMLInputElement>('clipboard-timeout');
   timeoutInput.value = String(app.clipboardTimeout);
+  const curtainInput = byId<HTMLInputElement>('curtain-timeout');
+  curtainInput.value = String(app.curtainTimeout);
   const autoLockInput = byId<HTMLInputElement>('auto-lock-timeout');
   autoLockInput.value = String(app.autoLockTimeout);
 
@@ -1671,8 +1706,11 @@ function openSettings(): void {
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
     if (isValidClipboardTimeout(v)) app.clipboardTimeout = v;
+    const curtainDelay = Number.parseInt(curtainInput.value, 10);
+    if (isValidCurtainTimeout(curtainDelay)) app.curtainTimeout = curtainDelay;
     const autoLock = Number.parseInt(autoLockInput.value, 10);
     if (isValidAutoLockTimeout(autoLock)) app.autoLockTimeout = autoLock;
+    armIdleWatch(); // the new delays count from now (#84)
 
     if (newPasswordInput.value || confirmInput.value) {
       if (newPasswordInput.value !== confirmInput.value) {
@@ -2493,6 +2531,15 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 document.addEventListener('visibilitychange', handleVisibilityChange);
+for (const type of ['keydown', 'pointerdown', 'pointermove', 'wheel']) {
+  window.addEventListener(type, noteActivity, { capture: true, passive: true });
+}
+must(curtain().querySelector('button')).addEventListener('click', liftCurtain);
+// Escape lifts it as a click does, rather than closing it past the idle watch (#84).
+curtain().addEventListener('cancel', (e) => {
+  e.preventDefault();
+  liftCurtain();
+});
 
 /* Only taken when there is something to search; on the upload, unlock and edit
 screens the browser's own find is still the right answer (#78). */
