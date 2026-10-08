@@ -732,6 +732,7 @@ so an absolutely positioned menu would be cut off. */
 }
 
 .entry-row {
+  position: relative;
   padding: 1rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -863,7 +864,8 @@ text that ellipsizes and the copy control that keeps its place (#76). */
 
 /* Present at rest, brighter on hover or focus (#67): hover may raise emphasis,
 never be what makes the affordance discoverable, since touch has none. */
-.copy-hint {
+.copy-hint,
+.open-hint {
   margin-left: auto;
   flex: 0 0 auto;
   padding: 0;
@@ -875,8 +877,21 @@ never be what makes the affordance discoverable, since touch has none. */
   opacity: 0.55;
 }
 
-.entry-table td:hover .copy-hint,
-.copy-hint:focus-visible {
+/* Two auto margins would split the spare room between the buttons (#86). */
+.open-hint + .copy-hint {
+  margin-left: 0;
+}
+
+/* In the tile's top padding, clear of a centered title however long (#86). */
+.entry-row .open-hint {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+}
+
+.entry-table td:hover :is(.copy-hint, .open-hint),
+.entry-row:hover .open-hint,
+:is(.copy-hint, .open-hint):focus-visible {
   opacity: 1;
 }
 

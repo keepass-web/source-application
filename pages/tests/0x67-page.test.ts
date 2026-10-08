@@ -2637,6 +2637,33 @@ test('entry list table view: columns, masked password, click to copy, button to 
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the copy button copies exactly once');
 
+  // A web address opens in a tab of its own, and opening copies nothing (#86).
+  const opened: unknown[][] = [];
+  const realOpen = dom.window.open;
+  dom.window.open = ((...args: unknown[]) => {
+    opened.push(args);
+    return null;
+  }) as typeof dom.window.open;
+  try {
+    const urlCell = Array.from(root().querySelectorAll('.entry-table tbody td')).find(
+      (td) => td.querySelector('.entry-cell-text')?.textContent === 'https://github.com',
+    ) as HTMLElement;
+    const openBtn = urlCell.querySelector('.open-hint') as HTMLButtonElement;
+    assert.equal(openBtn.title, 'Open URL in a new tab');
+    clipboardText = '';
+    dispatch(openBtn, 'click');
+    await Promise.resolve();
+    assert.deepEqual(opened, [['https://github.com/', '_blank', 'noopener,noreferrer']]);
+    assert.equal(clipboardText, '', 'and copies nothing');
+  } finally {
+    dom.window.open = realOpen;
+  }
+  assert.equal(
+    root().querySelectorAll('.open-hint').length,
+    1,
+    'only a cell holding a web address offers to open it',
+  );
+
   // Find looks through the database rather than the page, so it takes the
   // keystroke and puts the caret in the search field with whatever was already
   // typed selected, ready to be replaced (#78).
@@ -2716,6 +2743,46 @@ test('entry list table view: columns, masked password, click to copy, button to 
   dispatch(q('[data-action="view-tile"]'), 'click');
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
+
+  // The tile and the card offer to open the address too, everywhere but edit (#86).
+  const tileOpened: unknown[][] = [];
+  const realTileOpen = dom.window.open;
+  dom.window.open = ((...args: unknown[]) => {
+    tileOpened.push(args);
+    return null;
+  }) as typeof dom.window.open;
+  try {
+    const tileOpenBtns = root().querySelectorAll<HTMLButtonElement>('.entry-row .open-hint');
+    assert.equal(tileOpenBtns.length, 1, 'only the tile with a web address');
+    dispatch(tileOpenBtns[0] as HTMLButtonElement, 'click');
+    assert.equal(q('#detail-title'), null, 'opening the site does not open the entry');
+    dispatch(tileOpenBtns[0]?.closest('.entry-row') as HTMLElement, 'click');
+    assert.ok(
+      q<HTMLElement>('#detail-title').textContent?.includes('GitHub'),
+      'the tile still does',
+    );
+
+    const cardOpenBtn = Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === 'URL')
+      ?.querySelector<HTMLButtonElement>('[title="Open URL in a new tab"]');
+    assert.ok(cardOpenBtn, 'the card offers it beside the URL');
+    dispatch(cardOpenBtn, 'click');
+    assert.deepEqual(tileOpened, [
+      ['https://github.com/', '_blank', 'noopener,noreferrer'],
+      ['https://github.com/', '_blank', 'noopener,noreferrer'],
+    ]);
+
+    dispatch(q('[data-action="edit"]'), 'click');
+    assert.equal(
+      root().querySelector('[title="Open URL in a new tab"]'),
+      null,
+      'but not the edit screen',
+    );
+    dispatch(q('[data-action="cancel"]'), 'click');
+    dispatch(q('[data-action="back"]'), 'click');
+  } finally {
+    dom.window.open = realTileOpen;
+  }
 
   // The password copied above is still counting down; closing takes it along (#88).
   assert.equal(byId<HTMLElement>('toast').hidden, false);

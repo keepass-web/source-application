@@ -33,6 +33,7 @@ import {
   isValidClipboardTimeout,
   isValidCurtainTimeout,
   localInputValueToIso,
+  openableUrl,
   sortEntries,
   toCsv,
   toXml,
@@ -388,6 +389,22 @@ test('isCustomField is false for the five standard fields and true otherwise', (
     assert.equal(isCustomField(key), false);
   }
   assert.equal(isCustomField('API Key'), true);
+});
+
+test('openableUrl opens only web addresses, reading a bare host as https', () => {
+  assert.equal(openableUrl('https://github.com'), 'https://github.com/');
+  assert.equal(openableUrl('  http://example.com/login  '), 'http://example.com/login');
+  assert.equal(openableUrl('github.com/login'), 'https://github.com/login');
+
+  // Anything else a database might hold would run in, or leave, this app.
+  assert.equal(openableUrl('javascript:alert(1)'), null);
+  assert.equal(openableUrl('data:text/html,<p>hi</p>'), null);
+  assert.equal(openableUrl('cmd://notepad.exe'), null);
+  assert.equal(openableUrl('file:///etc/passwd'), null);
+
+  assert.equal(openableUrl(''), null);
+  assert.equal(openableUrl('   '), null);
+  assert.equal(openableUrl('http://'), null, 'not an address at all');
 });
 
 test('isValidClipboardTimeout requires a real number of at least 5 seconds', () => {

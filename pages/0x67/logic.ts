@@ -304,6 +304,21 @@ export function isCustomField(key: string): boolean {
   return !STANDARD_FIELD_NAMES.includes(key);
 }
 
+/** The web address a URL field can open in a new tab, or null (#86). Only http
+and https, so a database can never make the app run a javascript: URL or hand
+a value to another scheme's handler; a bare host is read as https, the way it
+was most likely typed. */
+export function openableUrl(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The settings dialog's minimum accepted clipboard-clear timeout, in seconds. */
 export function isValidClipboardTimeout(seconds: number): boolean {
   return !Number.isNaN(seconds) && seconds >= 5;
