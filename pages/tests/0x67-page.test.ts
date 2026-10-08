@@ -1650,9 +1650,11 @@ test('0x67 app', async (t) => {
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     let dlg = byId<HTMLDialogElement>('dlg-settings');
     assert.equal(byId<HTMLInputElement>('clipboard-timeout').value, '30');
-    assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '30');
+    assert.equal(byId<HTMLInputElement>('curtain-timeout').value, '60');
+    assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '300');
 
     byId<HTMLInputElement>('clipboard-timeout').value = '10';
+    byId<HTMLInputElement>('curtain-timeout').value = '20';
     byId<HTMLInputElement>('auto-lock-timeout').value = '45';
     dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
       new dom.window.Event('click', { bubbles: true }),
@@ -1661,8 +1663,10 @@ test('0x67 app', async (t) => {
 
     q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(byId<HTMLInputElement>('clipboard-timeout').value, '10');
+    assert.equal(byId<HTMLInputElement>('curtain-timeout').value, '20');
     assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '45');
     byId<HTMLInputElement>('clipboard-timeout').value = '2';
+    byId<HTMLInputElement>('curtain-timeout').value = '10';
     byId<HTMLInputElement>('auto-lock-timeout').value = '5';
     dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
       new dom.window.Event('click', { bubbles: true }),
@@ -1675,12 +1679,21 @@ test('0x67 app', async (t) => {
       'an out-of-range timeout must not overwrite the saved one',
     );
     assert.equal(
+      byId<HTMLInputElement>('curtain-timeout').value,
+      '20',
+      'nor an out-of-range curtain delay',
+    );
+    assert.equal(
       byId<HTMLInputElement>('auto-lock-timeout').value,
       '45',
       'and neither must an out-of-range auto-lock delay',
     );
+    // The idle clock runs in real time here, so the rest of this walkthrough
+    // gets the longest delays rather than a curtain or lock partway through.
+    byId<HTMLInputElement>('curtain-timeout').value = '3600';
+    byId<HTMLInputElement>('auto-lock-timeout').value = '3600';
     dlg = byId<HTMLDialogElement>('dlg-settings');
-    dq('#dlg-settings [data-action="close"]').dispatchEvent(
+    dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
       new dom.window.Event('click', { bubbles: true }),
     );
     assert.equal(dlg.open, false);
@@ -1981,61 +1994,118 @@ function setVisibility(state: 'visible' | 'hidden'): void {
   dispatch(dom.window.document, 'visibilitychange');
 }
 
-test('a tab left hidden locks itself, and coming back in time calls it off', async (t) => {
+test('idle hides the page behind a curtain, then locks it', async (t) => {
+  async function unlock(): Promise<void> {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  }
+  function setDelays(curtainSeconds: string, lockSeconds: string): void {
+    dispatch(q('[data-action="settings"]'), 'click');
+    byId<HTMLInputElement>('curtain-timeout').value = curtainSeconds;
+    byId<HTMLInputElement>('auto-lock-timeout').value = lockSeconds;
+    dispatch(dq('#dlg-settings [data-action="save-settings"]'), 'click');
+  }
+  /* Only Date is mocked, so the page's own timers stay real and long; coming
+  back to the tab is what makes it look at the clock, as a late background
+  wake would. */
+  function idleFor(ms: number): void {
+    t.mock.timers.tick(ms);
+    setVisibility('visible');
+  }
+
   const fileInput = q<HTMLInputElement>('#file-input');
-  setFiles(fileInput, [makeFile('auto-lock.kdbx', dbBytes)]);
+  setFiles(fileInput, [makeFile('idle.kdbx', dbBytes)]);
   dispatch(fileInput, 'change');
   await waitFor(() => q('#master-password') !== null);
+  await unlock();
 
-  q<HTMLInputElement>('#master-password').value = PASSWORD;
-  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
-  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
-  dispatch(keyfileInput, 'change');
-  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
-  dispatch(q('#unlock-form'), 'submit');
-  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  const curtain = byId<HTMLDialogElement>('dlg-curtain');
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  setDelays('60', '300');
 
-  // Pin the delay, so the ticks below mean something no matter what an
-  // earlier test left in the settings.
-  q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-  byId<HTMLInputElement>('auto-lock-timeout').value = '30';
-  dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
-    new dom.window.Event('click', { bubbles: true }),
-  );
+  // Any input starts the idle count over.
+  idleFor(59_000);
+  assert.equal(curtain.open, false);
+  dispatch(dom.window, 'keydown');
+  idleFor(59_000);
+  assert.equal(curtain.open, false, 'the keystroke reset the count');
+  idleFor(1_000);
+  assert.equal(curtain.open, true, 'a minute idle brings the curtain down');
+  dispatch(curtain.querySelector('button') as HTMLButtonElement, 'click');
 
-  // Away, then back before the delay is up: the countdown is called off, and
-  // no amount of later time locks anything.
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  setVisibility('hidden');
-  t.mock.timers.tick(29_000);
-  setVisibility('visible');
-  t.mock.timers.tick(60_000);
-  t.mock.timers.reset();
-  assert.ok(dom.window.document.body.classList.contains('app-mode'), 'still unlocked');
+  // Scrolling counts, as reading a long list on a phone sends nothing else.
+  idleFor(59_000);
+  dispatch(dom.window, 'scroll');
+  idleFor(59_000);
+  assert.equal(curtain.open, false, 'the scroll reset the count');
+  idleFor(1_000);
+  assert.equal(curtain.open, true);
 
-  // Away for the whole delay: it locks on its own, with nothing to confirm.
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  setVisibility('hidden');
-  t.mock.timers.tick(30_000);
-  t.mock.timers.reset();
+  // Behind the curtain, only lifting it counts as being back.
+  dispatch(dom.window, 'pointermove');
+  idleFor(239_000);
+  assert.equal(curtain.open, true, 'still down, and still unlocked');
+  assert.ok(dom.window.document.body.classList.contains('app-mode'));
+  dispatch(curtain.querySelector('button') as HTMLButtonElement, 'click');
+  assert.equal(curtain.open, false, 'a click lifts it');
 
-  await waitFor(() => q('#master-password') !== null);
-  assert.equal(q<HTMLElement>('#db-filename').textContent, 'auto-lock.kdbx');
+  // Escape lifts it too, and restarts the count just the same.
+  idleFor(299_000);
+  assert.equal(curtain.open, true);
+  dispatch(curtain, 'cancel');
+  assert.equal(curtain.open, false);
+
+  // Five minutes idle locks, with nothing to confirm. Re-encrypting takes a
+  // moment, and the curtain stays down through it rather than show the page.
+  const realSave = Kdbx.prototype.save;
+  let saves = 0;
+  Kdbx.prototype.save = function (this: Kdbx, ...args: Parameters<Kdbx['save']>) {
+    saves++;
+    return realSave.apply(this, args);
+  };
+  try {
+    idleFor(60_000);
+    assert.equal(curtain.open, true);
+    idleFor(240_000);
+    assert.equal(curtain.open, true, 'still down while the lock is under way');
+    dispatch(curtain.querySelector('button') as HTMLButtonElement, 'click');
+    assert.equal(curtain.open, true, 'and a click cannot lift it part way');
+    setVisibility('visible');
+    dispatch(q('[data-action="lock"]'), 'click');
+    await waitFor(() => q('#master-password') !== null);
+  } finally {
+    Kdbx.prototype.save = realSave;
+  }
+  assert.equal(saves, 1, 'neither coming back nor the lock button started a second lock');
+  assert.equal(curtain.open, false, 'the curtain goes once the unlock screen is up');
   assert.equal(
     dom.window.document.title,
-    'auto-lock.kdbx - Locked - KeePass Web',
+    'idle.kdbx - Locked - KeePass Web',
     'the tab bar says so without being opened',
   );
 
-  // Already locked, so hiding again has nothing to arm.
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Locked, there is nothing left to watch.
+  idleFor(600_000);
   setVisibility('hidden');
-  t.mock.timers.tick(60_000);
-  t.mock.timers.reset();
-  assert.ok(q('#master-password'), 'still on the unlock screen, no second lock attempted');
-
+  assert.ok(q('#master-password'), 'no second lock attempted');
   setVisibility('visible');
-  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  // A lock due no later than the curtain leaves the curtain out entirely.
+  await unlock();
+  setDelays('120', '60');
+  idleFor(59_000);
+  assert.equal(curtain.open, false);
+  idleFor(1_000);
+  await waitFor(() => q('#master-password') !== null);
+  assert.equal(curtain.open, false, 'locked without a curtain first');
+
+  t.mock.timers.reset();
+  dispatch(q('[data-action="back"]'), 'click');
   assert.ok(q('#drop-zone'));
 });
 

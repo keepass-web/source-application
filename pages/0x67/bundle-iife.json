@@ -71,6 +71,7 @@
     "applyEntryEdits",
     "isCustomField",
     "isValidClipboardTimeout",
+    "isValidCurtainTimeout",
     "isValidAutoLockTimeout",
     "generatePassword",
     "elementIconId",
