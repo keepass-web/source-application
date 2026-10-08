@@ -904,6 +904,10 @@ test('0x67 app', async (t) => {
       for (const button of row.querySelectorAll('.icon-btn')) {
         assert.equal(button.parentElement?.className, 'edit-actions');
       }
+      // Copy leads the value here too, the same as everywhere else (#87).
+      const lead = keyInput.nextElementSibling;
+      assert.ok(lead?.querySelector('[title="Copy"]'), `copy leads the ${keyInput.value} value`);
+      assert.ok(lead?.nextElementSibling?.classList.contains('edit-value'));
     }
 
     // Title leads, empty and ready to type, with nothing to delete first (#89).
@@ -1070,6 +1074,11 @@ test('0x67 app', async (t) => {
       .find((row) => row.querySelector('.detail-label')?.textContent === 'Notes')
       ?.querySelector('.detail-value');
     assert.equal(notesValue?.textContent, 'first line\nsecond line', 'both lines kept (#89)');
+    // On the card, each copy control leads the value it copies (#87).
+    for (const wrap of root().querySelectorAll('.detail-value-wrap')) {
+      assert.equal(wrap.firstElementChild?.getAttribute('title'), 'Copy');
+      assert.ok(wrap.firstElementChild?.nextElementSibling?.classList.contains('detail-value'));
+    }
   });
 
   await t.test('save dialog: "Later" dismisses without downloading', () => {
@@ -2525,8 +2534,8 @@ test('entry list table view: columns, masked password, click to copy, button to 
     Array.from(root().querySelectorAll('.entry-table th')).map((th) => th.textContent ?? '');
   assert.deepEqual(
     headerText(),
-    ['Title', 'Username', 'Password', 'URL', 'Modified', 'Open'],
-    "default visible columns, plus the open column's screen-reader-only name",
+    ['Icon', 'Title', 'Username', 'Password', 'URL', 'Modified', 'Open'],
+    "default visible columns, plus the icon and open columns' screen-reader-only names",
   );
 
   // Columns resize the way the group rail does. jsdom has no layout engine, so
@@ -2578,14 +2587,18 @@ test('entry list table view: columns, masked password, click to copy, button to 
   const [titleCell, usernameCell, passwordCell, urlCell] = bodyCells();
   assert.ok(titleCell?.includes('GitHub'));
 
-  // The copy control is the cell's own trailing element rather than something
-  // glued to the end of the text, which is what keeps it in view (#76).
-  const firstCell = q<HTMLElement>('.entry-table tbody td');
+  // The copy control leads the value, a sibling of its text box rather than
+  // part of it, which is what keeps it in view and plainly tied to it (#76, #87).
+  const firstCell = q<HTMLElement>('.entry-table tbody td.entry-table-title');
   assert.equal(
-    firstCell.querySelector('.entry-cell')?.lastElementChild?.className,
+    firstCell.querySelector('.entry-cell')?.firstElementChild?.className,
     'copy-hint',
-    'it comes after the text box, as a sibling of it',
+    'it comes before the text box, as a sibling of it',
   );
+  // The entry's icon has a cell of its own, so nothing sits between 📋 and the title (#87).
+  assert.equal(firstCell.querySelector('.entry-cell-text')?.textContent, 'GitHub');
+  assert.equal(firstCell.previousElementSibling?.className, 'entry-table-icon');
+  assert.equal(firstCell.previousElementSibling?.textContent, '🔑');
   assert.equal(usernameCell, 'octocat');
   assert.equal(passwordCell, '••••••••', 'password is masked on screen');
   assert.equal(urlCell, 'https://github.com');
@@ -2594,7 +2607,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
     tr.textContent?.includes('No Password'),
   ) as HTMLElement;
   assert.equal(
-    noPasswordRow.querySelectorAll('td')[2]?.textContent,
+    noPasswordRow.querySelector('td.entry-table-protected')?.textContent,
     '',
     'empty, not a row of dots',
   );

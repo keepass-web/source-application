@@ -1,9 +1,9 @@
 /** Real-browser coverage for the entry table's controls (issues #67, #76,
- * #77). jsdom dispatches events straight at an element and has no layout
+ * #77, #87). jsdom dispatches events straight at an element and has no layout
  * engine at all; only a real browser hit-tests a coordinate and gives a cell
  * or a column a width, so this is what proves the controls are clickable where
- * they render, that the copy control holds the cell's right edge, and that a
- * dragged column actually changes size.
+ * they render, that the copy control leads its value at the cell's left edge,
+ * and that a dragged column actually changes size.
  *
  * What gets copied is asserted in the jsdom tests instead: headless Chrome
  * refuses `navigator.clipboard.writeText` outright ("Write permission denied"),
@@ -71,7 +71,7 @@ test('clicking a value never opens the entry', async () => {
   assert.equal(await app.$('#detail-title'), null, 'the card stayed shut');
 });
 
-test('the copy control holds the right edge of its cell', async () => {
+test('the copy control leads its value at the left edge of its cell', async () => {
   const geometry = await app.$$eval(
     '.entry-table tbody td',
     (cells, name) => {
@@ -81,8 +81,8 @@ test('the copy control holds the right edge of its cell', async () => {
       if (!cell || !hint || !text) return null;
       const inner = cell.querySelector('.entry-cell') as HTMLElement;
       return {
-        gapToTheRightEdge: inner.getBoundingClientRect().right - hint.getBoundingClientRect().right,
-        gapAfterTheText: hint.getBoundingClientRect().left - text.getBoundingClientRect().right,
+        gapFromTheLeftEdge: hint.getBoundingClientRect().left - inner.getBoundingClientRect().left,
+        gapBeforeTheText: text.getBoundingClientRect().left - hint.getBoundingClientRect().right,
       };
     },
     'octocat',
@@ -90,13 +90,13 @@ test('the copy control holds the right edge of its cell', async () => {
   assert.ok(geometry, 'the username cell carries both a text box and a copy control');
 
   assert.ok(
-    geometry.gapToTheRightEdge < 1,
-    `the control sits at the cell's right edge, ${geometry.gapToTheRightEdge}px short of it`,
+    geometry.gapFromTheLeftEdge < 1,
+    `the control starts the cell, ${geometry.gapFromTheLeftEdge}px in from its edge`,
   );
-  // A short value leaves room, and the control does not follow the text into it.
+  // A short value leaves room, and the control stays beside it rather than across the gap.
   assert.ok(
-    geometry.gapAfterTheText > 8,
-    `it is pinned there rather than trailing the text, ${geometry.gapAfterTheText}px behind it`,
+    geometry.gapBeforeTheText >= 0 && geometry.gapBeforeTheText < 10,
+    `it sits right before the text it copies, ${geometry.gapBeforeTheText}px from it`,
   );
 });
 
