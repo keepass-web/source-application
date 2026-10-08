@@ -22,7 +22,8 @@ export interface KdbxFixture {
   groupName: string;
 }
 
-export async function writeKdbxFixture(): Promise<KdbxFixture> {
+/** `url` is the entry's URL field; a test that opens it passes one it serves itself. */
+export async function writeKdbxFixture(url = ''): Promise<KdbxFixture> {
   const password = 'e2e-test-password';
   const entryTitle = 'Example Entry';
   // Exactly 25 characters, the floor issue #63 sets for the group rail.
@@ -39,7 +40,7 @@ export async function writeKdbxFixture(): Promise<KdbxFixture> {
   });
   appendChild(
     kdbx.getRootGroup(),
-    createEntry({ title: entryTitle, username: 'octocat', password: 'hunter2' }),
+    createEntry({ title: entryTitle, username: 'octocat', password: 'hunter2', url }),
   );
   appendChild(kdbx.getRootGroup(), createGroup(groupName));
   const bytes = await kdbx.save();

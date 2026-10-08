@@ -812,8 +812,8 @@ browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
 function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
   cell.addEventListener('click', (event) => {
-    // Anywhere but the copy button, which runs its own handler (#76).
-    if ((event.target as Element).closest('.copy-hint')) return;
+    // Anywhere but the cell's own buttons, which run their own handlers (#76, #86).
+    if ((event.target as Element).closest('.copy-hint, .open-hint')) return;
     if (value) copyToClipboard(value, label);
   });
 }
@@ -826,10 +826,23 @@ function copyHint(value: string, label: string): HTMLButtonElement {
   });
 }
 
+/* noopener and noreferrer, so the site neither learns where it was opened from
+nor gets a handle back into this page (#86). */
+function openHint(href: string): HTMLButtonElement {
+  return makeIconButton('open-hint', 'Open URL in a new tab', '↗', () => {
+    window.open(href, '_blank', 'noopener,noreferrer');
+  });
+}
+
 /* The text ellipsizes inside its own box so the copy control keeps its place at
 the cell's right edge (#76); appended straight after the text it rode past the
 edge and out of sight the moment a value was longer than its column. */
-function buildEntryCell(display: string, value: string, label: string): HTMLTableCellElement {
+function buildEntryCell(
+  display: string,
+  value: string,
+  label: string,
+  action?: HTMLButtonElement,
+): HTMLTableCellElement {
   const td = document.createElement('td');
   const inner = document.createElement('div');
   inner.className = 'entry-cell';
@@ -837,6 +850,7 @@ function buildEntryCell(display: string, value: string, label: string): HTMLTabl
   text.className = 'entry-cell-text';
   text.textContent = display;
   inner.appendChild(text);
+  if (action) inner.appendChild(action);
   if (value) inner.appendChild(copyHint(value, label));
   td.appendChild(inner);
   wireCellCopy(td, value, label);
@@ -961,10 +975,13 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     tr.appendChild(titleTd);
 
     for (const column of visibleColumns) {
+      const value = entryColumnValue(entry, column.key);
+      const href = column.key === 'url' ? openableUrl(value) : null;
       const td = buildEntryCell(
         entryColumnDisplayValue(entry, column.key),
-        entryColumnValue(entry, column.key),
+        value,
         column.label,
+        href ? openHint(href) : undefined,
       );
       if (column.key === 'password') td.classList.add('entry-table-protected');
       tr.appendChild(td);

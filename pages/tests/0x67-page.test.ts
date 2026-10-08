@@ -2637,6 +2637,33 @@ test('entry list table view: columns, masked password, click to copy, button to 
   await Promise.resolve();
   assert.equal(clipboardText, 'hunter2', 'the copy button copies exactly once');
 
+  // A web address opens in a tab of its own, and opening copies nothing (#86).
+  const opened: unknown[][] = [];
+  const realOpen = dom.window.open;
+  dom.window.open = ((...args: unknown[]) => {
+    opened.push(args);
+    return null;
+  }) as typeof dom.window.open;
+  try {
+    const urlCell = Array.from(root().querySelectorAll('.entry-table tbody td')).find(
+      (td) => td.querySelector('.entry-cell-text')?.textContent === 'https://github.com',
+    ) as HTMLElement;
+    const openBtn = urlCell.querySelector('.open-hint') as HTMLButtonElement;
+    assert.equal(openBtn.title, 'Open URL in a new tab');
+    clipboardText = '';
+    dispatch(openBtn, 'click');
+    await Promise.resolve();
+    assert.deepEqual(opened, [['https://github.com/', '_blank', 'noopener,noreferrer']]);
+    assert.equal(clipboardText, '', 'and copies nothing');
+  } finally {
+    dom.window.open = realOpen;
+  }
+  assert.equal(
+    root().querySelectorAll('.open-hint').length,
+    1,
+    'only a cell holding a web address offers to open it',
+  );
+
   // Find looks through the database rather than the page, so it takes the
   // keystroke and puts the caret in the search field with whatever was already
   // typed selected, ready to be replaced (#78).

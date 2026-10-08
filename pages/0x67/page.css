@@ -863,7 +863,8 @@ text that ellipsizes and the copy control that keeps its place (#76). */
 
 /* Present at rest, brighter on hover or focus (#67): hover may raise emphasis,
 never be what makes the affordance discoverable, since touch has none. */
-.copy-hint {
+.copy-hint,
+.open-hint {
   margin-left: auto;
   flex: 0 0 auto;
   padding: 0;
@@ -875,8 +876,13 @@ never be what makes the affordance discoverable, since touch has none. */
   opacity: 0.55;
 }
 
-.entry-table td:hover .copy-hint,
-.copy-hint:focus-visible {
+/* Two auto margins would split the spare room between the buttons (#86). */
+.open-hint + .copy-hint {
+  margin-left: 0;
+}
+
+.entry-table td:hover :is(.copy-hint, .open-hint),
+:is(.copy-hint, .open-hint):focus-visible {
   opacity: 1;
 }
 
