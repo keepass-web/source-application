@@ -1561,6 +1561,7 @@ body.embedded footer {
   bottom: 1.5rem;
   transform: translateX(-50%);
   z-index: 50;
+  width: max-content; /* left: 50% would otherwise cap it at half the screen (#88) */
   max-width: min(90vw, 32rem);
   padding: 0.5rem 0.9rem;
   border: 1px solid var(--border);
@@ -1569,6 +1570,12 @@ body.embedded footer {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   color: var(--text);
   font-size: 0.85rem;
+}
+
+.toast-countdown {
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Announced but not drawn: gives the open column a name for table navigation. */

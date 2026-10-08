@@ -9,8 +9,9 @@
  * node:test runs each test file in its own process, so importing page.ts here
  * re-evaluates its module scope independently of the standalone file's import.
  *
- * Same two jsdom gaps as the standalone file: HTMLDialogElement.showModal()/
- * close() aren't implemented, so they get the same behavior-only polyfill.
+ * Same jsdom gaps as the standalone file: HTMLDialogElement.showModal()/
+ * close() and the Clipboard API aren't implemented, so they get the same
+ * behavior-only polyfills.
  */
 
 import assert from 'node:assert/strict';
@@ -96,6 +97,27 @@ dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement
   this.dispatchEvent(new dom.window.Event('close'));
 };
 
+// --- Clipboard polyfill (see file header); when held, writes wait for the test to land them ---
+let clipboardText = '';
+let heldClipboardWrites: Array<() => void> | null = null;
+(
+  dom.window.navigator as unknown as { clipboard: { writeText(text: string): Promise<void> } }
+).clipboard = {
+  writeText(text: string): Promise<void> {
+    const held = heldClipboardWrites;
+    if (!held) {
+      clipboardText = text;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      held.push(() => {
+        clipboardText = text;
+        resolve();
+      });
+    });
+  },
+};
+
 Object.assign(globalThis, {
   applyTabState,
   Kdbx,
@@ -153,6 +175,9 @@ async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<void
 function click(el: Element): void {
   el.dispatchEvent(new dom.window.Event('click', { bubbles: true, cancelable: true }));
 }
+
+// kw-close waits its turn behind any clipboard write (#88), so it lands a few microtasks later.
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 /** Deliver a message "from the host" as a plain Event with the fields
  * handleHostMessage reads — mirroring how 0x67-page.test.ts fabricates events
@@ -232,9 +257,10 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.equal(hostInbox.length, before, 'nothing posted back');
   });
 
-  await t.test('kw-close-request with nothing open acks receipt, then closes at once', () => {
+  await t.test('kw-close-request with nothing open acks receipt, then closes at once', async () => {
     const before = hostInbox.length;
     sendFromHost({ type: 'kw-close-request' });
+    await settle();
     assert.equal(hostInbox.length, before + 2, 'no database in the tab, nothing to ask about');
     assert.deepEqual(hostInbox[before]?.message, { type: 'kw-close-ack' });
     assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
@@ -584,7 +610,7 @@ test('0x67 embedded in a host frame', async (t) => {
     },
   );
 
-  await t.test('kw-close-request still asks when the database is saved', () => {
+  await t.test('kw-close-request still asks when the database is saved', async () => {
     // The retry above succeeded and its dialog was closed, so nothing is
     // unsaved — but the open database itself is still worth a question.
     const before = hostInbox.length;
@@ -603,12 +629,13 @@ test('0x67 embedded in a host frame', async (t) => {
 
     click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
     assert.equal(dlg.open, false);
+    await settle();
     assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
   });
 
   await t.test(
     'kw-close-request with unsaved changes opens the confirm dialog; confirming closes',
-    () => {
+    async () => {
       // The walkthrough above left us on the entry-detail screen (commitEdits
       // returns there); back to the list, where a fresh edit can be made.
       click(q('[data-action="back"]'));
@@ -623,12 +650,13 @@ test('0x67 embedded in a host frame', async (t) => {
 
       click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
       assert.equal(dlg.open, false);
+      await settle();
       assert.equal(hostInbox.length, before + 2);
       assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
     },
   );
 
-  await t.test("the app's own close button sends kw-close, unprompted by the host", () => {
+  await t.test("the app's own close button sends kw-close, unprompted by the host", async () => {
     // The prior test left the unsaved add-entry draft open (its own
     // confirm-discard was for the host's kw-close-request, which doesn't
     // navigate away) — cancel it to get back to the entry list. Cancelling a
@@ -636,12 +664,29 @@ test('0x67 embedded in a host frame', async (t) => {
     // confirm-discard path below, same as standalone.
     click(q('[data-action="cancel"]'));
 
+    // A value on the clipboard must be cleared before the host tears the frame
+    // down, or the teardown takes the clear with it and leaves the value (#88).
+    const copyHint = q('.copy-hint');
+    assert.ok(copyHint, 'the entry list offers a copy control');
+    click(copyHint);
+    await settle();
+    assert.notEqual(clipboardText, '', 'something is on the clipboard');
+    const held: Array<() => void> = [];
+    heldClipboardWrites = held;
+
     const before = hostInbox.length;
     click(q('[data-action="close"]'));
     const dlg = dq<HTMLDialogElement>('#dlg-confirm-discard');
     assert.equal(dlg.open, true);
     click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+    await settle();
+    assert.equal(held.length, 1, 'the clear is in flight');
+    assert.equal(hostInbox.length, before, 'so the close waits for it');
 
+    heldClipboardWrites = null;
+    held[0]?.();
+    await settle();
+    assert.equal(clipboardText, '');
     assert.equal(hostInbox.length, before + 1);
     assert.deepEqual(lastHostMessage(), { type: 'kw-close' });
   });
