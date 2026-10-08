@@ -1116,7 +1116,7 @@ function wireEntryListEvents(): void {
   });
 
   qs('[data-action="add-entry"]').addEventListener('click', () => {
-    const newEntry = createEntry({ title: 'New Entry' });
+    const newEntry = createEntry({});
     appendChild(must(app.currentGroup), newEntry);
     app.currentEntry = newEntry;
     setDirty(true);
@@ -1468,6 +1468,7 @@ function showEntryEdit(isNew: boolean): void {
     const isProtected = getAttribute(valueEl, 'Protected') === 'True';
     fieldsEl.appendChild(buildEditField(key, value, isProtected, isCustomField(key)));
   }
+  if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
 
   qs('[data-action="add-field"]').addEventListener('click', () => {
     fieldsEl.appendChild(buildEditField('', '', false, true));
@@ -1549,22 +1550,28 @@ function buildEditField(
   keyInput.placeholder = 'Field name';
   keyInput.readOnly = !removable;
 
-  const valueInput = document.createElement('input');
+  // A single-line input would flatten multi-line notes into one line on save (#89).
+  const valueInput = document.createElement(key === 'Notes' && !isProtected ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
-  valueInput.type = isProtected ? 'password' : 'text';
   valueInput.value = value;
   valueInput.placeholder = 'Value';
 
+  // Kept apart from the row's own spacing so they sit close together (#89).
+  const actions = document.createElement('span');
+  actions.className = 'edit-actions';
+
   row.appendChild(keyInput);
   row.appendChild(valueInput);
+  row.appendChild(actions);
 
   if (isProtected) {
+    valueInput.setAttribute('type', 'password');
     const toggle = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
-      valueInput.type = valueInput.type === 'password' ? 'text' : 'password';
+      valueInput.setAttribute('type', valueInput.type === 'password' ? 'text' : 'password');
       toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
     });
     keepFieldFocus(toggle);
-    row.appendChild(toggle);
+    actions.appendChild(toggle);
   }
 
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
@@ -1573,7 +1580,7 @@ function buildEditField(
     copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
   });
   keepFieldFocus(copyBtn);
-  row.appendChild(copyBtn);
+  actions.appendChild(copyBtn);
 
   if (key === 'Password') {
     const generateBtn = makeIconButton('icon-btn', 'Generate password', '🎲', () => {
@@ -1582,13 +1589,13 @@ function buildEditField(
       });
     });
     keepFieldFocus(generateBtn);
-    row.appendChild(generateBtn);
+    actions.appendChild(generateBtn);
   }
 
   if (removable) {
     const removeBtn = makeIconButton('icon-btn', 'Remove field', '✕', () => row.remove());
     removeBtn.style.color = 'var(--danger)';
-    row.appendChild(removeBtn);
+    actions.appendChild(removeBtn);
   }
 
   return row;
@@ -1603,7 +1610,7 @@ function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): 
 
   const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
     key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
-    value: must(row.querySelector<HTMLInputElement>('.edit-value')).value,
+    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
     protect: row.dataset.protected === '1',
   }));
   applyEntryEdits(entry, fields);
