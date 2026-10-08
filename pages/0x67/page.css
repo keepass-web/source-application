@@ -848,7 +848,7 @@ wait on a double-tap-to-zoom before that tap registers. */
 }
 
 /* min-width:0 is what lets the text box shrink below its content, so it is the
-text that ellipsizes and the copy control that keeps its place (#76). */
+text that ellipsizes and the controls beside it that keep their place (#76). */
 .entry-cell {
   display: flex;
   align-items: center;
@@ -857,6 +857,7 @@ text that ellipsizes and the copy control that keeps its place (#76). */
 }
 
 .entry-cell-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -866,7 +867,6 @@ text that ellipsizes and the copy control that keeps its place (#76). */
 never be what makes the affordance discoverable, since touch has none. */
 .copy-hint,
 .open-hint {
-  margin-left: auto;
   flex: 0 0 auto;
   padding: 0;
   border: none;
@@ -875,11 +875,6 @@ never be what makes the affordance discoverable, since touch has none. */
   font-size: 0.8em;
   line-height: 1;
   opacity: 0.55;
-}
-
-/* Two auto margins would split the spare room between the buttons (#86). */
-.open-hint + .copy-hint {
-  margin-left: 0;
 }
 
 /* In the tile's top padding, clear of a centered title however long (#86). */
@@ -899,9 +894,22 @@ never be what makes the affordance discoverable, since touch has none. */
   width: 2.5rem;
 }
 
+.entry-table th.entry-table-icon {
+  width: 2rem;
+}
+
+.entry-table-icon {
+  text-align: center;
+}
+
 .entry-table-open {
   text-align: right;
   white-space: nowrap;
+}
+
+/* Clicking these cells does nothing, so they should not look as if it would (#87). */
+.entry-table td:is(.entry-table-icon, .entry-table-open) {
+  cursor: default;
 }
 
 .entry-table tbody tr:hover {
@@ -1156,7 +1164,7 @@ body:not(.app-mode) .screen-detail {
 }
 
 .detail-value {
-  flex: 1;
+  flex: 0 1 auto; /* sized to its text, so the buttons after it follow the value (#87) */
   word-break: break-all;
   white-space: pre-wrap; /* notes keep the lines they were written in (#89) */
   font-size: 0.9rem;

@@ -29,7 +29,8 @@ before(async () => {
   });
   page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
-  address = `${server.origin}/index.html`;
+  // Longer than the column, so the cell has to ellipsize it; the server ignores the query.
+  address = `${server.origin}/index.html?from=${'long-address-'.repeat(8)}`;
   app = await openApp(page, server.origin, await writeKdbxFixture(address));
   await app.click('[data-action="view-table"]');
   await app.waitForSelector('.entry-table');
@@ -38,6 +39,27 @@ before(async () => {
 after(async () => {
   await browser.close();
   await server.close();
+});
+
+test('the open control trails the address and stays in its cell', async () => {
+  const geometry = await app.$eval('.entry-table .open-hint', (open) => {
+    const cell = open.closest('.entry-cell') as HTMLElement;
+    const text = cell.querySelector('.entry-cell-text') as HTMLElement;
+    const copy = cell.querySelector('.copy-hint') as HTMLElement;
+    return {
+      truncated: text.scrollWidth > text.clientWidth,
+      copyBeforeText: copy.getBoundingClientRect().right <= text.getBoundingClientRect().left,
+      gapAfterText: open.getBoundingClientRect().left - text.getBoundingClientRect().right,
+      inside: open.getBoundingClientRect().right <= cell.getBoundingClientRect().right + 0.5,
+    };
+  });
+  assert.ok(geometry.truncated, 'the address is longer than its column');
+  assert.ok(geometry.copyBeforeText, 'copy leads the address');
+  assert.ok(
+    geometry.gapAfterText >= 0 && geometry.gapAfterText < 10,
+    `open follows it, ${geometry.gapAfterText}px after`,
+  );
+  assert.ok(geometry.inside, 'and is not pushed out of the cell by a long address');
 });
 
 test('the URL column opens the address in a new tab that cannot reach back', async () => {

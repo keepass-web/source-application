@@ -837,9 +837,9 @@ function openUrlButton(className: string, href: string): HTMLButtonElement {
   });
 }
 
-/* The text ellipsizes inside its own box so the copy control keeps its place at
-the cell's right edge (#76); appended straight after the text it rode past the
-edge and out of sight the moment a value was longer than its column. */
+/* The copy control leads, so it is plainly the value's own however short the
+value is, and a long one can never push it out of the cell (#76, #87). The text
+ellipsizes in its own box, so an open control after it stays in sight too. */
 function buildEntryCell(
   display: string,
   value: string,
@@ -849,12 +849,12 @@ function buildEntryCell(
   const td = document.createElement('td');
   const inner = document.createElement('div');
   inner.className = 'entry-cell';
+  if (value) inner.appendChild(copyHint(value, label));
   const text = document.createElement('span');
   text.className = 'entry-cell-text';
   text.textContent = display;
   inner.appendChild(text);
   if (action) inner.appendChild(action);
-  if (value) inner.appendChild(copyHint(value, label));
   td.appendChild(inner);
   wireCellCopy(td, value, label);
   return td;
@@ -922,6 +922,17 @@ function addColumnHandle(th: HTMLTableCellElement, label: string): void {
   th.appendChild(handle);
 }
 
+// Only as wide as its glyph, named for a screen reader, and not the user's to resize.
+function narrowColumnHeader(className: string, label: string): HTMLTableCellElement {
+  const th = document.createElement('th');
+  th.className = className;
+  const name = document.createElement('span');
+  name.className = 'visually-hidden';
+  name.textContent = label;
+  th.appendChild(name);
+  return th;
+}
+
 function buildColumnHeader(id: string, label: string): HTMLTableCellElement {
   const th = document.createElement('th');
   th.textContent = label;
@@ -950,18 +961,12 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
+  headRow.appendChild(narrowColumnHeader('entry-table-icon', 'Icon'));
   headRow.appendChild(buildColumnHeader('title', 'Title'));
   for (const column of visibleColumns) {
     headRow.appendChild(buildColumnHeader(column.key, column.label));
   }
-  // Only wide enough for the row control, and not the user's to resize.
-  const openTh = document.createElement('th');
-  openTh.className = 'entry-table-open';
-  const openLabel = document.createElement('span');
-  openLabel.className = 'visually-hidden';
-  openLabel.textContent = 'Open';
-  openTh.appendChild(openLabel);
-  headRow.appendChild(openTh);
+  headRow.appendChild(narrowColumnHeader('entry-table-open', 'Open'));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -969,11 +974,13 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
 
-    const titleTd = buildEntryCell(
-      `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`,
-      entryTitle(entry),
-      'Title',
-    );
+    // The icon is the entry's, not the title's, so it keeps out of the copied text's cell (#87).
+    const iconTd = document.createElement('td');
+    iconTd.className = 'entry-table-icon';
+    iconTd.textContent = iconEmoji(elementIconId(entry));
+    tr.appendChild(iconTd);
+
+    const titleTd = buildEntryCell(entryTitle(entry), entryTitle(entry), 'Title');
     titleTd.className = 'entry-table-title';
     tr.appendChild(titleTd);
 
@@ -1405,11 +1412,12 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   const href = key === 'URL' ? openableUrl(value) : null;
   if (href) actions.appendChild(openUrlButton('icon-btn', href));
 
+  // Leads the value, as copy does everywhere, so it is plainly that value's (#87).
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
     copyToClipboard(value, fieldLabel(key));
   });
-  actions.appendChild(copyBtn);
 
+  valueWrap.appendChild(copyBtn);
   valueWrap.appendChild(valueSpan);
   valueWrap.appendChild(actions);
   row.appendChild(label);
@@ -1621,11 +1629,15 @@ function buildEditField(
   valueInput.value = value;
   valueInput.placeholder = 'Value';
 
-  // Kept apart from the row's own spacing so they sit close together (#89).
+  // Kept apart from the row's own spacing so they sit close together (#89); copy
+  // leads the value, as it does everywhere, and the rest follow it (#87).
+  const lead = document.createElement('span');
+  lead.className = 'edit-actions';
   const actions = document.createElement('span');
   actions.className = 'edit-actions';
 
   row.appendChild(keyInput);
+  row.appendChild(lead);
   row.appendChild(valueInput);
   row.appendChild(actions);
 
@@ -1645,7 +1657,7 @@ function buildEditField(
     copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
   });
   keepFieldFocus(copyBtn);
-  actions.appendChild(copyBtn);
+  lead.appendChild(copyBtn);
 
   if (key === 'Password') {
     const generateBtn = makeIconButton('icon-btn', 'Generate password', '🎲', () => {

@@ -76,11 +76,17 @@ test('the edit screen uses the width it is given, and a field keeps its buttons 
 
     const password = await measureRow(app, 'Password');
     assert.ok(password.value && password.value.width > 300, 'the value has room to be read');
-    assert.equal(password.buttons.length, 3, 'reveal, copy, generate');
-    for (let i = 1; i < password.buttons.length; i++) {
-      const gap = (password.buttons[i]?.left ?? 0) - (password.buttons[i - 1]?.right ?? 0);
-      assert.ok(gap < 2, `adjacent buttons touch, ${gap}px apart`);
-    }
+    assert.equal(password.buttons.length, 3, 'copy, then reveal and generate');
+    // Copy leads the value (#87); the buttons after it sit together (#89).
+    const [copy, reveal, generate] = password.buttons;
+    const copyGap = (password.value?.left ?? 0) - (copy?.right ?? 0);
+    assert.ok(copyGap >= 0 && copyGap < 12, `copy sits right before the value, ${copyGap}px off`);
+    assert.ok(
+      (reveal?.left ?? 0) >= (password.value?.right ?? 0),
+      'reveal and generate come after the value',
+    );
+    const gap = (generate?.left ?? 0) - (reveal?.right ?? 0);
+    assert.ok(gap < 2, `the buttons after the value touch, ${gap}px apart`);
 
     const focused = await app.evaluate(
       () =>
