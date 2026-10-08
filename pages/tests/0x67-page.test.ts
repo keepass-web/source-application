@@ -900,7 +900,23 @@ test('0x67 app', async (t) => {
     for (const keyInput of keyInputs) {
       const row = keyInput.closest('.edit-field') as HTMLElement;
       assert.equal(row.querySelector('[title="Remove field"]'), null);
+      // Grouped apart from the row's own spacing, so they sit close together (#89).
+      for (const button of row.querySelectorAll('.icon-btn')) {
+        assert.equal(button.parentElement?.className, 'edit-actions');
+      }
     }
+
+    // Title leads, empty and ready to type, with nothing to delete first (#89).
+    const titleValue = root().querySelector<HTMLInputElement>('.edit-value');
+    assert.equal(titleValue?.value, '');
+    assert.equal(dom.window.document.activeElement, titleValue);
+    assert.ok(
+      q('#edit-fields').compareDocumentPosition(q('#edit-tags')) &
+        dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'the fields come before tags and expiry',
+    );
+    const notesRow = keyInputs.find((k) => k.value === 'Notes')?.closest('.edit-field');
+    assert.equal(notesRow?.querySelector('.edit-value')?.tagName, 'TEXTAREA', 'notes take lines');
   });
 
   await t.test(
@@ -1043,11 +1059,17 @@ test('0x67 app', async (t) => {
     const [titleInput, userInput] = root().querySelectorAll<HTMLInputElement>('.edit-value');
     (titleInput as HTMLInputElement).value = 'Custom Title';
     (userInput as HTMLInputElement).value = 'custom-user';
+    const notesInput = root().querySelector<HTMLTextAreaElement>('textarea.edit-value');
+    (notesInput as HTMLTextAreaElement).value = 'first line\nsecond line';
 
     q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
     assert.ok(q<HTMLElement>('#detail-title').textContent?.includes('Custom Title'));
     assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
+    const notesValue = Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === 'Notes')
+      ?.querySelector('.detail-value');
+    assert.equal(notesValue?.textContent, 'first line\nsecond line', 'both lines kept (#89)');
   });
 
   await t.test('save dialog: "Later" dismisses without downloading', () => {

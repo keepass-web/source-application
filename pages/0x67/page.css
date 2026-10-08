@@ -1025,9 +1025,15 @@ body.app-mode .screen-detail {
   height: 100%;
 }
 
+/* Centered, #root shrinks to its content and leaves width: 100% nothing to fill (#89). */
+body:not(.app-mode) #root:has(> .screen-detail, > .screen-edit) {
+  align-self: stretch;
+}
+
 body:not(.app-mode) .screen-detail {
   max-width: 640px;
   width: 100%;
+  margin-inline: auto;
 }
 
 .detail-header {
@@ -1137,6 +1143,7 @@ body:not(.app-mode) .screen-detail {
 .detail-value {
   flex: 1;
   word-break: break-all;
+  white-space: pre-wrap; /* notes keep the lines they were written in (#89) */
   font-size: 0.9rem;
 }
 
@@ -1166,6 +1173,7 @@ body:not(.app-mode) .screen-detail {
 body:not(.app-mode) .screen-edit {
   max-width: 640px;
   width: 100%;
+  margin-inline: auto;
 }
 
 .edit-header {
@@ -1249,6 +1257,37 @@ body:not(.app-mode) .screen-edit {
 
 .edit-value:focus {
   outline: none;
+}
+
+textarea.edit-value {
+  min-height: 6em;
+  resize: vertical;
+  /* What browsers give the single-line inputs beside it (#89). */
+  font-family: system-ui, sans-serif;
+}
+
+.edit-field:has(textarea) {
+  align-items: flex-start;
+}
+
+.edit-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.edit-actions .icon-btn {
+  padding-inline: 0.25rem;
+}
+
+/* The label takes a line of its own so the value gets the row's full width (#89). */
+@media (max-width: 700px) {
+  .edit-field {
+    flex-wrap: wrap;
+  }
+
+  .edit-key {
+    width: 100%;
+  }
 }
 
 .btn-add-field {

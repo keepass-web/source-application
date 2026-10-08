@@ -195,6 +195,8 @@
       </header>
       <div class="edit-body">
         <button type="button" class="icon-picker-btn" id="edit-icon-btn" title="Choose icon"></button>
+        <div id="edit-fields" class="edit-fields"></div>
+        <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
         <div class="field">
           <label for="edit-tags">Tags <span class="optional">(comma or semicolon separated)</span></label>
           <input type="text" id="edit-tags" autocomplete="off" placeholder="Work, Personal">
@@ -206,8 +208,6 @@
           </label>
           <input type="datetime-local" id="edit-expiry-time" disabled>
         </div>
-        <div id="edit-fields" class="edit-fields"></div>
-        <button type="button" class="btn btn-secondary btn-add-field" data-action="add-field">+ Add field</button>
 
         <div id="edit-attachments-section" class="attachments-section">
           <div class="attachments-header">
