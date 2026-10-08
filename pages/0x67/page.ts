@@ -1017,6 +1017,7 @@ included, so it can fire without asking anything of someone who has walked
 away (#64). */
 let lastActivity = 0;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let locking = false; // re-encrypting, with the page about to give way to the unlock screen (#84)
 
 function curtain(): HTMLDialogElement {
   return byId<HTMLDialogElement>('dlg-curtain');
@@ -1028,6 +1029,7 @@ function noteActivity(): void {
 
 // Wakes at the next deadline and measures from the latest input, so input costs nothing (#84).
 function checkIdle(): void {
+  if (locking) return;
   const idle = Date.now() - lastActivity;
   const lockAt = app.autoLockTimeout * 1000;
   if (idle >= lockAt) {
@@ -1050,6 +1052,7 @@ function armIdleWatch(): void {
 }
 
 function liftCurtain(): void {
+  if (locking) return; // the lock lifts it, once there is nothing left to show (#84)
   curtain().close();
   armIdleWatch();
 }
@@ -1063,14 +1066,20 @@ function handleVisibilityChange(): void {
 saved) rather than reloading the original file, so locking never loses an
 edit on its own — only choosing to discard at the prompt above does that. */
 async function lockDatabase(): Promise<void> {
+  if (locking) return;
+  locking = true;
   clearTimeout(idleTimer);
-  curtain().close();
   clearClipboardNow(); // a copied secret must not outlast the lock (#88)
-  const bytes = await must(app.db).save();
-  app.file = bytes.buffer as ArrayBuffer;
-  const wasDirty = app.dirty;
-  Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
-  showUnlock(wasDirty);
+  try {
+    const bytes = await must(app.db).save();
+    app.file = bytes.buffer as ArrayBuffer;
+    const wasDirty = app.dirty;
+    Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    showUnlock(wasDirty);
+    curtain().close(); // only now, so the re-encrypting page never shows through (#84)
+  } finally {
+    locking = false;
+  }
 }
 
 function closeDatabase(): void {
@@ -2531,7 +2540,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 document.addEventListener('visibilitychange', handleVisibilityChange);
-for (const type of ['keydown', 'pointerdown', 'pointermove', 'wheel']) {
+for (const type of ['keydown', 'pointerdown', 'pointermove', 'wheel', 'scroll']) {
   window.addEventListener(type, noteActivity, { capture: true, passive: true });
 }
 must(curtain().querySelector('button')).addEventListener('click', liftCurtain);

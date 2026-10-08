@@ -2036,6 +2036,15 @@ test('idle hides the page behind a curtain, then locks it', async (t) => {
   assert.equal(curtain.open, false, 'the keystroke reset the count');
   idleFor(1_000);
   assert.equal(curtain.open, true, 'a minute idle brings the curtain down');
+  dispatch(curtain.querySelector('button') as HTMLButtonElement, 'click');
+
+  // Scrolling counts, as reading a long list on a phone sends nothing else.
+  idleFor(59_000);
+  dispatch(dom.window, 'scroll');
+  idleFor(59_000);
+  assert.equal(curtain.open, false, 'the scroll reset the count');
+  idleFor(1_000);
+  assert.equal(curtain.open, true);
 
   // Behind the curtain, only lifting it counts as being back.
   dispatch(dom.window, 'pointermove');
@@ -2051,10 +2060,29 @@ test('idle hides the page behind a curtain, then locks it', async (t) => {
   dispatch(curtain, 'cancel');
   assert.equal(curtain.open, false);
 
-  // Five minutes idle locks, with nothing to confirm, and the curtain goes with it.
-  idleFor(300_000);
-  await waitFor(() => q('#master-password') !== null);
-  assert.equal(curtain.open, false);
+  // Five minutes idle locks, with nothing to confirm. Re-encrypting takes a
+  // moment, and the curtain stays down through it rather than show the page.
+  const realSave = Kdbx.prototype.save;
+  let saves = 0;
+  Kdbx.prototype.save = function (this: Kdbx, ...args: Parameters<Kdbx['save']>) {
+    saves++;
+    return realSave.apply(this, args);
+  };
+  try {
+    idleFor(60_000);
+    assert.equal(curtain.open, true);
+    idleFor(240_000);
+    assert.equal(curtain.open, true, 'still down while the lock is under way');
+    dispatch(curtain.querySelector('button') as HTMLButtonElement, 'click');
+    assert.equal(curtain.open, true, 'and a click cannot lift it part way');
+    setVisibility('visible');
+    dispatch(q('[data-action="lock"]'), 'click');
+    await waitFor(() => q('#master-password') !== null);
+  } finally {
+    Kdbx.prototype.save = realSave;
+  }
+  assert.equal(saves, 1, 'neither coming back nor the lock button started a second lock');
+  assert.equal(curtain.open, false, 'the curtain goes once the unlock screen is up');
   assert.equal(
     dom.window.document.title,
     'idle.kdbx - Locked - KeePass Web',
