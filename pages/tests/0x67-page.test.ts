@@ -2744,6 +2744,46 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.equal(root().querySelectorAll('.entry-row').length, 2);
   assert.equal(root().querySelectorAll('.entry-table').length, 0);
 
+  // The tile and the card offer to open the address too, everywhere but edit (#86).
+  const tileOpened: unknown[][] = [];
+  const realTileOpen = dom.window.open;
+  dom.window.open = ((...args: unknown[]) => {
+    tileOpened.push(args);
+    return null;
+  }) as typeof dom.window.open;
+  try {
+    const tileOpenBtns = root().querySelectorAll<HTMLButtonElement>('.entry-row .open-hint');
+    assert.equal(tileOpenBtns.length, 1, 'only the tile with a web address');
+    dispatch(tileOpenBtns[0] as HTMLButtonElement, 'click');
+    assert.equal(q('#detail-title'), null, 'opening the site does not open the entry');
+    dispatch(tileOpenBtns[0]?.closest('.entry-row') as HTMLElement, 'click');
+    assert.ok(
+      q<HTMLElement>('#detail-title').textContent?.includes('GitHub'),
+      'the tile still does',
+    );
+
+    const cardOpenBtn = Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === 'URL')
+      ?.querySelector<HTMLButtonElement>('[title="Open URL in a new tab"]');
+    assert.ok(cardOpenBtn, 'the card offers it beside the URL');
+    dispatch(cardOpenBtn, 'click');
+    assert.deepEqual(tileOpened, [
+      ['https://github.com/', '_blank', 'noopener,noreferrer'],
+      ['https://github.com/', '_blank', 'noopener,noreferrer'],
+    ]);
+
+    dispatch(q('[data-action="edit"]'), 'click');
+    assert.equal(
+      root().querySelector('[title="Open URL in a new tab"]'),
+      null,
+      'but not the edit screen',
+    );
+    dispatch(q('[data-action="cancel"]'), 'click');
+    dispatch(q('[data-action="back"]'), 'click');
+  } finally {
+    dom.window.open = realTileOpen;
+  }
+
   // The password copied above is still counting down; closing takes it along (#88).
   assert.equal(byId<HTMLElement>('toast').hidden, false);
   clipboardText = 'hunter2';

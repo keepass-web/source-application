@@ -732,6 +732,7 @@ so an absolutely positioned menu would be cut off. */
 }
 
 .entry-row {
+  position: relative;
   padding: 1rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -881,7 +882,15 @@ never be what makes the affordance discoverable, since touch has none. */
   margin-left: 0;
 }
 
+/* In the tile's top padding, clear of a centered title however long (#86). */
+.entry-row .open-hint {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+}
+
 .entry-table td:hover :is(.copy-hint, .open-hint),
+.entry-row:hover .open-hint,
 :is(.copy-hint, .open-hint):focus-visible {
   opacity: 1;
 }

@@ -770,8 +770,11 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 
   div.appendChild(titleEl);
   div.appendChild(metaEl);
+  const href = openableUrl(url);
+  if (href) div.appendChild(openUrlButton('open-hint', href));
 
-  div.addEventListener('click', () => {
+  div.addEventListener('click', (event) => {
+    if ((event.target as Element).closest('.open-hint')) return; // opens the site, not the entry (#86)
     app.currentEntry = entry;
     showEntryDetail();
   });
@@ -828,8 +831,8 @@ function copyHint(value: string, label: string): HTMLButtonElement {
 
 /* noopener and noreferrer, so the site neither learns where it was opened from
 nor gets a handle back into this page (#86). */
-function openHint(href: string): HTMLButtonElement {
-  return makeIconButton('open-hint', 'Open URL in a new tab', '↗', () => {
+function openUrlButton(className: string, href: string): HTMLButtonElement {
+  return makeIconButton(className, 'Open URL in a new tab', '↗', () => {
     window.open(href, '_blank', 'noopener,noreferrer');
   });
 }
@@ -981,7 +984,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
         entryColumnDisplayValue(entry, column.key),
         value,
         column.label,
-        href ? openHint(href) : undefined,
+        href ? openUrlButton('open-hint', href) : undefined,
       );
       if (column.key === 'password') td.classList.add('entry-table-protected');
       tr.appendChild(td);
@@ -1398,6 +1401,9 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
     });
     actions.appendChild(revealBtn);
   }
+
+  const href = key === 'URL' ? openableUrl(value) : null;
+  if (href) actions.appendChild(openUrlButton('icon-btn', href));
 
   const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
     copyToClipboard(value, fieldLabel(key));
