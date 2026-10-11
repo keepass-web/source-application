@@ -57,41 +57,51 @@ test('createMessage / isCreateMessage round-trip', () => {
 
 test('saveMessage / isSaveMessage round-trip and reject malformed payloads', () => {
   const bytes = new ArrayBuffer(4);
-  const msg = saveMessage('vault.kdbx', bytes);
-  assert.deepEqual(msg, { type: 'kw-save', filename: 'vault.kdbx', bytes });
+  const msg = saveMessage(1, 'vault.kdbx', bytes);
+  assert.deepEqual(msg, { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes });
   assert.equal(isSaveMessage(msg), true);
   assert.equal(isSaveMessage(null), false);
-  assert.equal(isSaveMessage({ type: 'kw-save', filename: 1, bytes }), false);
-  assert.equal(isSaveMessage({ type: 'kw-save', filename: 'a', bytes: 'no' }), false);
+  assert.equal(isSaveMessage({ type: 'kw-save', id: 1, filename: 1, bytes }), false);
+  assert.equal(isSaveMessage({ type: 'kw-save', id: 1, filename: 'a', bytes: 'no' }), false);
+});
+
+test('a save and its result both carry an id, so overlapping saves can be told apart (#91)', () => {
+  const bytes = new ArrayBuffer(4);
+  assert.equal(isSaveMessage({ type: 'kw-save', filename: 'a', bytes }), false);
+  assert.equal(isSaveMessage({ type: 'kw-save', id: '1', filename: 'a', bytes }), false);
+  assert.equal(isSavedMessage({ type: 'kw-saved', ok: true }), false);
+  assert.equal(isSavedMessage({ type: 'kw-saved', id: '1', ok: true }), false);
 });
 
 test('savedMessage / isSavedMessage round-trip, with and without an error', () => {
-  const ok = savedMessage(true);
-  assert.deepEqual(ok, { type: 'kw-saved', ok: true });
+  const ok = savedMessage(1, true);
+  assert.deepEqual(ok, { type: 'kw-saved', id: 1, ok: true });
   assert.equal(isSavedMessage(ok), true);
 
-  const failed = savedMessage(false, 'HTTP 403');
-  assert.deepEqual(failed, { type: 'kw-saved', ok: false, error: 'HTTP 403' });
+  const failed = savedMessage(2, false, 'HTTP 403');
+  assert.deepEqual(failed, { type: 'kw-saved', id: 2, ok: false, error: 'HTTP 403' });
   assert.equal(isSavedMessage(failed), true);
 
   assert.equal(isSavedMessage(null), false);
-  assert.equal(isSavedMessage({ type: 'kw-saved', ok: 'nope' }), false);
-  assert.equal(isSavedMessage({ type: 'kw-saved', ok: true, error: 42 }), false);
+  assert.equal(isSavedMessage({ type: 'kw-saved', id: 1, ok: 'nope' }), false);
+  assert.equal(isSavedMessage({ type: 'kw-saved', id: 1, ok: true, error: 42 }), false);
 });
 
 test('a saved failure can name a reason the app acts on, and only a known one', () => {
-  const expired = savedMessage(false, 'HTTP 401', 'auth-expired');
+  const expired = savedMessage(3, false, 'HTTP 401', 'auth-expired');
   assert.deepEqual(expired, {
     type: 'kw-saved',
+    id: 3,
     ok: false,
     error: 'HTTP 401',
     reason: 'auth-expired',
   });
   assert.equal(isSavedMessage(expired), true);
 
-  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 'auth-expired' }), true);
-  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 'whatever' }), false);
-  assert.equal(isSavedMessage({ type: 'kw-saved', ok: false, reason: 7 }), false);
+  const saved = (reason: unknown) => ({ type: 'kw-saved', id: 1, ok: false, reason });
+  assert.equal(isSavedMessage(saved('auth-expired')), true);
+  assert.equal(isSavedMessage(saved('whatever')), false);
+  assert.equal(isSavedMessage(saved(7)), false);
 });
 
 test('reconnectMessage / isReconnectMessage round-trip', () => {
