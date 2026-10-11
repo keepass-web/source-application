@@ -40,7 +40,9 @@ let currentFile: DriveFile | null = null;
 /* Saves run one at a time, in the order sent, so an older save cannot land after
 a newer one, and a create sets currentFile before the next save picks create or update (#91). */
 let saveQueue: Promise<void> = Promise.resolve();
-type PendingAction = { kind: 'open'; filename: string; bytes: ArrayBuffer } | { kind: 'create' };
+type PendingAction =
+  | { kind: 'open'; filename: string; bytes: ArrayBuffer; version: string }
+  | { kind: 'create' };
 let pendingAction: PendingAction | null = null;
 let pickerApiLoaded = false;
 let tokenClient: TokenClient | null = null;
@@ -100,7 +102,7 @@ interface DriveRequest {
 
 type DriveResult =
   | { outcome: 'ok'; response: Response }
-  | { outcome: 'auth-expired' | 'unreachable' | 'fail'; error: string };
+  | { outcome: 'auth-expired' | 'unreachable' | 'fail'; error: string; status?: number };
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -135,9 +137,46 @@ async function driveFetch(url: string, init: DriveRequest): Promise<DriveResult>
     const outcome = classifyDriveResponse(response.status, await throttleReason(response));
     if (outcome === 'ok') return { outcome: 'ok', response };
     lastStatus = response.status;
-    if (outcome !== 'retry') return { outcome, error: `HTTP ${lastStatus}` };
+    if (outcome !== 'retry') return { outcome, error: `HTTP ${lastStatus}`, status: lastStatus };
   }
-  return { outcome: 'fail', error: `HTTP ${lastStatus}` };
+  return { outcome: 'fail', error: `HTTP ${lastStatus}`, status: lastStatus };
+}
+
+type RevisionResult =
+  | { outcome: 'ok'; revision: DriveRevision }
+  | { outcome: 'auth-expired' | 'unreachable' | 'fail' | 'gone'; error: string };
+
+// The file's stored version, or why it can't be read; a 404 means the file is gone (#74).
+async function fetchRevision(id: string): Promise<RevisionResult> {
+  const result = await driveFetch(buildDriveMetadataUrl(DRIVE_API, id), {});
+  if (result.outcome !== 'ok') {
+    return result.status === 404 ? { outcome: 'gone', error: result.error } : result;
+  }
+  let revision: DriveRevision | undefined;
+  try {
+    revision = readDriveRevision(await result.response.json());
+  } catch {
+    revision = undefined;
+  }
+  return revision ? { outcome: 'ok', revision } : { outcome: 'fail', error: 'unexpected response' };
+}
+
+// The revision a write stored, for the app's next save to build on; nothing if Drive didn't say.
+async function storedVersion(response: Response): Promise<SavedDetails> {
+  try {
+    const revision = readDriveRevision(await response.json());
+    return revision ? { version: revision.version } : {};
+  } catch {
+    return {};
+  }
+}
+
+function failedSave(id: number, outcome: string, error: string): SavedMessage {
+  return savedMessage(
+    id,
+    false,
+    outcome === 'auth-expired' ? { error, reason: 'auth-expired' } : { error },
+  );
 }
 
 function openFailureText(name: string, outcome: 'unreachable' | 'fail', error: string): string {
@@ -324,10 +363,8 @@ function handlePickerResult(data: PickerResponse): void {
   void openPickedFile(file);
 }
 
-async function openPickedFile(file: DriveFile): Promise<void> {
-  setPickStatus(`Opening ${file.name}…`);
-  const result = await driveFetch(buildDriveDownloadUrl(DRIVE_API, file.id), {});
-  if (result.outcome === 'auth-expired') {
+function reportOpenFailure(name: string, outcome: string, error: string): void {
+  if (outcome === 'auth-expired') {
     /* Nothing is unsaved on this screen, so the honest answer is the sign-in it
     would take anyway rather than telling the user to find it (#85). */
     accessToken = null;
@@ -335,8 +372,20 @@ async function openPickedFile(file: DriveFile): Promise<void> {
     showSignInError('Your Google session expired. Sign in again to open your database.');
     return;
   }
+  setPickStatus(openFailureText(name, outcome === 'unreachable' ? 'unreachable' : 'fail', error));
+}
+
+async function openPickedFile(file: DriveFile): Promise<void> {
+  setPickStatus(`Opening ${file.name}…`);
+  // Read first, so bytes fetched after it are never older than the version recorded (#74).
+  const revision = await fetchRevision(file.id);
+  if (revision.outcome !== 'ok') {
+    reportOpenFailure(file.name, revision.outcome, revision.error);
+    return;
+  }
+  const result = await driveFetch(buildDriveDownloadUrl(DRIVE_API, file.id), {});
   if (result.outcome !== 'ok') {
-    setPickStatus(openFailureText(file.name, result.outcome, result.error));
+    reportOpenFailure(file.name, result.outcome, result.error);
     return;
   }
 
@@ -358,16 +407,21 @@ async function openPickedFile(file: DriveFile): Promise<void> {
     setPickStatus(`${file.name} is ${identified.label}, which isn't supported yet.`);
     return;
   }
-  showHost(file, bytes, identified.implementation);
+  showHost(file, bytes, identified.implementation, revision.revision.version);
 }
 
 // ============================================================
 // Screen: Embedded app (0x67 in an iframe)
 // ============================================================
 
-function showHost(file: DriveFile, bytes: ArrayBuffer, implementation: string): void {
+function showHost(
+  file: DriveFile,
+  bytes: ArrayBuffer,
+  implementation: string,
+  version: string,
+): void {
   currentFile = file;
-  pendingAction = { kind: 'open', filename: file.name, bytes };
+  pendingAction = { kind: 'open', filename: file.name, bytes, version };
   embedApp(file.name, implementation);
 }
 
@@ -444,7 +498,9 @@ function handleFrameMessage(event: MessageEvent): void {
     appReady = true;
     const action = must(pendingAction);
     source.postMessage(
-      action.kind === 'open' ? openMessage(action.filename, action.bytes) : createMessage(),
+      action.kind === 'open'
+        ? openMessage(action.filename, action.bytes, action.version)
+        : createMessage(),
       PEER.target,
     );
   } else if (isSaveMessage(event.data)) {
@@ -456,6 +512,9 @@ function handleFrameMessage(event: MessageEvent): void {
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
+  } else if (isCheckMessage(event.data)) {
+    const check = event.data;
+    saveQueue = saveQueue.then(() => answerCheck(check, source));
   } else if (isReconnectMessage(event.data)) {
     void reconnect(source);
   } else if (isCloseMessage(event.data)) {
@@ -463,26 +522,87 @@ function handleFrameMessage(event: MessageEvent): void {
   }
 }
 
-async function saveToDrive({ id, bytes }: SaveMessage, source: Window): Promise<void> {
+/** Never replaces a version the app didn't build on: a newer one saved
+elsewhere comes back as a conflict, for the app to merge in and save again (#74). */
+async function saveToDrive({ id, bytes, base }: SaveMessage, source: Window): Promise<void> {
   const file = must(currentFile);
+  if (base !== undefined) {
+    const revision = await fetchRevision(file.id);
+    if (revision.outcome !== 'ok') {
+      source.postMessage(failedSave(id, revision.outcome, revision.error), PEER.target);
+      return;
+    }
+    if (revision.revision.version !== base) {
+      const conflict = savedMessage(id, false, {
+        error: 'it was saved elsewhere since',
+        reason: 'conflict',
+      });
+      source.postMessage(conflict, PEER.target);
+      return;
+    }
+  }
   const result = await driveFetch(buildDriveUpdateUrl(UPLOAD_API, file.id), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: bytes,
   });
   if (result.outcome === 'ok') {
-    source.postMessage(savedMessage(id, true), PEER.target);
+    source.postMessage(savedMessage(id, true, await storedVersion(result.response)), PEER.target);
     return;
   }
-  source.postMessage(
-    savedMessage(
-      id,
-      false,
-      result.error,
-      result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
-    ),
-    PEER.target,
-  );
+  source.postMessage(failedSave(id, result.outcome, result.error), PEER.target);
+}
+
+/** Tell the app whether Drive holds a newer version than the one it builds on,
+with its bytes. The check follows the user's own unlock, often after the hourly
+token has lapsed, so it renews silently once before giving up (#74). */
+async function answerCheck({ base }: CheckMessage, source: Window): Promise<void> {
+  const file = currentFile;
+  if (file === null || base === undefined) {
+    source.postMessage(checkedMessage('unknown'), PEER.target);
+    return;
+  }
+  let revision = await fetchRevision(file.id);
+  if (revision.outcome === 'auth-expired' && (await renewSilently())) {
+    revision = await fetchRevision(file.id);
+  }
+  if (revision.outcome === 'gone' || (revision.outcome === 'ok' && revision.revision.trashed)) {
+    source.postMessage(checkedMessage('gone'), PEER.target);
+    return;
+  }
+  if (revision.outcome !== 'ok') {
+    source.postMessage(checkedMessage('unknown'), PEER.target);
+    return;
+  }
+  if (revision.revision.version === base) {
+    source.postMessage(checkedMessage('unchanged'), PEER.target);
+    return;
+  }
+  const download = await driveFetch(buildDriveDownloadUrl(DRIVE_API, file.id), {});
+  let bytes: ArrayBuffer | null = null;
+  if (download.outcome === 'ok') {
+    try {
+      bytes = await download.response.arrayBuffer();
+    } catch {
+      bytes = null;
+    }
+  }
+  if (bytes === null) {
+    source.postMessage(checkedMessage('unknown'), PEER.target);
+    return;
+  }
+  const { version, savedAt } = revision.revision;
+  const newer = savedAt === undefined ? { bytes, version } : { bytes, version, savedAt };
+  source.postMessage(checkedMessage('newer', newer), PEER.target);
+}
+
+async function renewSilently(): Promise<boolean> {
+  try {
+    await getAccessToken(true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** First save of a create-originated session: no Drive file exists yet, so
@@ -499,21 +619,13 @@ async function createFileOnDrive(
     body,
   });
   if (result.outcome !== 'ok') {
-    source.postMessage(
-      savedMessage(
-        id,
-        false,
-        result.error,
-        result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
-      ),
-      PEER.target,
-    );
+    source.postMessage(failedSave(id, result.outcome, result.error), PEER.target);
     return;
   }
 
-  let created: { id?: unknown } = {};
+  let created: { id?: unknown; headRevisionId?: unknown } = {};
   try {
-    created = (await result.response.json()) as { id?: unknown };
+    created = (await result.response.json()) as { id?: unknown; headRevisionId?: unknown };
   } catch {
     created = {};
   }
@@ -521,11 +633,15 @@ async function createFileOnDrive(
   same one; reporting success would clear the edits against a file this session
   can no longer reach (#85). */
   if (typeof created.id !== 'string' || created.id === '') {
-    source.postMessage(savedMessage(id, false, 'unexpected response'), PEER.target);
+    source.postMessage(savedMessage(id, false, { error: 'unexpected response' }), PEER.target);
     return;
   }
   currentFile = { id: created.id, name: filename };
-  source.postMessage(savedMessage(id, true), PEER.target);
+  const revision = readDriveRevision(created);
+  source.postMessage(
+    savedMessage(id, true, revision ? { version: revision.version } : {}),
+    PEER.target,
+  );
 }
 
 /** Renew the Google credential without leaving the host screen, so a save that

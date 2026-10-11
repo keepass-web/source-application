@@ -58,9 +58,19 @@ declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isTitleMessage(data: unknown): data is TitleMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
+interface CheckMessage {
+  type: 'kw-check';
+  base?: string;
+}
+interface CheckedMessage {
+  type: 'kw-checked';
+  status: 'unchanged' | 'newer' | 'gone' | 'unknown';
+}
+declare function isCheckMessage(data: unknown): data is CheckMessage;
+declare function checkedMessage(status: 'unchanged' | 'gone' | 'unknown'): CheckedMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
 declare function createMessage(): CreateMessage;
-declare function savedMessage(id: number, ok: boolean, error?: string): SavedMessage;
+declare function savedMessage(id: number, ok: boolean, details?: { error?: string }): SavedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 
 declare function must<T>(value: T | null | undefined): T;

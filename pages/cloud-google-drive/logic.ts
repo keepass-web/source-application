@@ -21,14 +21,37 @@ export function buildDriveDownloadUrl(apiBase: string, id: string): string {
   return `${apiBase}/files/${encodeURIComponent(id)}?alt=media`;
 }
 
-/** Build the media-update URL that overwrites a file's content in place. */
-export function buildDriveUpdateUrl(uploadBase: string, id: string): string {
-  return `${uploadBase}/files/${encodeURIComponent(id)}?uploadType=media`;
+// Build the URL for the fields a version check reads: head revision, save time, trashed (#74).
+export function buildDriveMetadataUrl(apiBase: string, id: string): string {
+  return `${apiBase}/files/${encodeURIComponent(id)}?fields=headRevisionId,modifiedTime,trashed`;
 }
 
-// Build the multipart-upload URL that creates a brand-new file.
+/** Build the media-update URL that overwrites a file's content in place,
+answering with the revision it stored so the next save can build on it (#74). */
+export function buildDriveUpdateUrl(uploadBase: string, id: string): string {
+  return `${uploadBase}/files/${encodeURIComponent(id)}?uploadType=media&fields=headRevisionId`;
+}
+
+// Build the multipart-upload URL that creates a brand-new file, answering with its id and revision.
 export function buildDriveCreateUrl(uploadBase: string): string {
-  return `${uploadBase}/files?uploadType=multipart`;
+  return `${uploadBase}/files?uploadType=multipart&fields=id,headRevisionId`;
+}
+
+// A file's stored version as a version check sees it (#74).
+export interface DriveRevision {
+  version: string;
+  savedAt?: string;
+  trashed: boolean;
+}
+
+// The revision fields of a Drive response, or undefined when it names no head revision.
+export function readDriveRevision(body: unknown): DriveRevision | undefined {
+  const fields = body as { headRevisionId?: unknown; modifiedTime?: unknown; trashed?: unknown };
+  const version = fields?.headRevisionId;
+  if (typeof version !== 'string' || version === '') return undefined;
+  const revision: DriveRevision = { version, trashed: fields.trashed === true };
+  if (typeof fields.modifiedTime === 'string') revision.savedAt = fields.modifiedTime;
+  return revision;
 }
 
 /** Build a multipart/related body for that create call: a JSON metadata part

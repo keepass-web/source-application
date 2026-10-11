@@ -428,3 +428,34 @@ test('save() defensively handles malformed/stale <Binary> references without thr
   assert.equal(named('stale.txt')?.ref, 999);
   assert.equal(reloaded.getBinaryData(999), undefined);
 });
+
+test('mergeIn opens another copy with this database’s credentials and merges it in (#74)', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const local = await Kdbx.create(credentials, options({ version: 4 }));
+  appendChild(local.getRootGroup(), createEntry({ title: 'Shared' }));
+  const other = await Kdbx.load(await local.save(), credentials);
+  const otherEntry = firstEntry(other);
+  pushHistorySnapshot(other.root, otherEntry); // edited the way the app edits
+  addEntryAttachment(otherEntry, 'hello.txt', other.addBinary(new TextEncoder().encode('hello')));
+  addEntryAttachment(otherEntry, 'ghost.txt', 99); // points at nothing
+  const title = getChildren(otherEntry, 'String')[0] as XmlElement;
+  setText(getChild(title, 'Value') as XmlElement, 'Shared, edited there');
+  const times = getChild(otherEntry, 'Times') as XmlElement;
+  setText(getChild(times, 'LastModificationTime') as XmlElement, '2099-01-01T00:00:00Z');
+
+  const summary = await local.mergeIn(await other.save());
+
+  const entry = firstEntry(local);
+  assert.equal(fieldsOf(entry).Title, 'Shared, edited there');
+  const [hello, ghost] = getEntryAttachments(entry);
+  assert.equal(
+    new TextDecoder().decode(local.getBinaryData((hello as { ref: number }).ref)),
+    'hello',
+  );
+  assert.equal((ghost as { ref: number }).ref, -1, 'a reference to nothing stays one');
+  assert.deepEqual(summary, { changed: 1, conflicts: [] });
+
+  const stranger = await Kdbx.create(Credentials.fromPassword('other'), options({ version: 4 }));
+  await assert.rejects(() => local.mergeIn(new Uint8Array(0)));
+  await assert.rejects(async () => local.mergeIn(await stranger.save()));
+});

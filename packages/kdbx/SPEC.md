@@ -49,6 +49,20 @@ Two components:
   `File::KDBX` fixtures aren't included yet either. Both are candidates for a
   future addition.
 
+## Merging
+
+KDBX has one writer at a time and no field-level locking, so two copies of a database edited separately can only be reconciled object by object, from the times and records each copy carries. `Kdbx#mergeIn` does that by the rules of KeePass's own [synchronization][sync], so merging two copies here gives the same result as merging them in KeePass or KeePassXC, and a copy merged here and later merged there doesn't come out differently:
+
+- Groups and entries are matched by UUID. An object only one copy holds is kept. For one both hold, the copy with the newer `LastModificationTime` stays current, and for an entry the other copy goes into its History, so neither version is lost. Two copies of an entry count as different only if their content differs; layout, access time, usage count, location and empty standard fields don't count, as they don't in KeePass.
+- Placement follows the newer `LocationChanged`, so a move made in either copy survives it. A group is never moved into its own subtree.
+- The `DeletedObjects` records of both copies are combined. A record removes an entry not edited since the deletion, and a group that is also empty, so an edit made after a deletion elsewhere is never silently lost.
+- Histories are combined by modification time and trimmed to `HistoryMaxItems`. Database settings follow their own `*Changed` times, and custom icons and custom data are combined.
+- The other copy's attachments join this database's pool by content.
+
+One departure from KeePass: when both copies changed an entry within the same second, KeePass keeps this copy and drops the other, while here the other goes into History, so neither change is lost.
+
+Deletions only carry over where a record exists. A file from a writer that keeps no deletion records brings deleted objects back, which for a password manager is the safe direction.
+
 ## Bundle-safe naming convention
 
 This library is concatenated with `chacha20` and `argon2` into a single `<script>` block for the self-contained distributable. Because all files share one JavaScript scope in that context, module-scope identifiers within kdbx that are **not** part of the public API must carry the prefix `KX_` (constants) or `kx_` (functions) if they collide with an identically named internal in a sibling library.
@@ -56,3 +70,4 @@ This library is concatenated with `chacha20` and `argon2` into a single `<script
 Exported symbols (everything re-exported from `src/index.ts`) are part of the public API and must **not** carry the prefix.
 
 [fixtures-manifest]: tests/fixtures/MANIFEST.md
+[sync]: https://keepass.info/help/v2/sync.html

@@ -12,7 +12,9 @@
     "identifyFormat",
     "must",
     "buildDriveDownloadUrl",
+    "buildDriveMetadataUrl",
     "buildDriveUpdateUrl",
+    "readDriveRevision",
     "buildDriveCreateUrl",
     "buildMultipartBody",
     "isReadyMessage",
@@ -31,6 +33,8 @@
     "MAX_DRIVE_ATTEMPTS",
     "backoffDelayMs",
     "isReconnectMessage",
-    "reconnectedMessage"
+    "reconnectedMessage",
+    "isCheckMessage",
+    "checkedMessage"
   ]
 }

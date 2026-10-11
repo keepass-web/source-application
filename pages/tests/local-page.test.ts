@@ -216,6 +216,11 @@ test('local file connector', async (t) => {
     assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
   });
 
+  await t.test('a version check answers unknown: a local file is read only once (#74)', () => {
+    sendMessage({ type: 'kw-check', base: 'anything' }, { source: frameWin });
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-checked', status: 'unknown' });
+  });
+
   await t.test('kw-title names the open database in the tab', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
     assert.equal(doc.title, 'vault.kdbx - Locked - KeePass Web - Local file');

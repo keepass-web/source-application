@@ -414,17 +414,20 @@ test('isValidClipboardTimeout requires a real number of at least 5 seconds', () 
   assert.equal(isValidClipboardTimeout(Number.NaN), false);
 });
 
-test('isValidCurtainTimeout requires a real number of at least 15 seconds', () => {
+test('isValidCurtainTimeout requires a real number from 15 seconds to an hour', () => {
   assert.equal(isValidCurtainTimeout(15), true);
   assert.equal(isValidCurtainTimeout(3600), true);
   assert.equal(isValidCurtainTimeout(14), false);
+  assert.equal(isValidCurtainTimeout(3601), false);
   assert.equal(isValidCurtainTimeout(Number.NaN), false);
 });
 
-test('isValidAutoLockTimeout requires a real number of at least 30 seconds', () => {
+// The lock has to come, since unlocking is when a version saved elsewhere is checked for (#74).
+test('isValidAutoLockTimeout requires a real number from 30 seconds to an hour', () => {
   assert.equal(isValidAutoLockTimeout(30), true);
   assert.equal(isValidAutoLockTimeout(3600), true);
   assert.equal(isValidAutoLockTimeout(29), false);
+  assert.equal(isValidAutoLockTimeout(3601), false);
   assert.equal(isValidAutoLockTimeout(Number.NaN), false);
 });
 

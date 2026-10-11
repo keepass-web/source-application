@@ -13,12 +13,14 @@ import {
   backoffDelayMs,
   buildDriveCreateUrl,
   buildDriveDownloadUrl,
+  buildDriveMetadataUrl,
   buildDriveUpdateUrl,
   buildMultipartBody,
   classifyDriveResponse,
   driveErrorReason,
   MAX_DRIVE_ATTEMPTS,
   must,
+  readDriveRevision,
 } from '../cloud-google-drive/logic.ts';
 
 test('must returns a present value and throws on null/undefined', () => {
@@ -35,15 +37,36 @@ test('buildDriveDownloadUrl / buildDriveUpdateUrl encode the id', () => {
   );
   assert.equal(
     buildDriveUpdateUrl('https://up.example/v3', 'id9'),
-    'https://up.example/v3/files/id9?uploadType=media',
+    'https://up.example/v3/files/id9?uploadType=media&fields=headRevisionId',
   );
 });
 
 test('buildDriveCreateUrl builds the multipart-upload URL', () => {
   assert.equal(
     buildDriveCreateUrl('https://up.example/v3'),
-    'https://up.example/v3/files?uploadType=multipart',
+    'https://up.example/v3/files?uploadType=multipart&fields=id,headRevisionId',
   );
+});
+
+test('buildDriveMetadataUrl asks only for what a version check reads (#74)', () => {
+  assert.equal(
+    buildDriveMetadataUrl('https://drive.example/v3', 'a/b'),
+    'https://drive.example/v3/files/a%2Fb?fields=headRevisionId,modifiedTime,trashed',
+  );
+});
+
+test('readDriveRevision reads a head revision, or gives up without one (#74)', () => {
+  assert.deepEqual(
+    readDriveRevision({ headRevisionId: 'r2', modifiedTime: '2026-10-11T12:00:00.000Z' }),
+    { version: 'r2', savedAt: '2026-10-11T12:00:00.000Z', trashed: false },
+  );
+  assert.deepEqual(readDriveRevision({ headRevisionId: 'r3', trashed: true }), {
+    version: 'r3',
+    trashed: true,
+  });
+  assert.equal(readDriveRevision({ headRevisionId: '' }), undefined);
+  assert.equal(readDriveRevision({ id: 'x' }), undefined);
+  assert.equal(readDriveRevision(null), undefined);
 });
 
 test('buildMultipartBody wraps the filename and bytes in a multipart/related body', async () => {

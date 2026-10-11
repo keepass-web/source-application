@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  checkedMessage,
+  checkMessage,
   closeAckMessage,
   closeMessage,
   closeRequestMessage,
   createMessage,
   findMessage,
+  isCheckedMessage,
+  isCheckMessage,
   isCloseAckMessage,
   isCloseMessage,
   isCloseRequestMessage,
@@ -78,7 +82,7 @@ test('savedMessage / isSavedMessage round-trip, with and without an error', () =
   assert.deepEqual(ok, { type: 'kw-saved', id: 1, ok: true });
   assert.equal(isSavedMessage(ok), true);
 
-  const failed = savedMessage(2, false, 'HTTP 403');
+  const failed = savedMessage(2, false, { error: 'HTTP 403' });
   assert.deepEqual(failed, { type: 'kw-saved', id: 2, ok: false, error: 'HTTP 403' });
   assert.equal(isSavedMessage(failed), true);
 
@@ -88,7 +92,7 @@ test('savedMessage / isSavedMessage round-trip, with and without an error', () =
 });
 
 test('a saved failure can name a reason the app acts on, and only a known one', () => {
-  const expired = savedMessage(3, false, 'HTTP 401', 'auth-expired');
+  const expired = savedMessage(3, false, { error: 'HTTP 401', reason: 'auth-expired' });
   assert.deepEqual(expired, {
     type: 'kw-saved',
     id: 3,
@@ -100,8 +104,63 @@ test('a saved failure can name a reason the app acts on, and only a known one', 
 
   const saved = (reason: unknown) => ({ type: 'kw-saved', id: 1, ok: false, reason });
   assert.equal(isSavedMessage(saved('auth-expired')), true);
+  assert.equal(isSavedMessage(saved('conflict')), true);
   assert.equal(isSavedMessage(saved('whatever')), false);
   assert.equal(isSavedMessage(saved(7)), false);
+});
+
+test('an open, a save and a save result can carry the stored version they concern (#74)', () => {
+  const bytes = new ArrayBuffer(4);
+  const open = openMessage('vault.kdbx', bytes, 'rev-1');
+  assert.deepEqual(open, { type: 'kw-open', filename: 'vault.kdbx', bytes, version: 'rev-1' });
+  assert.equal(isOpenMessage(open), true);
+  assert.equal(isOpenMessage({ ...open, version: 7 }), false);
+
+  const save = saveMessage(1, 'vault.kdbx', bytes, 'rev-1');
+  assert.deepEqual(save, { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes, base: 'rev-1' });
+  assert.equal(isSaveMessage(save), true);
+  assert.equal(isSaveMessage({ ...save, base: 7 }), false);
+
+  const saved = savedMessage(1, true, { version: 'rev-2' });
+  assert.deepEqual(saved, { type: 'kw-saved', id: 1, ok: true, version: 'rev-2' });
+  assert.equal(isSavedMessage(saved), true);
+  assert.equal(isSavedMessage({ ...saved, version: 7 }), false);
+});
+
+test('checkMessage / isCheckMessage round-trip, with and without the version built on (#74)', () => {
+  assert.deepEqual(checkMessage(), { type: 'kw-check' });
+  assert.deepEqual(checkMessage('rev-1'), { type: 'kw-check', base: 'rev-1' });
+  assert.equal(isCheckMessage(checkMessage('rev-1')), true);
+  assert.equal(isCheckMessage(checkMessage()), true);
+  assert.equal(isCheckMessage({ type: 'kw-check', base: 7 }), false);
+  assert.equal(isCheckMessage(null), false);
+});
+
+test('checkedMessage / isCheckedMessage: a newer version always comes with its bytes (#74)', () => {
+  const bytes = new ArrayBuffer(4);
+  for (const status of ['unchanged', 'gone', 'unknown'] as const) {
+    assert.deepEqual(checkedMessage(status), { type: 'kw-checked', status });
+    assert.equal(isCheckedMessage(checkedMessage(status)), true);
+  }
+  const newer = checkedMessage('newer', {
+    bytes,
+    version: 'rev-2',
+    savedAt: '2026-10-11T12:00:00Z',
+  });
+  assert.deepEqual(newer, {
+    type: 'kw-checked',
+    status: 'newer',
+    bytes,
+    version: 'rev-2',
+    savedAt: '2026-10-11T12:00:00Z',
+  });
+  assert.equal(isCheckedMessage(newer), true);
+  assert.equal(isCheckedMessage(checkedMessage('newer', { bytes, version: 'rev-2' })), true);
+  assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'newer', version: 'rev-2' }), false);
+  assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'newer', bytes }), false);
+  assert.equal(isCheckedMessage({ ...newer, savedAt: 7 }), false);
+  assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'whatever' }), false);
+  assert.equal(isCheckedMessage(null), false);
 });
 
 test('reconnectMessage / isReconnectMessage round-trip', () => {

@@ -56,10 +56,15 @@ interface MockResponse {
   json?: () => Promise<unknown>;
 }
 type Handler = () => Promise<MockResponse>;
-const handlers: { download: Handler; save: Handler; create: Handler } = {
+const handlers: { download: Handler; save: Handler; create: Handler; metadata: Handler } = {
   download: async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(4) }),
   save: async () => ({ ok: true, status: 200 }),
   create: async () => ({ ok: true, status: 200, json: async () => ({ id: 'new-file-1' }) }),
+  metadata: async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ headRevisionId: 'rev-1' }),
+  }),
 };
 Object.defineProperty(globalThis, 'fetch', {
   value: ((input: RequestInfo | URL): Promise<MockResponse> => {
@@ -67,6 +72,7 @@ Object.defineProperty(globalThis, 'fetch', {
     if (url.includes('uploadType=multipart')) return handlers.create();
     if (url.includes('/upload/')) return handlers.save();
     if (url.includes('alt=media')) return handlers.download();
+    if (url.includes('fields=headRevisionId')) return handlers.metadata();
     throw new Error(`unexpected fetch: ${url}`);
   }) as unknown as typeof fetch,
   configurable: true,
@@ -244,6 +250,9 @@ function fastLongTimers(target: { setTimeout: typeof setTimeout }): () => void {
 const errStatus =
   (status: number): Handler =>
   async () => ({ ok: false, status });
+const revision =
+  (headRevisionId: string, extra: Record<string, unknown> = {}): Handler =>
+  async () => ({ ok: true, status: 200, json: async () => ({ headRevisionId, ...extra }) });
 const rejects: Handler = async () => {
   throw new Error('network down');
 };
@@ -344,6 +353,34 @@ test('Google Drive connector', async (t) => {
     );
   });
 
+  await t.test('a file whose stored revision cannot be read is not opened (#74)', async () => {
+    const cases: Array<[Handler, RegExp]> = [
+      [errStatus(403), /Could not open vault.kdbx \(HTTP 403\)/],
+      [errStatus(404), /Could not open vault.kdbx \(HTTP 404\)/],
+      [rejects, /Network error while opening vault.kdbx/],
+      [
+        async () => ({ ok: true, status: 200, json: async () => ({}) }),
+        /Could not open vault.kdbx \(unexpected response\)/,
+      ],
+      [
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new Error('not json');
+          },
+        }),
+        /Could not open vault.kdbx \(unexpected response\)/,
+      ],
+    ];
+    for (const [handler, expected] of cases) {
+      handlers.metadata = handler;
+      await pick({ id: 'f1', name: 'vault.kdbx' });
+      await waitFor(() => expected.test(q('#pick-status').textContent ?? ''));
+    }
+    handlers.metadata = revision('rev-1');
+  });
+
   await t.test('picking a file successfully embeds the app', async () => {
     handlers.download = async () => ({
       ok: true,
@@ -381,6 +418,7 @@ test('Google Drive connector', async (t) => {
     assert.equal(msg?.type, 'kw-open');
     assert.equal(msg?.filename, 'vault.kdbx');
     assert.ok(msg?.bytes instanceof ArrayBuffer);
+    assert.equal(msg?.version, 'rev-1', 'the revision read before the bytes (#74)');
   });
 
   await t.test('kw-save writes back to Drive and reports success', async () => {
@@ -441,6 +479,160 @@ test('Google Drive connector', async (t) => {
       });
     },
   );
+
+  // --- Versions, conflicts and checks (#74) --------------------------------
+
+  /** Send one message from the app and return the next one this page posts back. */
+  async function exchange(message: Record<string, unknown>): Promise<unknown> {
+    const before = frameInbox.length;
+    sendMessage(message, { source: frameWin });
+    await waitFor(() => frameInbox.length > before);
+    return frameInbox.at(-1)?.message;
+  }
+  const save = (id: number, base?: string): Record<string, unknown> => ({
+    type: 'kw-save',
+    id,
+    filename: 'vault.kdbx',
+    bytes: new ArrayBuffer(8),
+    ...(base === undefined ? {} : { base }),
+  });
+  const check = (base?: string): Record<string, unknown> =>
+    base === undefined ? { type: 'kw-check' } : { type: 'kw-check', base };
+
+  await t.test(
+    'a save built on the stored revision goes through and names the new one',
+    async () => {
+      handlers.metadata = revision('rev-1');
+      handlers.save = revision('rev-2');
+      assert.deepEqual(await exchange(save(7, 'rev-1')), {
+        type: 'kw-saved',
+        id: 7,
+        ok: true,
+        version: 'rev-2',
+      });
+
+      // A write that doesn't say what it stored still succeeds, naming nothing.
+      handlers.save = async () => ({ ok: true, status: 200, json: async () => ({}) });
+      assert.deepEqual(await exchange(save(11, 'rev-1')), { type: 'kw-saved', id: 11, ok: true });
+    },
+  );
+
+  await t.test(
+    'a save over a revision saved elsewhere is refused as a conflict, unwritten',
+    async () => {
+      handlers.metadata = revision('rev-9');
+      let writes = 0;
+      handlers.save = async () => {
+        writes += 1;
+        return { ok: true, status: 200 };
+      };
+      assert.deepEqual(await exchange(save(8, 'rev-2')), {
+        type: 'kw-saved',
+        id: 8,
+        ok: false,
+        error: 'it was saved elsewhere since',
+        reason: 'conflict',
+      });
+      assert.equal(writes, 0, 'nothing was written over the newer version');
+    },
+  );
+
+  await t.test(
+    'a save whose revision check fails says why, an expired session as one',
+    async () => {
+      handlers.metadata = errStatus(401);
+      assert.deepEqual(await exchange(save(9, 'rev-2')), {
+        type: 'kw-saved',
+        id: 9,
+        ok: false,
+        error: 'HTTP 401',
+        reason: 'auth-expired',
+      });
+      handlers.metadata = errStatus(404);
+      assert.deepEqual(await exchange(save(10, 'rev-2')), {
+        type: 'kw-saved',
+        id: 10,
+        ok: false,
+        error: 'HTTP 404',
+      });
+    },
+  );
+
+  await t.test('a check answers unchanged, newer with its bytes, or gone', async () => {
+    handlers.metadata = revision('rev-2');
+    assert.deepEqual(await exchange(check('rev-2')), { type: 'kw-checked', status: 'unchanged' });
+
+    const newer = kdbxBytes(32);
+    handlers.download = async () => ({ ok: true, status: 200, arrayBuffer: async () => newer });
+    handlers.metadata = revision('rev-3', { modifiedTime: '2026-10-11T12:00:00.000Z' });
+    assert.deepEqual(await exchange(check('rev-2')), {
+      type: 'kw-checked',
+      status: 'newer',
+      bytes: newer,
+      version: 'rev-3',
+      savedAt: '2026-10-11T12:00:00.000Z',
+    });
+    handlers.metadata = revision('rev-4');
+    assert.deepEqual(await exchange(check('rev-2')), {
+      type: 'kw-checked',
+      status: 'newer',
+      bytes: newer,
+      version: 'rev-4',
+    });
+
+    handlers.metadata = revision('rev-4', { trashed: true });
+    assert.deepEqual(await exchange(check('rev-2')), { type: 'kw-checked', status: 'gone' });
+    handlers.metadata = errStatus(404);
+    assert.deepEqual(await exchange(check('rev-2')), { type: 'kw-checked', status: 'gone' });
+  });
+
+  await t.test(
+    'a check that cannot reach Drive, or has nothing to compare, answers unknown',
+    async () => {
+      const unknown = { type: 'kw-checked', status: 'unknown' };
+      assert.deepEqual(await exchange(check()), unknown, 'no version to compare with');
+      handlers.metadata = errStatus(403);
+      assert.deepEqual(await exchange(check('rev-2')), unknown);
+      handlers.metadata = revision('rev-5');
+      handlers.download = errStatus(403);
+      assert.deepEqual(await exchange(check('rev-2')), unknown);
+      handlers.download = async () => ({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => {
+          throw new Error('stream broke');
+        },
+      });
+      assert.deepEqual(await exchange(check('rev-2')), unknown);
+    },
+  );
+
+  await t.test('a check renews an expired session silently, once, before answering', async () => {
+    let calls = 0;
+    handlers.metadata = async () => {
+      calls += 1;
+      return calls === 1
+        ? { ok: false, status: 401 }
+        : { ok: true, status: 200, json: async () => ({ headRevisionId: 'rev-2' }) };
+    };
+    let before = frameInbox.length;
+    let requestsBefore = requestCount;
+    sendMessage(check('rev-2'), { source: frameWin });
+    await waitFor(() => requestCount > requestsBefore);
+    (tokenCallback as (r: Record<string, unknown>) => void)({ access_token: 'tok-renewed' });
+    await waitFor(() => frameInbox.length > before);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-checked', status: 'unchanged' });
+
+    handlers.metadata = errStatus(401);
+    before = frameInbox.length;
+    requestsBefore = requestCount;
+    sendMessage(check('rev-2'), { source: frameWin });
+    await waitFor(() => requestCount > requestsBefore);
+    failTokenError({ type: 'popup_failed_to_open' });
+    await waitFor(() => frameInbox.length > before);
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-checked', status: 'unknown' });
+    handlers.metadata = revision('rev-1');
+  });
 
   await t.test('kw-title names the open database in the tab', () => {
     sendMessage({ type: 'kw-title', filename: 'vault.kdbx', locked: true }, { source: frameWin });
@@ -582,6 +774,11 @@ test('Google Drive connector', async (t) => {
       });
       sendMessage({ type: 'kw-ready' }, { source: frameWin });
       assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-create' });
+
+      // Nothing is stored yet, so there is no version to be newer than (#74).
+      sendMessage({ type: 'kw-check', base: 'rev-1' }, { source: frameWin });
+      await waitFor(() => (frameInbox.at(-1)?.message as { type?: string }).type === 'kw-checked');
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-checked', status: 'unknown' });
     },
   );
 
@@ -601,6 +798,35 @@ test('Google Drive connector', async (t) => {
       await waitFor(() => frameInbox.length > before);
       assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
       assert.equal(q<HTMLElement>('#host-filename').textContent, 'Fresh Vault.kdbx');
+
+      // Drive names the created file's revision, which the next save builds on (#74).
+      handlers.create = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'new-file-2', headRevisionId: 'rev-new' }),
+      });
+      click(q('[data-action="back-to-drive"]'));
+      sendMessage({ type: 'kw-close' }, { source: frameWin });
+      await waitFor(() => q('[data-action="pick"]') !== null);
+      click(q('[data-action="create-database"]'));
+      await waitFor(() => q('#app-frame') !== null);
+      Object.defineProperty(q<HTMLIFrameElement>('#app-frame'), 'contentWindow', {
+        value: frameWin,
+        configurable: true,
+      });
+      sendMessage({ type: 'kw-ready' }, { source: frameWin });
+      const beforeVersioned = frameInbox.length;
+      sendMessage(
+        { type: 'kw-save', id: 2, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        { source: frameWin },
+      );
+      await waitFor(() => frameInbox.length > beforeVersioned);
+      assert.deepEqual(frameInbox.at(-1)?.message, {
+        type: 'kw-saved',
+        id: 2,
+        ok: true,
+        version: 'rev-new',
+      });
     },
   );
 

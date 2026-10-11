@@ -324,14 +324,18 @@ export function isValidClipboardTimeout(seconds: number): boolean {
   return !Number.isNaN(seconds) && seconds >= 5;
 }
 
-/** The settings dialog's minimum accepted curtain delay, in seconds (#84). */
+/* The longest idle delay the settings accept, in seconds. An unlock is when a
+returning tab checks for a version saved elsewhere, so the lock must always come (#74). */
+const MAX_IDLE_DELAY = 3600;
+
+/** The settings dialog's accepted curtain delay, in seconds (#84). */
 export function isValidCurtainTimeout(seconds: number): boolean {
-  return !Number.isNaN(seconds) && seconds >= 15;
+  return !Number.isNaN(seconds) && seconds >= 15 && seconds <= MAX_IDLE_DELAY;
 }
 
-/** The settings dialog's minimum accepted auto-lock delay, in seconds (#84). */
+/** The settings dialog's accepted auto-lock delay, in seconds (#84). */
 export function isValidAutoLockTimeout(seconds: number): boolean {
-  return !Number.isNaN(seconds) && seconds >= 30;
+  return !Number.isNaN(seconds) && seconds >= 30 && seconds <= MAX_IDLE_DELAY;
 }
 
 /** Character classes offered by the password generator. */
