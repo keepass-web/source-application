@@ -71,23 +71,6 @@ test('corpus/keepass-rs: 3.1 password-only, nested groups and entries', async ()
   assert.deepEqual(countAll(root), { groups: 5, entries: 6 });
 });
 
-test('corpus/keepass-rs: saving a 3.1 file keeps its <Meta><HeaderHash> valid (#95)', async () => {
-  /* Save regenerates every header seed, so the fixture's stored <Meta><HeaderHash>
-  must be rewritten or KeePassDroid refuses the file as corrupt (#95). */
-  const credentials = Credentials.fromPassword('demopass');
-  const headerHash = (kdbx: Kdbx): string =>
-    getText(getChild(getChild(kdbx.root, 'Meta') as XmlElement, 'HeaderHash') as XmlElement);
-  const sha = (bytes: Uint8Array): string =>
-    createHash('sha256').update(readOuterHeader(bytes).rawHeader).digest('base64');
-
-  const original = fixture('keepass-rs', 'test_db_with_password.kdbx');
-  const kdbx = await Kdbx.load(original, credentials);
-  assert.equal(headerHash(kdbx), sha(original));
-
-  const saved = await kdbx.save();
-  assert.equal(headerHash(await Kdbx.load(saved, credentials)), sha(saved));
-});
-
 test('corpus/keepass-rs: 3.1 keyfile-only (raw), no password', async () => {
   const kdbx = await Kdbx.load(
     fixture('keepass-rs', 'test_db_with_keyfile.kdbx'),
@@ -317,6 +300,23 @@ test('corpus/keepassjava2: 3.1 generic conformance baseline', async () => {
     Credentials.fromPassword('123'),
   );
   assert.equal(kdbx.header.version.major, 3);
+});
+
+test('corpus/keepassjava2: saving a 3.1 file keeps its <Meta><HeaderHash> valid (#95)', async () => {
+  /* Save regenerates every header seed, so the fixture's stored <Meta><HeaderHash>
+  must be rewritten or KeePassDroid refuses the file as corrupt (#95). */
+  const credentials = Credentials.fromPassword('123');
+  const headerHash = (kdbx: Kdbx): string =>
+    getText(getChild(getChild(kdbx.root, 'Meta') as XmlElement, 'HeaderHash') as XmlElement);
+  const sha = (bytes: Uint8Array): string =>
+    createHash('sha256').update(readOuterHeader(bytes).rawHeader).digest('base64');
+
+  const original = fixture('keepassjava2', 'test123.kdbx');
+  const kdbx = await Kdbx.load(original, credentials);
+  assert.equal(headerHash(kdbx), sha(original));
+
+  const saved = await kdbx.save();
+  assert.equal(headerHash(await Kdbx.load(saved, credentials)), sha(saved));
 });
 
 test('corpus/keepassjava2: empty-string password (not absent)', async () => {
