@@ -284,6 +284,24 @@ test('corpus/keepassjava2: 4.0 AES-KDF + AES cipher', async () => {
   assert.ok(getChildren(kdbx.getRootGroup(), 'Entry').length > 0);
 });
 
+test('corpus: KeePass and KeePassXC 4.x times load as ISO, decoded from Base64 seconds', async () => {
+  // The fixtures store these instants as Base64 seconds since 0001-01-01 (#95).
+  const nameChanged = (kdbx: Kdbx): string =>
+    getText(
+      getChild(getChild(kdbx.root, 'Meta') as XmlElement, 'DatabaseNameChanged') as XmlElement,
+    );
+  const keepass = await Kdbx.load(
+    fixture('keepassjava2', 'V4-AES-AES.kdbx'),
+    Credentials.fromPassword('123'),
+  );
+  const keepassxc = await Kdbx.load(
+    fixture('keepass-rs', 'test_db_kdbx4_with_password_argon2.kdbx'),
+    Credentials.fromPassword('demopass'),
+  );
+  assert.equal(nameChanged(keepass), '2018-01-25T13:28:56Z');
+  assert.equal(nameChanged(keepassxc), '2019-05-30T09:39:51Z');
+});
+
 test('corpus/keepassjava2: 4.1 format baseline', async () => {
   const kdbx = await Kdbx.load(
     fixture('keepassjava2', 'Database-4.1-123.kdbx'),

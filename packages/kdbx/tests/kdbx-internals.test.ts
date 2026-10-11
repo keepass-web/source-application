@@ -8,8 +8,9 @@ import {
   SIGNATURE_1,
   SIGNATURE_2,
 } from '../src/constants.ts';
-import { writeHmacBlockStream } from '../src/hmac-block-stream.ts';
+import { readHmacBlockStream, writeHmacBlockStream } from '../src/hmac-block-stream.ts';
 import {
+  aesCbcDecrypt,
   aesCbcEncrypt,
   CipherId,
   Compression,
@@ -17,19 +18,24 @@ import {
   concatBytes,
   createDatabaseDocument,
   createElement,
+  getChild,
   getRandomBytes,
+  getText,
   hmacSha256,
   InnerStreamCipher,
   Kdbx,
   KdfId,
   type OuterHeader,
+  readInnerHeader,
   readOuterHeader,
   serializeXml,
   sha256,
+  utf8Decode,
   utf8Encode,
   type VariantDictionary,
   writeInnerHeader,
   writeOuterHeader,
+  type XmlElement,
 } from '../src/index.ts';
 // Not part of the public barrel (only used internally, by kdbx.ts).
 import { transformWithKdfParameters } from '../src/kdf.ts';
@@ -102,6 +108,40 @@ test('load rejects a header with an unsupported outer cipher', async () => {
   const tampered = concatBytes(rawHeader, headerSha, headerHmac, blockStream);
 
   await assert.rejects(() => Kdbx.load(tampered, credentials), /unsupported outer cipher/);
+});
+
+test('KDBX 4 save writes times as Base64 seconds on disk, and load turns them back into ISO', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'aes',
+    compression: false,
+    argon2: FAST_ARGON2,
+  });
+  const saved = await kdbx.save();
+
+  // Decrypt by hand, so the on-disk XML is visible before load converts it (#95).
+  const { header, offset } = readOuterHeader(saved);
+  const transformedKey = await transformWithKdfParameters(
+    await credentials.getCompositeKey(),
+    header.kdfParameters as NonNullable<OuterHeader['kdfParameters']>,
+  );
+  const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
+  const encrypted = await readHmacBlockStream(saved.subarray(offset + 64), hmacBaseKey);
+  const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+  const payload = await aesCbcDecrypt(cipherKey, header.encryptionIv, encrypted);
+  const xml = utf8Decode(readInnerHeader(payload).xml);
+
+  assert.match(xml, /<CreationTime>[A-Za-z0-9+/]{11}=<\/CreationTime>/);
+  assert.doesNotMatch(xml, /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ/);
+
+  const created = (db: Kdbx): string =>
+    getText(
+      getChild(getChild(db.getRootGroup(), 'Times') as XmlElement, 'CreationTime') as XmlElement,
+    );
+  const reloaded = await Kdbx.load(saved, credentials);
+  assert.match(created(reloaded), /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  assert.equal(created(reloaded), created(kdbx));
 });
 
 test('load rejects a KDBX 4 header missing KDF parameters', async () => {

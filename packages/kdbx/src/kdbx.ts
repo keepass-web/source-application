@@ -57,6 +57,7 @@ import {
   walkAllEntries,
 } from './model.ts';
 import { createProtectedStreamCipher } from './protected-stream.ts';
+import { binaryTimesToIso, isoTimesToBinary } from './times.ts';
 import type { VariantDictionary, VdValue } from './variant-dictionary.ts';
 import { parseXml, serializeXml, type XmlElement } from './xml.ts';
 
@@ -298,6 +299,7 @@ export class Kdbx {
 
     const { inner, xml } = readInnerHeader(payload);
     const root = parseXml(utf8Decode(xml));
+    binaryTimesToIso(root);
     const cipher = await createProtectedStreamCipher(
       inner.innerRandomStreamId,
       inner.innerRandomStreamKey,
@@ -388,6 +390,7 @@ export class Kdbx {
 
     const cipher = await createProtectedStreamCipher(this.#innerStreamId, this.#innerStreamKey);
     const clonedRoot = cloneElement(this.root);
+    isoTimesToBinary(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, headerSha);
     applyOutboundProtection(clonedRoot, cipher);
     const xmlBytes = utf8Encode(serializeXml(clonedRoot));
