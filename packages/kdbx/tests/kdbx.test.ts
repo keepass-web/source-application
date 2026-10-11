@@ -7,6 +7,7 @@ import {
   createElement,
   createEntry,
   createGroup,
+  deletePermanently,
   getAttribute,
   getChild,
   getChildren,
@@ -15,11 +16,13 @@ import {
   getText,
   Kdbx,
   type KdbxCreateOptions,
+  moveToGroup,
   pushHistorySnapshot,
   readOuterHeader,
   removeEntryAttachment,
   renameEntryAttachment,
   setAttribute,
+  setText,
   sha256,
   toBase64,
   type XmlElement,
@@ -166,6 +169,51 @@ for (const version of [3, 4] as const) {
     const meta = getChild((await Kdbx.load(saved, credentials)).root, 'Meta') as XmlElement;
     const expected = toBase64(await sha256(readOuterHeader(saved).rawHeader));
     assert.equal(getText(getChild(meta, 'HeaderHash') as XmlElement), expected);
+  });
+}
+
+for (const version of [3, 4] as const) {
+  test(`a permanent delete's record and a move's LocationChanged survive save/reload (KDBX ${version})`, async () => {
+    // Other KeePass clients merge by these, so they must reach the file intact,
+    // including through 4.x's binary DateTime encoding (#108).
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    const rootGroup = kdbx.getRootGroup();
+    const doomed = createEntry({ title: 'Doomed' });
+    const moved = createEntry({ title: 'Moved' });
+    const destination = createGroup('Destination');
+    appendChild(rootGroup, doomed);
+    appendChild(rootGroup, moved);
+    appendChild(rootGroup, destination);
+    const timeOf = (element: XmlElement, name: string): XmlElement =>
+      getChild(getChild(element, 'Times') as XmlElement, name) as XmlElement;
+    setText(timeOf(moved, 'LocationChanged'), '2000-01-01T00:00:00Z');
+
+    deletePermanently(kdbx.root, doomed, rootGroup);
+    moveToGroup(moved, rootGroup, destination);
+    const deletedObjects = (root: XmlElement): XmlElement[] =>
+      getChildren(
+        getChild(getChild(root, 'Root') as XmlElement, 'DeletedObjects') as XmlElement,
+        'DeletedObject',
+      );
+    const [record] = deletedObjects(kdbx.root) as [XmlElement];
+    const deletionTime = getText(getChild(record, 'DeletionTime') as XmlElement);
+    const locationChanged = getText(timeOf(moved, 'LocationChanged'));
+
+    const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+    const records = deletedObjects(reloaded.root);
+    assert.equal(records.length, 1);
+    const [reloadedRecord] = records as [XmlElement];
+    assert.equal(
+      getText(getChild(reloadedRecord, 'UUID') as XmlElement),
+      getText(getChild(doomed, 'UUID') as XmlElement),
+    );
+    assert.equal(getText(getChild(reloadedRecord, 'DeletionTime') as XmlElement), deletionTime);
+
+    const reloadedDestination = getChild(reloaded.getRootGroup(), 'Group') as XmlElement;
+    const reloadedMoved = getChild(reloadedDestination, 'Entry') as XmlElement;
+    assert.equal(getText(timeOf(reloadedMoved, 'LocationChanged')), locationChanged);
+    assert.notEqual(locationChanged, '2000-01-01T00:00:00Z');
   });
 }
 

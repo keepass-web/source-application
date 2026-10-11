@@ -36,6 +36,7 @@ import {
   createEntry,
   createGroup,
   deleteHistoryEntry,
+  deletePermanently,
   findOrCreateRecycleBin,
   getAttribute,
   getChild,
@@ -47,6 +48,7 @@ import {
   getText,
   isInRecycleBin,
   Kdbx,
+  moveToGroup,
   pushHistorySnapshot,
   removeEntryAttachment,
   renameEntryAttachment,
@@ -184,6 +186,8 @@ Object.assign(globalThis, {
   getEntryTimes,
   setEntryExpiry,
   touchLastModified,
+  moveToGroup,
+  deletePermanently,
   getEntryAttachments,
   addEntryAttachment,
   renameEntryAttachment,
@@ -2413,6 +2417,164 @@ test('entry history: edits are snapshotted, and a past version can be restored o
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),
   );
+});
+
+test('a rename, a move and permanent deletes reach the saved file as other KeePass clients merge them', async () => {
+  // KeePass and KeePassXC merge two copies by these times and DeletedObjects
+  // records, so they are checked in the bytes a save writes, not just in memory (#108).
+  const LONG_AGO = '2000-01-01T00:00:00Z';
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Merge Vault',
+  });
+  const rootGroup = kdbx.getRootGroup();
+  const keep = createGroup('Keep');
+  const mover = createEntry({ title: 'Mover' });
+  appendChild(keep, mover);
+  const doomedGroup = createGroup('Doomed Group');
+  const doomedChild = createEntry({ title: 'Doomed Child' });
+  appendChild(doomedGroup, doomedChild);
+  const doomedEntry = createEntry({ title: 'Doomed Entry' });
+  appendChild(rootGroup, doomedEntry);
+  appendChild(rootGroup, keep);
+  appendChild(rootGroup, doomedGroup);
+  const timeEl = (element: XmlElement, name: string): XmlElement =>
+    getChild(getChild(element, 'Times') as XmlElement, name) as XmlElement;
+  for (const element of [keep, mover]) {
+    setText(timeEl(element, 'LastModificationTime'), LONG_AGO);
+    setText(timeEl(element, 'LocationChanged'), LONG_AGO);
+  }
+  const uuidOf = (element: XmlElement): string => getText(getChild(element, 'UUID') as XmlElement);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('merge.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  // Rows are icon-prefixed ("📁 Keep"), so match on the trailing name.
+  const groupBtnFor = (name: string): HTMLButtonElement =>
+    Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+      b.textContent?.endsWith(name),
+    ) as HTMLButtonElement;
+  const openEntry = (title: string): void => {
+    click(
+      Array.from(root().querySelectorAll<HTMLElement>('.entry-row')).find((r) =>
+        r.querySelector('.entry-row-title')?.textContent?.includes(title),
+      ) as HTMLElement,
+    );
+  };
+  const confirmDelete = (): void => click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+
+  // Rename "Keep" from its row menu; the menu only shows on the active row.
+  click(groupBtnFor('Keep'));
+  click(groupBtnFor('Keep').closest('.group-row')?.querySelector('.group-menu-btn') as Element);
+  click(
+    Array.from(
+      (groupBtnFor('Keep').closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        ':scope > .group-menu .group-menu-item',
+      ),
+    ).find((b) => b.textContent === 'Rename') as HTMLButtonElement,
+  );
+  byId<HTMLInputElement>('new-group-name').value = 'Kept';
+  click(dq('#dlg-new-group [data-action="create-group"]'));
+
+  // Move "Mover" out of it, up to the root group.
+  click(groupBtnFor('Kept'));
+  openEntry('Mover');
+  click(q('[data-action="move-entry"]'));
+  click(
+    Array.from(
+      byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
+    ).find((b) => b.textContent?.endsWith('Merge Vault')) as HTMLButtonElement,
+  );
+
+  // Trash an entry, then delete it from the bin.
+  click(groupBtnFor('Merge Vault'));
+  openEntry('Doomed Entry');
+  click(q('[data-action="trash"]'));
+  click(groupBtnFor('Recycle Bin'));
+  openEntry('Doomed Entry');
+  click(q('[data-action="delete"]'));
+  confirmDelete();
+
+  // Trash a group, then delete it, and the entry inside it, from the bin.
+  click(groupBtnFor('Doomed Group'));
+  click(q('[data-action="delete-group"]'));
+  confirmDelete();
+  click(groupBtnFor('Doomed Group'));
+  click(q('[data-action="delete-group"]'));
+  confirmDelete();
+
+  // Save, keeping the bytes the download hands to the browser.
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(q('[data-action="save-database"]'));
+    click(dq('#dlg-save [data-action="download"]'));
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    credentials,
+  );
+
+  const savedRoot = saved.getRootGroup();
+  const savedKept = getChildren(savedRoot, 'Group').find(
+    (g) => uuidOf(g) === uuidOf(keep),
+  ) as XmlElement;
+  assert.equal(getText(getChild(savedKept, 'Name') as XmlElement), 'Kept');
+  assert.notEqual(
+    getText(timeEl(savedKept, 'LastModificationTime')),
+    LONG_AGO,
+    'a rename is an edit',
+  );
+  assert.equal(getText(timeEl(savedKept, 'LocationChanged')), LONG_AGO, 'but not a move');
+
+  const savedMover = getChildren(savedRoot, 'Entry').find(
+    (e) => uuidOf(e) === uuidOf(mover),
+  ) as XmlElement;
+  assert.notEqual(getText(timeEl(savedMover, 'LocationChanged')), LONG_AGO, 'a move');
+  assert.equal(getText(timeEl(savedMover, 'LastModificationTime')), LONG_AGO, 'but not an edit');
+
+  const deletedObjects = getChild(
+    getChild(saved.root, 'Root') as XmlElement,
+    'DeletedObjects',
+  ) as XmlElement;
+  assert.deepEqual(
+    getChildren(deletedObjects, 'DeletedObject').map((record) =>
+      getText(getChild(record, 'UUID') as XmlElement),
+    ),
+    [uuidOf(doomedEntry), uuidOf(doomedGroup), uuidOf(doomedChild)],
+  );
+  assert.ok(
+    getChild(getChild(saved.root, 'Meta') as XmlElement, 'RecycleBinChanged'),
+    'creating the bin is recorded',
+  );
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
 test('entry list sorting: by title, username, or modified time, in either direction', async () => {

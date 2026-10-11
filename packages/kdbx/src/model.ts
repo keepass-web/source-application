@@ -89,6 +89,16 @@ export function getAttribute(element: XmlElement, name: string): string | undefi
   return undefined;
 }
 
+// Set the text of `parent`'s named child, adding the child if it is absent.
+function kx_setChildText(parent: XmlElement, name: string, text: string): void {
+  const child = getChild(parent, name);
+  if (child) {
+    setText(child, text);
+  } else {
+    appendChild(parent, createElement(name, text));
+  }
+}
+
 // Set (or replace) a named attribute.
 export function setAttribute(element: XmlElement, name: string, value: string): void {
   for (const pair of element.attributes) {
@@ -291,11 +301,62 @@ export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIs
   }
 }
 
-// Bump an entry's LastModificationTime to now, matching real KeePass.
-export function touchLastModified(entry: XmlElement): void {
-  const times = getChild(entry, 'Times');
-  const modEl = times && getChild(times, 'LastModificationTime');
-  if (modEl) setText(modEl, kx_nowIso());
+// Set one of an entry's or group's Times, adding it if the file left it out; no-op without Times.
+function kx_setTime(element: XmlElement, name: string, iso: string): void {
+  const times = getChild(element, 'Times');
+  if (times) kx_setChildText(times, name, iso);
+}
+
+// Set one of Meta's *Changed times to now, adding it if the file left it out; no-op without Meta.
+export function touchMetaTime(document: XmlElement, name: string): void {
+  const meta = getChild(document, 'Meta');
+  if (meta) kx_setChildText(meta, name, kx_nowIso());
+}
+
+// Bump an entry's or group's LastModificationTime to now; merges keep the newer copy by it (#108).
+export function touchLastModified(element: XmlElement): void {
+  kx_setTime(element, 'LastModificationTime', kx_nowIso());
+}
+
+// Move an entry or group between groups; merges place it by the newer LocationChanged (#108).
+export function moveToGroup(element: XmlElement, from: XmlElement, to: XmlElement): void {
+  from.children = from.children.filter((child) => child !== element);
+  appendChild(to, element);
+  kx_setTime(element, 'LocationChanged', kx_nowIso());
+}
+
+/** Remove an entry or group for good, recording it and every group and entry
+under it in DeletedObjects so a merge elsewhere doesn't bring them back (#108). */
+export function deletePermanently(
+  document: XmlElement,
+  element: XmlElement,
+  from: XmlElement,
+): void {
+  const rootElement = getChild(document, 'Root');
+  if (!rootElement) {
+    throw new Error('database is missing a Root element');
+  }
+  let deleted = getChild(rootElement, 'DeletedObjects');
+  if (!deleted) {
+    deleted = createElement('DeletedObjects');
+    appendChild(rootElement, deleted);
+  }
+
+  from.children = from.children.filter((child) => child !== element);
+  const deletionTime = kx_nowIso();
+  const record = (object: XmlElement): void => {
+    const uuidEl = getChild(object, 'UUID');
+    if (uuidEl) {
+      const deletedObject = createElement('DeletedObject');
+      appendChild(deletedObject, createElement('UUID', getText(uuidEl)));
+      appendChild(deletedObject, createElement('DeletionTime', deletionTime));
+      appendChild(deleted, deletedObject);
+    }
+    for (const child of [...getChildren(object, 'Entry'), ...getChildren(object, 'Group')]) {
+      record(child);
+    }
+  };
+  record(element);
 }
 
 // Visit every Entry under group, including History revisions (for finding Refs database-wide).
@@ -403,13 +464,17 @@ export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): vo
 }
 
 /** Restore `entry` to a past version: snapshots current state first, then
-replaces its fields. `snapshot` must come from `getEntryHistory(entry)`. */
+replaces its fields. `snapshot` must come from `getEntryHistory(entry)`. For
+merges, the restore is the newest edit and keeps the current LocationChanged,
+since the entry has not moved (#108). */
 export function restoreHistoryEntry(
   document: XmlElement,
   entry: XmlElement,
   snapshot: XmlElement,
 ): void {
   const restoredFields = cloneElement(snapshot);
+  const currentTimes = getChild(entry, 'Times');
+  const locationChanged = currentTimes && getChild(currentTimes, 'LocationChanged');
   pushHistorySnapshot(document, entry);
 
   const uuidEl = getChild(entry, 'UUID');
@@ -422,6 +487,9 @@ export function restoreHistoryEntry(
   }
   if (historyEl) newChildren.push(historyEl);
   entry.children = newChildren;
+
+  if (locationChanged) kx_setTime(entry, 'LocationChanged', getText(locationChanged));
+  touchLastModified(entry);
 }
 
 // Permanently remove one past version from an entry's History.
@@ -470,7 +538,8 @@ function kx_findRecycleBin(document: XmlElement): XmlElement | undefined {
   return kx_findGroupByUuid(rootGroup, getText(uuidEl));
 }
 
-// Find (or lazily create) the recycle bin group, recording its UUID in Meta/RecycleBinUUID.
+/** Find (or lazily create) the recycle bin group, recording its UUID in
+Meta/RecycleBinUUID; merges keep the bin with the newer RecycleBinChanged (#108). */
 export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   const existing = kx_findRecycleBin(document);
   if (existing) return existing;
@@ -487,12 +556,8 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   // createGroup() always appends a UUID child first, so this is always present.
   const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
 
-  const uuidEl = getChild(meta, 'RecycleBinUUID');
-  if (uuidEl) {
-    setText(uuidEl, binUuid);
-  } else {
-    appendChild(meta, createElement('RecycleBinUUID', binUuid));
-  }
+  kx_setChildText(meta, 'RecycleBinUUID', binUuid);
+  kx_setChildText(meta, 'RecycleBinChanged', kx_nowIso());
   return bin;
 }
 
@@ -513,6 +578,7 @@ export function createDatabaseDocument(
   appendChild(meta, createElement('Generator', KX_GENERATOR));
   appendChild(meta, createElement('DatabaseName', databaseName));
   appendChild(meta, createElement('DatabaseNameChanged', kx_nowIso()));
+  appendChild(meta, createElement('MasterKeyChanged', kx_nowIso()));
   appendChild(meta, createElement('RecycleBinEnabled', 'True'));
   appendChild(meta, createElement('HistoryMaxItems', '10'));
   appendChild(root, meta);

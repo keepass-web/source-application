@@ -164,7 +164,13 @@ interface EntryTimes {
 
 declare function getEntryTimes(entry: XmlElement): EntryTimes;
 declare function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void;
-declare function touchLastModified(entry: XmlElement): void;
+declare function touchLastModified(element: XmlElement): void;
+declare function moveToGroup(element: XmlElement, from: XmlElement, to: XmlElement): void;
+declare function deletePermanently(
+  document: XmlElement,
+  element: XmlElement,
+  from: XmlElement,
+): void;
 
 declare function getEntryHistory(entry: XmlElement): XmlElement[];
 declare function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void;

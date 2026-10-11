@@ -30,6 +30,7 @@ import {
   readInnerHeader,
   readOuterHeader,
   serializeXml,
+  setText,
   sha256,
   utf8Decode,
   utf8Encode,
@@ -188,6 +189,28 @@ test('setCredentials changes the credentials used on the next save', async () =>
 
   await assert.rejects(() => Kdbx.load(saved, Credentials.fromPassword('old')));
   await assert.doesNotReject(() => Kdbx.load(saved, Credentials.fromPassword('new')));
+});
+
+test('setCredentials records the change in Meta/MasterKeyChanged, which survives save/reload (#108)', async () => {
+  const kdbx = await Kdbx.create(Credentials.fromPassword('old'), {
+    version: 4,
+    argon2: FAST_ARGON2,
+  });
+  const keyChanged = (root: XmlElement): XmlElement =>
+    getChild(getChild(root, 'Meta') as XmlElement, 'MasterKeyChanged') as XmlElement;
+  setText(keyChanged(kdbx.root), '2000-01-01T00:00:00Z');
+
+  kdbx.setCredentials(Credentials.fromPassword('new'));
+  const changedAt = getText(keyChanged(kdbx.root));
+  assert.notEqual(changedAt, '2000-01-01T00:00:00Z');
+
+  const reloaded = await Kdbx.load(await kdbx.save(), Credentials.fromPassword('new'));
+  assert.equal(getText(keyChanged(reloaded.root)), changedAt);
+
+  // A document with no Meta has nowhere to record it, and must not throw.
+  kdbx.root = createElement('KeePassFile');
+  kdbx.setCredentials(Credentials.fromPassword('newer'));
+  assert.equal(getChild(kdbx.root, 'Meta'), undefined);
 });
 
 test('load rejects a corrupted header (SHA-256 mismatch)', async () => {

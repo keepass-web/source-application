@@ -49,6 +49,8 @@
     "getEntryTimes",
     "setEntryExpiry",
     "touchLastModified",
+    "moveToGroup",
+    "deletePermanently",
     "getEntryAttachments",
     "addEntryAttachment",
     "renameEntryAttachment",
