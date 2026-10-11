@@ -5,6 +5,7 @@ import {
   bytesEqual,
   bytesEqualConstantTime,
   concatBytes,
+  toBase64,
   utf8Decode,
   utf8Encode,
 } from './bytes.ts';
@@ -52,9 +53,11 @@ import {
   getChild,
   getChildren,
   setAttribute,
+  setText,
   walkAllEntries,
 } from './model.ts';
 import { createProtectedStreamCipher } from './protected-stream.ts';
+import { binaryTimesToIso, isoTimesToBinary } from './times.ts';
 import type { VariantDictionary, VdValue } from './variant-dictionary.ts';
 import { parseXml, serializeXml, type XmlElement } from './xml.ts';
 
@@ -146,6 +149,13 @@ async function kx_transformKey(header: OuterHeader, compositeKey: Uint8Array): P
     throw new Error('KDBX 3.1 header is missing transform parameters');
   }
   return aesKdf(compositeKey, header.transformSeed, header.transformRounds);
+}
+
+// Readers reject a <Meta><HeaderHash> that no longer matches the header (#95).
+function kx_refreshHeaderHash(root: XmlElement, headerSha: Uint8Array): void {
+  const meta = getChild(root, 'Meta');
+  const hashEl = meta && getChild(meta, 'HeaderHash');
+  if (hashEl) setText(hashEl, toBase64(headerSha));
 }
 
 // An in-memory KDBX database.
@@ -289,6 +299,7 @@ export class Kdbx {
 
     const { inner, xml } = readInnerHeader(payload);
     const root = parseXml(utf8Decode(xml));
+    binaryTimesToIso(root);
     const cipher = await createProtectedStreamCipher(
       inner.innerRandomStreamId,
       inner.innerRandomStreamKey,
@@ -364,6 +375,8 @@ export class Kdbx {
       throw new Error('KDBX 4 database is missing KDF parameters');
     }
     header.kdfParameters.set(KdfParam.AesSeed, kx_bytes(getRandomBytes(32)));
+    const rawHeader = writeOuterHeader(header);
+    const headerSha = await sha256(rawHeader);
 
     // Fresh inner random stream key (64 bytes for ChaCha20, 32 for Salsa20).
     this.#innerStreamKey = getRandomBytes(
@@ -377,6 +390,8 @@ export class Kdbx {
 
     const cipher = await createProtectedStreamCipher(this.#innerStreamId, this.#innerStreamKey);
     const clonedRoot = cloneElement(this.root);
+    isoTimesToBinary(clonedRoot);
+    kx_refreshHeaderHash(clonedRoot, headerSha);
     applyOutboundProtection(clonedRoot, cipher);
     const xmlBytes = utf8Encode(serializeXml(clonedRoot));
 
@@ -396,8 +411,6 @@ export class Kdbx {
     );
 
     const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
-    const rawHeader = writeOuterHeader(header);
-    const headerSha = await sha256(rawHeader);
     const headerHmacKey = await deriveHeaderHmacKey(hmacBaseKey);
     const headerHmac = await hmacSha256(headerHmacKey, rawHeader);
     const blockStream = await writeHmacBlockStream(encrypted, hmacBaseKey);
@@ -417,6 +430,10 @@ export class Kdbx {
     header.innerRandomStreamId = InnerStreamCipher.Salsa20;
     this.#innerStreamId = InnerStreamCipher.Salsa20;
     this.#innerStreamKey = header.protectedStreamKey;
+    if (header.transformRounds === undefined) {
+      throw new Error('KDBX 3.1 database is missing transform rounds');
+    }
+    const rawHeader = writeOuterHeader(header);
 
     const cipher = await createProtectedStreamCipher(
       InnerStreamCipher.Salsa20,
@@ -424,6 +441,7 @@ export class Kdbx {
     );
     const clonedRoot = cloneElement(this.root);
     writeMetaBinaries(clonedRoot, this.binaries);
+    kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
     applyOutboundProtection(clonedRoot, cipher);
     let xmlBytes = utf8Encode(serializeXml(clonedRoot));
     if (header.compression === Compression.GZip) {
@@ -433,15 +451,11 @@ export class Kdbx {
     const hashedStream = await writeHashedBlockStream(xmlBytes);
     const plaintext = concatBytes(header.streamStartBytes, hashedStream);
 
-    if (header.transformRounds === undefined) {
-      throw new Error('KDBX 3.1 database is missing transform rounds');
-    }
     const compositeKey = await this.#credentials.getCompositeKey();
     const transformedKey = await aesKdf(compositeKey, header.transformSeed, header.transformRounds);
     const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
     const encrypted = await aesCbcEncrypt(cipherKey, header.encryptionIv, plaintext);
 
-    const rawHeader = writeOuterHeader(header);
     return concatBytes(rawHeader, encrypted);
   }
 

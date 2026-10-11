@@ -16,9 +16,12 @@ import {
   Kdbx,
   type KdbxCreateOptions,
   pushHistorySnapshot,
+  readOuterHeader,
   removeEntryAttachment,
   renameEntryAttachment,
   setAttribute,
+  sha256,
+  toBase64,
   type XmlElement,
 } from '../src/index.ts';
 
@@ -151,6 +154,20 @@ test('edit, save, and reload preserves changes', async () => {
   const titles = getChildren(twice.getRootGroup(), 'Entry').map((e) => fieldsOf(e).Title);
   assert.deepEqual(titles, ['Original', 'Added']);
 });
+
+for (const version of [3, 4] as const) {
+  test(`save rewrites a stale <Meta><HeaderHash> to match the new header (KDBX ${version})`, async () => {
+    // Real KeePass checks this hash when present, in 3.1 and 4.x alike (#95).
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    appendChild(getChild(kdbx.root, 'Meta') as XmlElement, createElement('HeaderHash', 'c3RhbGU='));
+
+    const saved = await kdbx.save();
+    const meta = getChild((await Kdbx.load(saved, credentials)).root, 'Meta') as XmlElement;
+    const expected = toBase64(await sha256(readOuterHeader(saved).rawHeader));
+    assert.equal(getText(getChild(meta, 'HeaderHash') as XmlElement), expected);
+  });
+}
 
 test('a password-and-keyfile credential round-trips', async () => {
   const keyFile = new Uint8Array(32).map((_, i) => (i * 13 + 5) & 0xff);
