@@ -52,6 +52,7 @@ import {
   getAttribute,
   getChild,
   getChildren,
+  getText,
   setAttribute,
   setText,
   walkAllEntries,
@@ -158,6 +159,16 @@ function kx_refreshHeaderHash(root: XmlElement, headerSha: Uint8Array): void {
   if (hashEl) setText(hashEl, toBase64(headerSha));
 }
 
+// KeePass refuses a file whose non-empty <Meta><HeaderHash> disagrees with its header (#103).
+function kx_checkHeaderHash(root: XmlElement, headerSha: Uint8Array): void {
+  const meta = getChild(root, 'Meta');
+  const hashEl = meta && getChild(meta, 'HeaderHash');
+  const stored = hashEl ? getText(hashEl).trim() : '';
+  if (stored !== '' && stored !== toBase64(headerSha)) {
+    throw new Error('header hash mismatch (corrupt file)');
+  }
+}
+
 // An in-memory KDBX database.
 export class Kdbx {
   // The outer header. Random fields (seeds, IVs, salts) are regenerated on save.
@@ -261,7 +272,7 @@ export class Kdbx {
     if (header.version.major >= 4) {
       return Kdbx.#load4(data, offset, header, rawHeader, transformedKey, cipherKey, credentials);
     }
-    return Kdbx.#load3(data, offset, header, cipherKey, credentials);
+    return Kdbx.#load3(data, offset, header, rawHeader, cipherKey, credentials);
   }
 
   static async #load4(
@@ -277,7 +288,8 @@ export class Kdbx {
     const storedHeaderHmac = data.subarray(offset + 32, offset + 64);
     const blockStream = data.subarray(offset + 64);
 
-    if (!bytesEqual(await sha256(rawHeader), storedHeaderSha)) {
+    const headerSha = await sha256(rawHeader);
+    if (!bytesEqual(headerSha, storedHeaderSha)) {
       throw new Error('header SHA-256 mismatch (corrupt file)');
     }
     const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
@@ -299,6 +311,7 @@ export class Kdbx {
 
     const { inner, xml } = readInnerHeader(payload);
     const root = parseXml(utf8Decode(xml));
+    kx_checkHeaderHash(root, headerSha);
     binaryTimesToIso(root);
     const cipher = await createProtectedStreamCipher(
       inner.innerRandomStreamId,
@@ -320,6 +333,7 @@ export class Kdbx {
     data: Uint8Array,
     offset: number,
     header: OuterHeader,
+    rawHeader: Uint8Array,
     cipherKey: Uint8Array,
     credentials: Credentials,
   ): Promise<Kdbx> {
@@ -339,6 +353,7 @@ export class Kdbx {
     }
 
     const root = parseXml(utf8Decode(payload));
+    kx_checkHeaderHash(root, await sha256(rawHeader));
     const { binaries, idToIndex } = await readMetaBinaries(root);
     remapEntryBinaryRefs(root, idToIndex);
     removeMetaBinariesElement(root);

@@ -12,6 +12,7 @@ import { readHmacBlockStream, writeHmacBlockStream } from '../src/hmac-block-str
 import {
   aesCbcDecrypt,
   aesCbcEncrypt,
+  appendChild,
   CipherId,
   Compression,
   Credentials,
@@ -365,4 +366,95 @@ test('#save4 sizes a fresh inner stream key for a non-ChaCha20 inner stream (Sal
   const resaved = await kdbx.save();
   const reloaded = await Kdbx.load(resaved, credentials);
   assert.ok(reloaded.getRootGroup());
+});
+
+// --- <Meta><HeaderHash> checks (#103). A stale hash comes from re-framing a
+// saved file under a different but equally valid outer header (one with a
+// comment field added), so the stored hash describes a header the file no
+// longer has. ---
+
+async function reframeWithComment(
+  saved: Uint8Array,
+  credentials: Credentials,
+): Promise<Uint8Array> {
+  const { header, offset } = readOuterHeader(saved);
+  header.comment = utf8Encode('re-framed');
+  const rawHeader = writeOuterHeader(header);
+  if (header.version.major < 4) return concatBytes(rawHeader, saved.subarray(offset));
+
+  // KDBX 4 authenticates its header, so the SHA-256 and HMAC have to follow it.
+  const transformedKey = await transformWithKdfParameters(
+    await credentials.getCompositeKey(),
+    header.kdfParameters as NonNullable<OuterHeader['kdfParameters']>,
+  );
+  const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
+  const headerHmac = await hmacSha256(await deriveHeaderHmacKey(hmacBaseKey), rawHeader);
+  return concatBytes(rawHeader, await sha256(rawHeader), headerHmac, saved.subarray(offset + 64));
+}
+
+for (const version of [3, 4] as const) {
+  const fast = { version, argon2: FAST_ARGON2, aesKdfRounds: 1000n };
+
+  test(`load rejects a stale <Meta><HeaderHash> (KDBX ${version})`, async () => {
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, fast);
+    // Left empty here; save fills in the hash of the header it writes.
+    appendChild(getChild(kdbx.root, 'Meta') as XmlElement, createElement('HeaderHash'));
+    const saved = await kdbx.save();
+
+    await assert.doesNotReject(() => Kdbx.load(saved, credentials));
+    const stale = await reframeWithComment(saved, credentials);
+    await assert.rejects(
+      () => Kdbx.load(stale, credentials),
+      /header hash mismatch \(corrupt file\)/,
+    );
+  });
+
+  test(`load accepts a re-framed file with no <Meta><HeaderHash> (KDBX ${version})`, async () => {
+    const credentials = Credentials.fromPassword('pw');
+    const saved = await (await Kdbx.create(credentials, fast)).save();
+    const kdbx = await Kdbx.load(await reframeWithComment(saved, credentials), credentials);
+    assert.ok(kdbx.getRootGroup());
+  });
+}
+
+test('load accepts an empty <Meta><HeaderHash>', async () => {
+  // Save always fills the hash in, so it is emptied in the decrypted XML by
+  // hand and the file re-sealed around it.
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'aes',
+    compression: false,
+    argon2: FAST_ARGON2,
+  });
+  appendChild(getChild(kdbx.root, 'Meta') as XmlElement, createElement('HeaderHash'));
+  const saved = await kdbx.save();
+
+  const { header, offset } = readOuterHeader(saved);
+  const transformedKey = await transformWithKdfParameters(
+    await credentials.getCompositeKey(),
+    header.kdfParameters as NonNullable<OuterHeader['kdfParameters']>,
+  );
+  const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
+  const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+  const encrypted = await readHmacBlockStream(saved.subarray(offset + 64), hmacBaseKey);
+  const { inner, xml } = readInnerHeader(
+    await aesCbcDecrypt(cipherKey, header.encryptionIv, encrypted),
+  );
+  const filled = utf8Decode(xml);
+  const emptied = filled.replace(/<HeaderHash>[^<]+<\/HeaderHash>/, '<HeaderHash></HeaderHash>');
+  assert.notEqual(emptied, filled);
+
+  const payload = concatBytes(writeInnerHeader(inner), utf8Encode(emptied));
+  const resealed = concatBytes(
+    saved.subarray(0, offset + 64),
+    await writeHmacBlockStream(
+      await aesCbcEncrypt(cipherKey, header.encryptionIv, payload),
+      hmacBaseKey,
+    ),
+  );
+  const loaded = await Kdbx.load(resealed, credentials);
+  const meta = getChild(loaded.root, 'Meta') as XmlElement;
+  assert.equal(getText(getChild(meta, 'HeaderHash') as XmlElement), '');
 });
