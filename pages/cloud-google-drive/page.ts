@@ -161,14 +161,18 @@ async function fetchRevision(id: string): Promise<RevisionResult> {
   return revision ? { outcome: 'ok', revision } : { outcome: 'fail', error: 'unexpected response' };
 }
 
-// The revision a write stored, for the app's next save to build on; nothing if Drive didn't say.
-async function storedVersion(response: Response): Promise<SavedDetails> {
-  try {
-    const revision = readDriveRevision(await response.json());
-    return revision ? { version: revision.version } : {};
-  } catch {
-    return {};
-  }
+/** The revision a write stored, for the app's next save to build on. When Drive's
+answer doesn't name it, the head revision counts only if it holds exactly these
+bytes: another writer's revision as a base would let the next save overwrite it (#74). */
+async function storedVersion(
+  named: DriveRevision | undefined,
+  id: string,
+  bytes: ArrayBuffer,
+): Promise<SavedDetails> {
+  if (named) return { version: named.version };
+  const head = await fetchRevision(id);
+  if (head.outcome !== 'ok' || head.revision.sha256 !== (await sha256Hex(bytes))) return {};
+  return { version: head.revision.version };
 }
 
 function failedSave(id: number, outcome: string, error: string): SavedMessage {
@@ -528,16 +532,19 @@ async function saveToDrive({ id, bytes, base }: SaveMessage, source: Window): Pr
   const file = must(currentFile);
   if (base !== undefined) {
     const revision = await fetchRevision(file.id);
-    if (revision.outcome !== 'ok') {
-      source.postMessage(failedSave(id, revision.outcome, revision.error), PEER.target);
-      return;
-    }
-    if (revision.revision.version !== base) {
+    // A trashed or missing file is no more a place to save than a newer one.
+    const gone =
+      revision.outcome === 'gone' || (revision.outcome === 'ok' && revision.revision.trashed);
+    if (gone || (revision.outcome === 'ok' && revision.revision.version !== base)) {
       const conflict = savedMessage(id, false, {
-        error: 'it was saved elsewhere since',
+        error: gone ? 'it was removed or replaced' : 'it was saved elsewhere since',
         reason: 'conflict',
       });
       source.postMessage(conflict, PEER.target);
+      return;
+    }
+    if (revision.outcome !== 'ok') {
+      source.postMessage(failedSave(id, revision.outcome, revision.error), PEER.target);
       return;
     }
   }
@@ -547,7 +554,14 @@ async function saveToDrive({ id, bytes, base }: SaveMessage, source: Window): Pr
     body: bytes,
   });
   if (result.outcome === 'ok') {
-    source.postMessage(savedMessage(id, true, await storedVersion(result.response)), PEER.target);
+    let named: DriveRevision | undefined;
+    try {
+      named = readDriveRevision(await result.response.json());
+    } catch {
+      named = undefined;
+    }
+    const details = await storedVersion(named, file.id, bytes);
+    source.postMessage(savedMessage(id, true, details), PEER.target);
     return;
   }
   source.postMessage(failedSave(id, result.outcome, result.error), PEER.target);
@@ -637,11 +651,8 @@ async function createFileOnDrive(
     return;
   }
   currentFile = { id: created.id, name: filename };
-  const revision = readDriveRevision(created);
-  source.postMessage(
-    savedMessage(id, true, revision ? { version: revision.version } : {}),
-    PEER.target,
-  );
+  const details = await storedVersion(readDriveRevision(created), created.id, bytes);
+  source.postMessage(savedMessage(id, true, details), PEER.target);
 }
 
 /** Renew the Google credential without leaving the host screen, so a save that

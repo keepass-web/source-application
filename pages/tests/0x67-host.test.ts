@@ -1437,7 +1437,7 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
     await editUnsaved();
     await saveToHost();
     replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
-    await waitFor(() => /saved elsewhere since you opened it/.test(saveStatus()));
+    await waitFor(() => /stored file changed since it was opened here/.test(saveStatus()));
   }
 
   await t.test(
@@ -1475,7 +1475,7 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
       click(saveDlg('[data-action="save-host"]'));
       await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-save'));
       replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
-      await waitFor(() => /saved elsewhere since you opened it/.test(saveStatus()));
+      await waitFor(() => /stored file changed since it was opened here/.test(saveStatus()));
       checkAnswer = { type: 'kw-checked', status };
       click(saveDlg('[data-action="merge"]'));
       await waitFor(() => expected.test(saveStatus()));
@@ -1488,7 +1488,9 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
     async () => {
       checkAnswer = newer(await savedElsewhere(() => {}, 'another password'), 'rev-10');
       click(saveDlg('[data-action="merge"]'));
-      await waitFor(() => /doesn't open with this database's credentials/.test(saveStatus()));
+      await waitFor(() =>
+        /couldn't be opened or read with this database's credentials/.test(saveStatus()),
+      );
       assert.equal(saveDlg('[data-action="download"]').hidden, false);
 
       const realSave = Kdbx.prototype.save;
@@ -1550,7 +1552,9 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
     const own = lastSave().bytes as ArrayBuffer;
     replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
     const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
-    await waitFor(() => /saved elsewhere since you opened it/.test(status.textContent ?? ''));
+    await waitFor(() =>
+      /stored file changed since it was opened here/.test(status.textContent ?? ''),
+    );
     assert.equal(promptDlg('[data-action="confirm-discard"]').hidden, true);
     assert.equal(promptDlg('[data-action="cancel-discard"]').hidden, true);
 

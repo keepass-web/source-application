@@ -1847,7 +1847,7 @@ const EXPIRED_MESSAGE =
   'Your session with the storage provider expired. Reconnect to save, or download a copy.';
 const LOCKED_OUT_MESSAGE = 'The database locked while this dialog was open. Unlock it to save.';
 const CONFLICT_MESSAGE =
-  'This database was saved elsewhere since you opened it, and saving here would overwrite that. Merge it in, then save again, or download a copy.';
+  'The stored file changed since it was opened here, and saving would overwrite that. Merge the change in, then save again, or download a copy.';
 
 // Why a merge found nothing to merge, for each answer that isn't a newer version (#74).
 const NOT_MERGED: Record<'unchanged' | 'gone' | 'unknown', string> = {
@@ -1901,7 +1901,7 @@ async function runMerge(session: ExpiredSession, dlg: HTMLDialogElement): Promis
   } catch {
     setSaveStatus(
       session.status,
-      "The version saved elsewhere doesn't open with this database's credentials. Download a copy to keep your changes.",
+      "The version saved elsewhere couldn't be opened or read with this database's credentials. Download a copy to keep your changes.",
       'error',
     );
     session.apply('conflict');
@@ -2452,7 +2452,7 @@ async function openNewer(
   } catch {
     return {
       title: 'Could not merge',
-      message: `The version saved elsewhere${when} doesn't open with these credentials, so your unsaved changes here aren't merged into it, and saving here will be refused. Download a copy to keep them.`,
+      message: `The version saved elsewhere${when} couldn't be opened or read with these credentials, so your unsaved changes here aren't merged into it, and saving here will be refused. Download a copy to keep them.`,
     };
   }
 }

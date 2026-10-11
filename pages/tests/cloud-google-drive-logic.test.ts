@@ -21,6 +21,7 @@ import {
   MAX_DRIVE_ATTEMPTS,
   must,
   readDriveRevision,
+  sha256Hex,
 } from '../cloud-google-drive/logic.ts';
 
 test('must returns a present value and throws on null/undefined', () => {
@@ -51,7 +52,7 @@ test('buildDriveCreateUrl builds the multipart-upload URL', () => {
 test('buildDriveMetadataUrl asks only for what a version check reads (#74)', () => {
   assert.equal(
     buildDriveMetadataUrl('https://drive.example/v3', 'a/b'),
-    'https://drive.example/v3/files/a%2Fb?fields=headRevisionId,modifiedTime,trashed',
+    'https://drive.example/v3/files/a%2Fb?fields=headRevisionId,sha256Checksum,modifiedTime,trashed',
   );
 });
 
@@ -60,13 +61,24 @@ test('readDriveRevision reads a head revision, or gives up without one (#74)', (
     readDriveRevision({ headRevisionId: 'r2', modifiedTime: '2026-10-11T12:00:00.000Z' }),
     { version: 'r2', savedAt: '2026-10-11T12:00:00.000Z', trashed: false },
   );
-  assert.deepEqual(readDriveRevision({ headRevisionId: 'r3', trashed: true }), {
-    version: 'r3',
-    trashed: true,
-  });
+  assert.deepEqual(
+    readDriveRevision({ headRevisionId: 'r3', trashed: true, sha256Checksum: 'ab' }),
+    {
+      version: 'r3',
+      sha256: 'ab',
+      trashed: true,
+    },
+  );
   assert.equal(readDriveRevision({ headRevisionId: '' }), undefined);
   assert.equal(readDriveRevision({ id: 'x' }), undefined);
   assert.equal(readDriveRevision(null), undefined);
+});
+
+test('sha256Hex gives the lowercase hex digest Drive reports as sha256Checksum (#74)', async () => {
+  assert.equal(
+    await sha256Hex(new TextEncoder().encode('abc').buffer as ArrayBuffer),
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+  );
 });
 
 test('buildMultipartBody wraps the filename and bytes in a multipart/related body', async () => {

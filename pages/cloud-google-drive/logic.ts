@@ -21,9 +21,9 @@ export function buildDriveDownloadUrl(apiBase: string, id: string): string {
   return `${apiBase}/files/${encodeURIComponent(id)}?alt=media`;
 }
 
-// Build the URL for the fields a version check reads: head revision, save time, trashed (#74).
+// Build the URL for the fields a version check reads: head revision, its content hash, save time, trashed (#74).
 export function buildDriveMetadataUrl(apiBase: string, id: string): string {
-  return `${apiBase}/files/${encodeURIComponent(id)}?fields=headRevisionId,modifiedTime,trashed`;
+  return `${apiBase}/files/${encodeURIComponent(id)}?fields=headRevisionId,sha256Checksum,modifiedTime,trashed`;
 }
 
 /** Build the media-update URL that overwrites a file's content in place,
@@ -40,18 +40,31 @@ export function buildDriveCreateUrl(uploadBase: string): string {
 // A file's stored version as a version check sees it (#74).
 export interface DriveRevision {
   version: string;
+  sha256?: string;
   savedAt?: string;
   trashed: boolean;
 }
 
 // The revision fields of a Drive response, or undefined when it names no head revision.
 export function readDriveRevision(body: unknown): DriveRevision | undefined {
-  const fields = body as { headRevisionId?: unknown; modifiedTime?: unknown; trashed?: unknown };
+  const fields = body as {
+    headRevisionId?: unknown;
+    sha256Checksum?: unknown;
+    modifiedTime?: unknown;
+    trashed?: unknown;
+  };
   const version = fields?.headRevisionId;
   if (typeof version !== 'string' || version === '') return undefined;
   const revision: DriveRevision = { version, trashed: fields.trashed === true };
+  if (typeof fields.sha256Checksum === 'string') revision.sha256 = fields.sha256Checksum;
   if (typeof fields.modifiedTime === 'string') revision.savedAt = fields.modifiedTime;
   return revision;
+}
+
+// Lowercase hex SHA-256, the form Drive reports a file's content hash in.
+export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /** Build a multipart/related body for that create call: a JSON metadata part

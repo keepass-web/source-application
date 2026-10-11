@@ -548,13 +548,48 @@ test('Google Drive connector', async (t) => {
         error: 'HTTP 401',
         reason: 'auth-expired',
       });
-      handlers.metadata = errStatus(404);
-      assert.deepEqual(await exchange(save(10, 'rev-2')), {
+    },
+  );
+
+  await t.test(
+    'a save to a trashed or missing file is refused as a conflict, unwritten',
+    async () => {
+      let writes = 0;
+      handlers.save = async () => {
+        writes += 1;
+        return { ok: true, status: 200 };
+      };
+      const removed = (id: number) => ({
         type: 'kw-saved',
-        id: 10,
+        id,
         ok: false,
-        error: 'HTTP 404',
+        error: 'it was removed or replaced',
+        reason: 'conflict',
       });
+      handlers.metadata = revision('rev-2', { trashed: true }); // trashing keeps the revision
+      assert.deepEqual(await exchange(save(10, 'rev-2')), removed(10));
+      handlers.metadata = errStatus(404);
+      assert.deepEqual(await exchange(save(12, 'rev-2')), removed(12));
+      assert.equal(writes, 0);
+    },
+  );
+
+  await t.test(
+    'a write Drive does not name is taken as the head revision only when the content matches',
+    async () => {
+      const written = await logic.sha256Hex(new ArrayBuffer(8)); // what save() sends
+      handlers.save = async () => ({ ok: true, status: 200, json: async () => ({}) });
+      handlers.metadata = revision('rev-2', { sha256Checksum: written });
+      // The check before the write reads rev-2 too, so it builds on what is stored.
+      assert.deepEqual(await exchange(save(13, 'rev-2')), {
+        type: 'kw-saved',
+        id: 13,
+        ok: true,
+        version: 'rev-2',
+      });
+      handlers.metadata = revision('rev-2', { sha256Checksum: 'someone-elses-bytes' });
+      assert.deepEqual(await exchange(save(14, 'rev-2')), { type: 'kw-saved', id: 14, ok: true });
+      handlers.metadata = revision('rev-1');
     },
   );
 

@@ -20,6 +20,7 @@ interface DriveFile {
 
 interface DriveRevision {
   version: string;
+  sha256?: string;
   savedAt?: string;
   trashed: boolean;
 }
@@ -97,6 +98,7 @@ declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
 declare function buildDriveMetadataUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
 declare function readDriveRevision(body: unknown): DriveRevision | undefined;
+declare function sha256Hex(bytes: ArrayBuffer): Promise<string>;
 declare function buildDriveCreateUrl(uploadBase: string): string;
 declare function buildMultipartBody(
   filename: string,

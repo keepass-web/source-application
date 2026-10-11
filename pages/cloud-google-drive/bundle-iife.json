@@ -15,6 +15,7 @@
     "buildDriveMetadataUrl",
     "buildDriveUpdateUrl",
     "readDriveRevision",
+    "sha256Hex",
     "buildDriveCreateUrl",
     "buildMultipartBody",
     "isReadyMessage",
