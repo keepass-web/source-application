@@ -55,6 +55,7 @@ import {
   getText,
   setAttribute,
   setText,
+  touchMetaTime,
   walkAllEntries,
 } from './model.ts';
 import { createProtectedStreamCipher } from './protected-stream.ts';
@@ -209,9 +210,11 @@ export class Kdbx {
     return group;
   }
 
-  // Replace the credentials used when the database is next saved.
+  /** Replace the credentials used when the database is next saved, recording the
+  change in MasterKeyChanged, which other clients' key-age reminders read (#108). */
   setCredentials(credentials: Credentials): void {
     this.#credentials = credentials;
+    touchMetaTime(this.root, 'MasterKeyChanged');
   }
 
   // Add a binary attachment, reusing an identical one if present; returns its pool index.

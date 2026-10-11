@@ -646,8 +646,7 @@ function moveGroupTo(group: XmlElement, destination: XmlElement): void {
   const rootGroup = must(app.db).getRootGroup();
   const parent = findGroupParent(rootGroup, group);
   if (parent && parent !== destination) {
-    parent.children = parent.children.filter((c) => c !== group);
-    appendChild(destination, group);
+    moveToGroup(group, parent, destination);
     setDirty(true);
   }
   renderGroupTree();
@@ -673,7 +672,7 @@ function deleteGroupAction(group: XmlElement): void {
       `This group and its ${entryCount} ${entryWord} will be permanently deleted. This cannot be undone.`,
       () => {
         const parent = findGroupParent(rootGroup, group);
-        if (parent) parent.children = parent.children.filter((c) => c !== group);
+        if (parent) deletePermanently(db.root, group, parent);
         resetSelectionIfAffected(rootGroup, group);
         setDirty(true);
         renderGroupTree();
@@ -1319,8 +1318,7 @@ function showEntryDetail(): void {
       (destination) => {
         const parent = findEntryParent(db.getRootGroup(), entry);
         if (parent && parent !== destination) {
-          parent.children = parent.children.filter((c) => c !== entry);
-          appendChild(destination, entry);
+          moveToGroup(entry, parent, destination);
           setDirty(true);
         }
         app.currentEntry = null;
@@ -1348,8 +1346,7 @@ function showEntryDetail(): void {
     const bin = findOrCreateRecycleBin(db.root);
     const parent = findEntryParent(db.getRootGroup(), entry);
     if (parent && parent !== bin) {
-      parent.children = parent.children.filter((c) => c !== entry);
-      appendChild(bin, entry);
+      moveToGroup(entry, parent, bin);
       setDirty(true);
     }
     app.currentEntry = null;
@@ -1360,8 +1357,7 @@ function showEntryDetail(): void {
     const rootGroup = db.getRootGroup();
     const parent = findEntryParent(rootGroup, entry);
     if (parent && parent !== rootGroup) {
-      parent.children = parent.children.filter((c) => c !== entry);
-      appendChild(rootGroup, entry);
+      moveToGroup(entry, parent, rootGroup);
       setDirty(true);
     }
     app.currentEntry = null;
@@ -1372,7 +1368,7 @@ function showEntryDetail(): void {
     openConfirmDelete('Delete entry?', 'This cannot be undone.', () => {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
-        parent.children = parent.children.filter((c) => c !== entry);
+        deletePermanently(db.root, entry, parent);
         setDirty(true);
       }
       app.currentEntry = null;
@@ -2339,6 +2335,7 @@ function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
       // createGroup() always appends Name/IconID children, so both are always present.
       setText(getChild(mode.group, 'Name') as XmlElement, name);
       setText(getChild(mode.group, 'IconID') as XmlElement, String(selectedIconId));
+      touchLastModified(mode.group);
     } else {
       const newGroup = createGroup(name);
       setText(getChild(newGroup, 'IconID') as XmlElement, String(selectedIconId));

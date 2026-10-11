@@ -7,6 +7,7 @@ import {
   createEntry,
   createGroup,
   deleteHistoryEntry,
+  deletePermanently,
   findOrCreateRecycleBin,
   getAttribute,
   getChild,
@@ -16,6 +17,7 @@ import {
   getEntryTimes,
   getText,
   isInRecycleBin,
+  moveToGroup,
   ProtectedValue,
   pushHistorySnapshot,
   restoreHistoryEntry,
@@ -35,6 +37,28 @@ function fieldValue(entry: XmlElement, key: string): string {
     }
   }
   return '';
+}
+
+const LONG_AGO = '2000-01-01T00:00:00Z';
+
+// The element holding one of an entry's or group's Times, or undefined if it has none.
+function timeEl(element: XmlElement, name: string): XmlElement | undefined {
+  const times = getChild(element, 'Times');
+  return times && getChild(times, name);
+}
+
+function timeOf(element: XmlElement, name: string): string {
+  return getText(timeEl(element, name) as XmlElement);
+}
+
+function setTimeOf(element: XmlElement, name: string, iso: string): void {
+  setText(timeEl(element, name) as XmlElement, iso);
+}
+
+// The model writes whole-second UTC, so "now" can trail Date.now() by up to a second.
+function assertJustNow(iso: string): void {
+  const age = Date.now() - Date.parse(iso);
+  assert.ok(age >= 0 && age < 60_000, `${iso} should be the current time`);
 }
 
 test('ProtectedValue wraps a string and exposes it via .text and toString()', () => {
@@ -75,6 +99,11 @@ test('createDatabaseDocument invokes the optional build callback with the root g
   const rootElement = getChild(root, 'Root') as XmlElement;
   const rootGroup = getChild(rootElement, 'Group') as XmlElement;
   assert.equal(getAttribute(rootGroup, 'Marker'), 'yes');
+});
+
+test('createDatabaseDocument records when the master key was set, as other clients expect (#108)', () => {
+  const meta = getChild(createDatabaseDocument('MyDb'), 'Meta') as XmlElement;
+  assertJustNow(getText(getChild(meta, 'MasterKeyChanged') as XmlElement));
 });
 
 test('getEntryTimes reads a real entry’s Times, and returns empty/false defaults when Times is absent', () => {
@@ -140,6 +169,117 @@ test('touchLastModified bumps LastModificationTime to now, and does nothing with
   assert.equal(getChild(bare, 'Times'), undefined);
 });
 
+test('touchLastModified stamps a group too, and adds LastModificationTime when Times lacks it', () => {
+  const group = createGroup('Renamed');
+  setTimeOf(group, 'LastModificationTime', LONG_AGO);
+  touchLastModified(group);
+  assertJustNow(timeOf(group, 'LastModificationTime'));
+
+  // A file from another writer may leave a time out; the edit still has to be recorded.
+  const sparse = createElement('Entry');
+  appendChild(sparse, createElement('Times'));
+  touchLastModified(sparse);
+  assertJustNow(timeOf(sparse, 'LastModificationTime'));
+});
+
+test('moveToGroup reparents an entry or group and stamps its LocationChanged, not LastModificationTime', () => {
+  const from = createGroup('From');
+  const to = createGroup('To');
+  const entry = createEntry({ title: 'Moving' });
+  const group = createGroup('Moving Group');
+  appendChild(from, entry);
+  appendChild(from, group);
+  for (const element of [entry, group]) {
+    setTimeOf(element, 'LocationChanged', LONG_AGO);
+    setTimeOf(element, 'LastModificationTime', LONG_AGO);
+  }
+
+  moveToGroup(entry, from, to);
+  moveToGroup(group, from, to);
+
+  assert.deepEqual(getChildren(from, 'Entry'), []);
+  assert.deepEqual(getChildren(from, 'Group'), []);
+  assert.deepEqual(getChildren(to, 'Entry'), [entry]);
+  assert.deepEqual(getChildren(to, 'Group'), [group]);
+  for (const element of [entry, group]) {
+    assertJustNow(timeOf(element, 'LocationChanged'));
+    assert.equal(timeOf(element, 'LastModificationTime'), LONG_AGO, 'a move is not an edit');
+  }
+});
+
+test('deletePermanently records the entry in Root/DeletedObjects, creating that list on first use', () => {
+  const document = createDatabaseDocument('MyDb');
+  const rootElement = getChild(document, 'Root') as XmlElement;
+  const rootGroup = getChild(rootElement, 'Group') as XmlElement;
+  const entry = createEntry({ title: 'Doomed' });
+  appendChild(rootGroup, entry);
+  assert.equal(getChild(rootElement, 'DeletedObjects'), undefined);
+
+  deletePermanently(document, entry, rootGroup);
+
+  assert.deepEqual(getChildren(rootGroup, 'Entry'), []);
+  const deleted = getChild(rootElement, 'DeletedObjects') as XmlElement;
+  const [record, ...rest] = getChildren(deleted, 'DeletedObject');
+  assert.deepEqual(rest, []);
+  assert.equal(
+    getText(getChild(record as XmlElement, 'UUID') as XmlElement),
+    getText(getChild(entry, 'UUID') as XmlElement),
+  );
+  assertJustNow(getText(getChild(record as XmlElement, 'DeletionTime') as XmlElement));
+});
+
+test('deletePermanently records a group and every group and entry under it, but not History versions', () => {
+  const document = createDatabaseDocument('MyDb');
+  const rootElement = getChild(document, 'Root') as XmlElement;
+  const rootGroup = getChild(rootElement, 'Group') as XmlElement;
+  const group = createGroup('Doomed Group');
+  const entry = createEntry({ title: 'Inside' });
+  pushHistorySnapshot(document, entry); // shares the entry's UUID, so it needs no record of its own
+  const subgroup = createGroup('Nested');
+  const nestedEntry = createEntry({ title: 'Deeper' });
+  appendChild(subgroup, nestedEntry);
+  appendChild(group, entry);
+  appendChild(group, subgroup);
+  // An object with no UUID can't be named in a record, but what's under it still is.
+  const anonymous = createElement('Group');
+  const underAnonymous = createEntry({ title: 'Under anonymous' });
+  appendChild(anonymous, underAnonymous);
+  appendChild(group, anonymous);
+  appendChild(rootGroup, group);
+
+  // A list already loaded from the file is appended to, not replaced.
+  const existing = createElement('DeletedObjects');
+  appendChild(existing, createElement('DeletedObject'));
+  appendChild(rootElement, existing);
+
+  deletePermanently(document, group, rootGroup);
+
+  assert.deepEqual(getChildren(rootGroup, 'Group'), []);
+  assert.equal(getChild(rootElement, 'DeletedObjects'), existing);
+  const recorded = getChildren(existing, 'DeletedObject')
+    .slice(1)
+    .map((record) => getText(getChild(record, 'UUID') as XmlElement));
+  const uuidOf = (element: XmlElement): string => getText(getChild(element, 'UUID') as XmlElement);
+  assert.deepEqual(recorded, [
+    uuidOf(group),
+    uuidOf(entry),
+    uuidOf(subgroup),
+    uuidOf(nestedEntry),
+    uuidOf(underAnonymous),
+  ]);
+});
+
+test('deletePermanently throws on a document with no Root, before removing anything', () => {
+  const parent = createGroup('Parent');
+  const entry = createEntry({ title: 'Kept' });
+  appendChild(parent, entry);
+  assert.throws(
+    () => deletePermanently(createElement('KeePassFile'), entry, parent),
+    /missing a Root element/,
+  );
+  assert.deepEqual(getChildren(parent, 'Entry'), [entry]);
+});
+
 test('findOrCreateRecycleBin creates the bin once, under the root group, and reuses it after', () => {
   const document = createDatabaseDocument('MyDb');
   const meta = getChild(document, 'Meta') as XmlElement;
@@ -149,20 +289,25 @@ test('findOrCreateRecycleBin creates the bin once, under the root group, and reu
   assert.equal(getText(getChild(bin, 'Name') as XmlElement), 'Recycle Bin');
   const uuidEl = getChild(meta, 'RecycleBinUUID') as XmlElement;
   assert.equal(getText(uuidEl), getText(getChild(bin, 'UUID') as XmlElement));
+  const changedEl = getChild(meta, 'RecycleBinChanged') as XmlElement;
+  assertJustNow(getText(changedEl));
 
   const rootGroup = getChild(getChild(document, 'Root') as XmlElement, 'Group') as XmlElement;
   assert.ok(getChildren(rootGroup, 'Group').includes(bin));
 
-  // Second call returns the same group rather than creating another.
+  // Second call returns the same group rather than creating another, and leaves its time alone.
+  setText(changedEl, LONG_AGO);
   const again = findOrCreateRecycleBin(document);
   assert.equal(again, bin);
   assert.equal(getChildren(rootGroup, 'Group').length, 1);
+  assert.equal(getText(changedEl), LONG_AGO);
 });
 
 test('findOrCreateRecycleBin replaces a stale RecycleBinUUID that no longer matches any group', () => {
   const document = createDatabaseDocument('MyDb');
   const meta = getChild(document, 'Meta') as XmlElement;
   appendChild(meta, createElement('RecycleBinUUID', 'not-a-real-group-uuid'));
+  appendChild(meta, createElement('RecycleBinChanged', LONG_AGO));
 
   const bin = findOrCreateRecycleBin(document);
   const uuidEl = getChild(meta, 'RecycleBinUUID') as XmlElement;
@@ -172,6 +317,8 @@ test('findOrCreateRecycleBin replaces a stale RecycleBinUUID that no longer matc
     uuidEl,
     'the existing element is reused, not duplicated',
   );
+  assert.equal(getChildren(meta, 'RecycleBinChanged').length, 1);
+  assertJustNow(getText(getChild(meta, 'RecycleBinChanged') as XmlElement));
 });
 
 test('findOrCreateRecycleBin throws on a document missing Meta or a root group', () => {
@@ -310,6 +457,37 @@ test('restoreHistoryEntry snapshots the current state, then adopts the historica
     'Edited',
     'the just-replaced state is the newest history entry',
   );
+});
+
+test('restoreHistoryEntry is a new edit, and keeps the current LocationChanged rather than the snapshot’s', () => {
+  const document = createDatabaseDocument('MyDb');
+  const entry = createEntry({ title: 'Original' });
+  setTimeOf(entry, 'LastModificationTime', LONG_AGO);
+  setTimeOf(entry, 'LocationChanged', LONG_AGO);
+  pushHistorySnapshot(document, entry);
+  const movedAt = '2020-06-01T12:00:00Z'; // moved after the snapshot was taken
+  setTimeOf(entry, 'LocationChanged', movedAt);
+  const [snapshot] = getEntryHistory(entry);
+
+  restoreHistoryEntry(document, entry, snapshot as XmlElement);
+
+  assertJustNow(timeOf(entry, 'LastModificationTime'));
+  assert.equal(timeOf(entry, 'LocationChanged'), movedAt);
+  assert.equal(
+    timeOf(snapshot as XmlElement, 'LastModificationTime'),
+    LONG_AGO,
+    'history untouched',
+  );
+
+  // An entry whose file left LocationChanged out gets none invented for it.
+  const sparse = createEntry({ title: 'Sparse' });
+  const times = getChild(sparse, 'Times') as XmlElement;
+  times.children = times.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'LocationChanged'),
+  );
+  pushHistorySnapshot(document, sparse);
+  restoreHistoryEntry(document, sparse, getEntryHistory(sparse)[0] as XmlElement);
+  assert.equal(timeEl(sparse, 'LocationChanged'), undefined);
 });
 
 test('deleteHistoryEntry removes one snapshot, and does nothing without a History element', () => {
