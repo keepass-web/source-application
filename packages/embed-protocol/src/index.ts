@@ -21,6 +21,8 @@ export interface CreateMessage {
 
 export interface SaveMessage {
   type: 'kw-save';
+  // Saves can overlap, so kw-saved echoes this to name the save it answers (#91).
+  id: number;
   filename: string;
   bytes: ArrayBuffer;
 }
@@ -32,6 +34,7 @@ export type SavedFailureReason = 'auth-expired';
 
 export interface SavedMessage {
   type: 'kw-saved';
+  id: number;
   ok: boolean;
   error?: string;
   reason?: SavedFailureReason;
@@ -107,13 +110,14 @@ export function isCreateMessage(data: unknown): data is CreateMessage {
 }
 
 export function isSaveMessage(data: unknown): data is SaveMessage {
-  return isFileMessage(data, 'kw-save');
+  if (!isFileMessage(data, 'kw-save')) return false;
+  return typeof (data as Record<string, unknown>).id === 'number';
 }
 
 export function isSavedMessage(data: unknown): data is SavedMessage {
   if (!hasType(data, 'kw-saved')) return false;
   const rec = data as Record<string, unknown>;
-  if (typeof rec.ok !== 'boolean') return false;
+  if (typeof rec.id !== 'number' || typeof rec.ok !== 'boolean') return false;
   if (rec.error !== undefined && typeof rec.error !== 'string') return false;
   return rec.reason === undefined || rec.reason === 'auth-expired';
 }
@@ -165,16 +169,17 @@ export function createMessage(): CreateMessage {
   return { type: 'kw-create' };
 }
 
-export function saveMessage(filename: string, bytes: ArrayBuffer): SaveMessage {
-  return { type: 'kw-save', filename, bytes };
+export function saveMessage(id: number, filename: string, bytes: ArrayBuffer): SaveMessage {
+  return { type: 'kw-save', id, filename, bytes };
 }
 
 export function savedMessage(
+  id: number,
   ok: boolean,
   error?: string,
   reason?: SavedFailureReason,
 ): SavedMessage {
-  const message: SavedMessage = { type: 'kw-saved', ok };
+  const message: SavedMessage = { type: 'kw-saved', id, ok };
   if (error !== undefined) message.error = error;
   if (reason !== undefined) message.reason = reason;
   return message;

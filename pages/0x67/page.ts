@@ -1922,8 +1922,8 @@ function openSaveDialog(): void {
     // A copy being out does not make the provider current, so recovery stays offered.
     const offeringRecovery = expired || state === 'recovered';
     /* Nothing may dismiss: while expired the edits exist nowhere but this tab,
-    and a save in flight owns the one slot its reply lands in, so dismissing and
-    starting another would leave the first to settle the second's wait (#85). */
+    and a save in flight reports here, including an expired session that only
+    this dialog can recover (#85). */
     const held = expired || state === 'retrying' || state === 'saving';
     // Still asking its original question, rather than reporting an outcome.
     const asking = state === 'normal' || state === 'saving' || state === 'recovered';
@@ -2034,19 +2034,21 @@ async function performSave(): Promise<SaveResult> {
     return { ok: true };
   }
 
+  lastSaveId += 1;
+  const id = lastSaveId;
   // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
-  postToHost(saveMessage(app.filename, new Uint8Array(bytes).buffer));
+  postToHost(saveMessage(id, app.filename, new Uint8Array(bytes).buffer));
   const result = await new Promise<SaveResult>((resolve) => {
     const settle = (value: SaveResult): void => {
       window.clearTimeout(timer);
-      pendingSave = null;
+      pendingSaves.delete(id);
       resolve(value);
     };
     const timer = window.setTimeout(
       () => settle({ ok: false, error: 'the provider did not answer' }),
       SAVE_TIMEOUT_MS,
     );
-    pendingSave = settle;
+    pendingSaves.set(id, settle);
   });
   if (result.ok) setDirty(false);
   return result;
@@ -2425,8 +2427,8 @@ function openMoveToDialog(
 //   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer)
 //   host → app  : kw-create         start a brand-new, empty vault
 //   host → app  : kw-find           host saw the find keystroke; take it
-//   app  → host : kw-save           user saved; please persist (filename, bytes: ArrayBuffer)
-//   host → app  : kw-saved          result of that persist (ok, error?, reason?)
+//   app  → host : kw-save           user saved; please persist (id, filename, bytes: ArrayBuffer)
+//   host → app  : kw-saved          result of the persist with that id (id, ok, error?, reason?)
 //   app  → host : kw-reconnect      the host credential expired; please renew it
 //   host → app  : kw-reconnected    result of that renewal (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
@@ -2449,9 +2451,10 @@ interface SaveResult {
   reason?: 'auth-expired';
 }
 
-/** Resolves the in-flight performSave()'s promise once a `kw-saved` reply
-arrives, or null when no save is outstanding. */
-let pendingSave: ((result: SaveResult) => void) | null = null;
+/* Saves can overlap, so each waits under its own id and a kw-saved reply settles
+only the save it names; a reply that outlived its wait finds nothing (#91). */
+const pendingSaves = new Map<number, (result: SaveResult) => void>();
+let lastSaveId = 0;
 
 interface ReconnectResult {
   ok: boolean;
@@ -2515,13 +2518,11 @@ function handleHostMessage(event: MessageEvent): void {
     hostState = 'hosted';
     showCreateDatabase();
   } else if (isSavedMessage(event.data)) {
-    const resolve = pendingSave;
-    pendingSave = null;
-    const { ok, error, reason } = event.data;
+    const { id, ok, error, reason } = event.data;
     const result: SaveResult = { ok };
     if (error !== undefined) result.error = error;
     if (reason !== undefined) result.reason = reason;
-    resolve?.(result);
+    pendingSaves.get(id)?.(result);
   } else if (isReconnectedMessage(event.data)) {
     const resolve = pendingReconnect;
     pendingReconnect = null;

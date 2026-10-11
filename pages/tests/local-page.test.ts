@@ -209,11 +209,11 @@ test('local file connector', async (t) => {
   await t.test('kw-save triggers a local download and reports success', () => {
     const before = downloadNames.length;
     sendMessage(
-      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     assert.deepEqual(downloadNames.slice(before), ['vault.kdbx']);
-    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+    assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
   });
 
   await t.test('kw-title names the open database in the tab', () => {
@@ -343,12 +343,12 @@ test('local file connector', async (t) => {
     () => {
       const before = downloadNames.length;
       sendMessage(
-        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        { type: 'kw-save', id: 1, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
         { source: frameWin },
       );
       assert.deepEqual(downloadNames.slice(before), ['Fresh Vault.kdbx']);
       assert.equal(q<HTMLElement>('#host-filename').textContent, 'Fresh Vault.kdbx');
-      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
     },
   );
 });

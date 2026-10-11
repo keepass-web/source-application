@@ -187,7 +187,7 @@ function handleFrameMessage(event: MessageEvent): void {
     );
   } else if (isSaveMessage(event.data)) {
     qs('#host-filename').textContent = event.data.filename;
-    downloadAndAck(event.data.filename, event.data.bytes, source);
+    downloadAndAck(event.data, source);
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
@@ -198,7 +198,7 @@ function handleFrameMessage(event: MessageEvent): void {
 
 /** Local "save" is a download — nowhere else to write to. Always succeeds
 unless the browser itself refuses it (no error path, unlike Drive). */
-function downloadAndAck(filename: string, bytes: ArrayBuffer, source: Window): void {
+function downloadAndAck({ id, filename, bytes }: SaveMessage, source: Window): void {
   const blob = new Blob([bytes]);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -208,7 +208,7 @@ function downloadAndAck(filename: string, bytes: ArrayBuffer, source: Window): v
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  source.postMessage(savedMessage(true), PEER.target);
+  source.postMessage(savedMessage(id, true), PEER.target);
 }
 
 // Boot
