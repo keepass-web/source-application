@@ -216,6 +216,12 @@ const dbBytes = await buildTestDatabase();
 const lastHostMessage = (): Record<string, unknown> =>
   hostInbox[hostInbox.length - 1]?.message as Record<string, unknown>;
 
+/** Answer the latest kw-save the way a host does, echoing its id (#91). */
+function replyToSave(result: { ok: boolean; error?: string; reason?: string }): void {
+  const save = hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1);
+  sendFromHost({ type: 'kw-saved', id: save?.message.id, ...result });
+}
+
 // ============================================================
 // The walkthrough
 // ============================================================
@@ -252,7 +258,7 @@ test('0x67 embedded in a host frame', async (t) => {
     sendFromHost({ type: 'kw-open', filename: 'x.kdbx', bytes: 'not a buffer' });
     sendFromHost({ type: 'something-else' });
     // A save result with nothing pending is a harmless no-op.
-    sendFromHost({ type: 'kw-saved', ok: true });
+    sendFromHost({ type: 'kw-saved', id: 1, ok: true });
     assert.ok(q('#drop-zone'), 'still on the upload screen; nothing opened');
     assert.equal(hostInbox.length, before, 'nothing posted back');
   });
@@ -317,11 +323,11 @@ test('0x67 embedded in a host frame', async (t) => {
     assert.ok(msg.bytes instanceof ArrayBuffer && msg.bytes.byteLength > 0);
     assert.equal(dq<HTMLElement>('[data-role="save-status"]').textContent, 'Saving…');
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').disabled, true);
-    /* A save in flight owns the one slot its reply lands in, so dismissing and
-    starting another would leave the first to settle the second's wait (#85). */
+    /* A save in flight reports here, including an expired session that only this
+    dialog can recover, so nothing dismisses it meanwhile (#85). */
     assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').hidden, true);
 
-    sendFromHost({ type: 'kw-saved', ok: true });
+    replyToSave({ ok: true });
     const status = dq<HTMLElement>('[data-role="save-status"]');
     await waitFor(() => status.textContent === 'Saved.');
     assert.ok(status.classList.contains('ok'));
@@ -349,7 +355,7 @@ test('0x67 embedded in a host frame', async (t) => {
       const before = hostInbox.length;
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
-      sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 403' });
+      replyToSave({ ok: false, error: 'HTTP 403' });
       const status = dq<HTMLElement>('[data-role="save-status"]');
       await waitFor(() => status.textContent === 'Save failed: HTTP 403');
       assert.ok(status.classList.contains('error'));
@@ -364,7 +370,7 @@ test('0x67 embedded in a host frame', async (t) => {
       const before = hostInbox.length;
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
-      sendFromHost({ type: 'kw-saved', ok: false });
+      replyToSave({ ok: false });
       const status = dq<HTMLElement>('[data-role="save-status"]');
       await waitFor(() => status.textContent === 'Save failed.');
     },
@@ -376,7 +382,7 @@ test('0x67 embedded in a host frame', async (t) => {
       const before = hostInbox.length;
       click(dq('[data-action="save-host"]'));
       await waitFor(() => hostInbox.length > before);
-      sendFromHost({ type: 'kw-saved', ok: true });
+      replyToSave({ ok: true });
       const status = dq<HTMLElement>('[data-role="save-status"]');
       await waitFor(() => status.textContent === 'Saved.');
       assert.equal(dq<HTMLButtonElement>('[data-role="save-later"]').textContent, 'Close');
@@ -405,7 +411,7 @@ test('0x67 embedded in a host frame', async (t) => {
     async () => {
       await editAndOpenSaveDialog();
       await saveAwaitingHost();
-      sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+      replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
 
       const status = dq<HTMLElement>('[data-role="save-status"]');
       await waitFor(() =>
@@ -492,7 +498,7 @@ test('0x67 embedded in a host frame', async (t) => {
 
     // The app re-sends its own save rather than the host holding the bytes (#85).
     await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
-    sendFromHost({ type: 'kw-saved', ok: true });
+    replyToSave({ ok: true });
     const status = dq<HTMLElement>('[data-role="save-status"]');
     await waitFor(() => status.textContent === 'Saved.');
     assert.equal(dq<HTMLButtonElement>('[data-action="reconnect"]').hidden, true);
@@ -507,7 +513,7 @@ test('0x67 embedded in a host frame', async (t) => {
   await t.test('a plain failure after reconnecting leaves Save reachable again', async () => {
     await editAndOpenSaveDialog();
     await saveAwaitingHost();
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
     const status = dq<HTMLElement>('[data-role="save-status"]');
     await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
 
@@ -516,7 +522,7 @@ test('0x67 embedded in a host frame', async (t) => {
     await waitFor(() => hostInbox.length > before);
     sendFromHost({ type: 'kw-reconnected', ok: true });
     await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 500' });
+    replyToSave({ ok: false, error: 'HTTP 500' });
 
     await waitFor(() => status.textContent === 'Save failed: HTTP 500');
     assert.equal(dq<HTMLButtonElement>('[data-action="save-host"]').hidden, false);
@@ -540,7 +546,7 @@ test('0x67 embedded in a host frame', async (t) => {
     close a database the user just backed out of (#85). */
     assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, true);
     assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, true);
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
 
     const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
     await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
@@ -580,7 +586,7 @@ test('0x67 embedded in a host frame', async (t) => {
     await waitFor(() => hostInbox.length > before);
     sendFromHost({ type: 'kw-reconnected', ok: true });
     await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-save');
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
 
     await waitFor(() => !discardDlg('[data-action="reconnect"]').hidden);
     assert.equal(
@@ -604,7 +610,7 @@ test('0x67 embedded in a host frame', async (t) => {
       assert.equal(discardDlg('[data-action="cancel-discard"]').hidden, true);
       assert.equal(discardDlg('[data-action="confirm-discard"]').hidden, true);
 
-      sendFromHost({ type: 'kw-saved', ok: true });
+      replyToSave({ ok: true });
       await waitFor(() => hostInbox.at(-1)?.message.type === 'kw-close');
       assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
     },
@@ -752,7 +758,7 @@ test('0x67 embedded in a host frame: kw-create starts a fresh, empty database', 
       assert.equal(msg.filename, 'Host-Created Vault.kdbx');
       assert.ok(msg.bytes instanceof ArrayBuffer && msg.bytes.byteLength > 0);
 
-      sendFromHost({ type: 'kw-saved', ok: true });
+      replyToSave({ ok: true });
       const status = dq<HTMLElement>('[data-role="save-status"]');
       await waitFor(() => status.textContent === 'Saved.');
     },
@@ -788,7 +794,7 @@ test('0x67 embedded in a host frame: choosing Save from the unsaved-changes prom
       assert.equal(saveBtn.disabled, true);
       assert.equal(dq<HTMLButtonElement>('[data-action="confirm-discard"]').disabled, true);
 
-      sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 500' });
+      replyToSave({ ok: false, error: 'HTTP 500' });
       const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
       await waitFor(() => status.textContent === 'Save failed: HTTP 500');
       assert.ok(status.classList.contains('error'));
@@ -804,7 +810,7 @@ test('0x67 embedded in a host frame: choosing Save from the unsaved-changes prom
     const before = hostInbox.length;
     click(saveBtn);
     await waitFor(() => hostInbox.length > before);
-    sendFromHost({ type: 'kw-saved', ok: false });
+    replyToSave({ ok: false });
     const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
     await waitFor(() => status.textContent === 'Save failed.');
     assert.equal(dlg.open, true);
@@ -818,7 +824,7 @@ test('0x67 embedded in a host frame: choosing Save from the unsaved-changes prom
       const before = hostInbox.length;
       click(saveBtn);
       await waitFor(() => hostInbox.length > before);
-      sendFromHost({ type: 'kw-saved', ok: true });
+      replyToSave({ ok: true });
       await waitFor(() => dlg.open === false);
       assert.deepEqual(lastHostMessage(), { type: 'kw-close' }, 'Close was the pending action');
     },
@@ -848,6 +854,78 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     assert.equal(dom.window.document.activeElement, q('#search-input'));
   });
 
+  // --- Saves that overlap (#91) ---------------------------------------------
+
+  /** Add an entry from the entry list and open the save dialog for it. */
+  async function addEntryAndOpenSaveDialog(): Promise<void> {
+    click(q('[data-action="add-entry"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+  }
+
+  async function startHostSave(button: Element): Promise<unknown> {
+    const before = hostInbox.length;
+    click(button);
+    await waitFor(() => hostInbox.length > before);
+    return lastHostMessage().id;
+  }
+
+  await t.test('each of two overlapping saves is settled by its own reply', async () => {
+    await addEntryAndOpenSaveDialog();
+    const saveStatus = dq<HTMLElement>('[data-role="save-status"]');
+    const first = await startHostSave(dq('[data-action="save-host"]'));
+
+    // The host asks to close while that save is out, and the prompt saves too.
+    sendFromHost({ type: 'kw-close-request' });
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-confirm-discard').open);
+    const second = await startHostSave(dq('#dlg-confirm-discard [data-action="confirm-save"]'));
+    assert.notEqual(second, first);
+
+    sendFromHost({ type: 'kw-saved', id: second, ok: false, error: 'HTTP 500' });
+    const promptStatus = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() => promptStatus.textContent === 'Save failed: HTTP 500');
+    assert.equal(saveStatus.textContent, 'Saving…', 'the first save is still out');
+
+    sendFromHost({ type: 'kw-saved', id: first, ok: true });
+    await waitFor(() => saveStatus.textContent === 'Saved.');
+    assert.equal(promptStatus.textContent, 'Save failed: HTTP 500');
+
+    click(dq('#dlg-confirm-discard [data-action="cancel-discard"]'));
+    click(dq('[data-role="save-later"]'));
+    click(q('[data-action="back"]')); // saving the entry left its detail screen up
+  });
+
+  await t.test('a reply to a save that gave up waiting is not taken for the retry', async () => {
+    await addEntryAndOpenSaveDialog();
+    const status = dq<HTMLElement>('[data-role="save-status"]');
+    const before = hostInbox.length;
+    click(dq('[data-action="save-host"]'));
+    // Its wait starts once the bytes are ready, so shortening it here is in time.
+    const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+    try {
+      await waitFor(() => /did not answer/.test(status.textContent ?? ''));
+    } finally {
+      restore();
+    }
+    const gaveUp = hostInbox.slice(before).find((sent) => sent.message.type === 'kw-save');
+    assert.ok(gaveUp);
+
+    const retry = await startHostSave(dq('[data-action="save-host"]'));
+    sendFromHost({ type: 'kw-saved', id: gaveUp.message.id, ok: true });
+    await settle();
+    assert.equal(
+      status.textContent,
+      'Saving…',
+      'the late success belongs to the save that gave up',
+    );
+
+    sendFromHost({ type: 'kw-saved', id: retry, ok: false, error: 'HTTP 500' });
+    await waitFor(() => status.textContent === 'Save failed: HTTP 500');
+    click(dq('[data-role="save-later"]'));
+    click(q('[data-action="back"]'));
+  });
+
   // --- Reconnects that never come back (#85) --------------------------------
 
   /** Collapse the app's minute-scale waits so a test can reach them. `waitFor`
@@ -870,7 +948,7 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     const before = hostInbox.length;
     click(dq('[data-action="save-host"]'));
     await waitFor(() => hostInbox.length > before);
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
     await waitFor(() =>
       /session with the storage provider expired/.test(
         dq<HTMLElement>('[data-role="save-status"]').textContent ?? '',
@@ -988,7 +1066,7 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     const before = hostInbox.length;
     click(discardDlg('[data-action="confirm-save"]'));
     await waitFor(() => hostInbox.length > before);
-    sendFromHost({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    replyToSave({ ok: false, error: 'HTTP 401', reason: 'auth-expired' });
     const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
     await waitFor(() => /session with the storage provider expired/.test(status.textContent ?? ''));
 

@@ -386,32 +386,38 @@ test('Google Drive connector', async (t) => {
   await t.test('kw-save writes back to Drive and reports success', async () => {
     handlers.save = async () => ({ ok: true, status: 200 });
     sendMessage(
-      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 2);
-    assert.deepEqual(frameInbox[1]?.message, { type: 'kw-saved', ok: true });
+    assert.deepEqual(frameInbox[1]?.message, { type: 'kw-saved', id: 1, ok: true });
   });
 
   await t.test('a Drive write-back HTTP error is reported to the app', async () => {
     handlers.save = errStatus(403);
     sendMessage(
-      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 3);
-    assert.deepEqual(frameInbox[2]?.message, { type: 'kw-saved', ok: false, error: 'HTTP 403' });
+    assert.deepEqual(frameInbox[2]?.message, {
+      type: 'kw-saved',
+      id: 1,
+      ok: false,
+      error: 'HTTP 403',
+    });
   });
 
   await t.test('a Drive write-back network error is reported to the app', async () => {
     handlers.save = rejects;
     sendMessage(
-      { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 4);
     assert.deepEqual(frameInbox[3]?.message, {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'network error',
     });
@@ -422,12 +428,13 @@ test('Google Drive connector', async (t) => {
     async () => {
       handlers.save = errStatus(401);
       sendMessage(
-        { type: 'kw-save', filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+        { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length === 5);
       assert.deepEqual(frameInbox[4]?.message, {
         type: 'kw-saved',
+        id: 1,
         ok: false,
         error: 'HTTP 401',
         reason: 'auth-expired',
@@ -588,11 +595,11 @@ test('Google Drive connector', async (t) => {
       });
       const before = frameInbox.length;
       sendMessage(
-        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        { type: 'kw-save', id: 1, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length > before);
-      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
       assert.equal(q<HTMLElement>('#host-filename').textContent, 'Fresh Vault.kdbx');
     },
   );
@@ -603,11 +610,11 @@ test('Google Drive connector', async (t) => {
       handlers.save = async () => ({ ok: true, status: 200 });
       const before = frameInbox.length;
       sendMessage(
-        { type: 'kw-save', filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(16) },
+        { type: 'kw-save', id: 1, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(16) },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length > before);
-      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', ok: true });
+      assert.deepEqual(frameInbox.at(-1)?.message, { type: 'kw-saved', id: 1, ok: true });
     },
   );
 
@@ -634,12 +641,13 @@ test('Google Drive connector', async (t) => {
     handlers.create = errStatus(403);
     const before = frameInbox.length;
     sendMessage(
-      { type: 'kw-save', filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length > before);
     assert.deepEqual(frameInbox.at(-1)?.message, {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'HTTP 403',
     });
@@ -649,12 +657,13 @@ test('Google Drive connector', async (t) => {
     handlers.create = rejects;
     const before = frameInbox.length;
     sendMessage(
-      { type: 'kw-save', filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length > before);
     assert.deepEqual(frameInbox.at(-1)?.message, {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'network error',
     });
@@ -674,20 +683,28 @@ test('Google Drive connector', async (t) => {
 
   async function saveAndRead(filename: string): Promise<unknown> {
     const before = frameInbox.length;
-    sendMessage({ type: 'kw-save', filename, bytes: new ArrayBuffer(8) }, { source: frameWin });
+    sendMessage(
+      { type: 'kw-save', id: 1, filename, bytes: new ArrayBuffer(8) },
+      { source: frameWin },
+    );
     await waitFor(() => frameInbox.length > before);
     return frameInbox.at(-1)?.message;
   }
 
   await t.test('a 5xx is retried and the save then succeeds', async () => {
     handlers.create = flakyCreate(503, 1);
-    assert.deepEqual(await saveAndRead('Retried Vault.kdbx'), { type: 'kw-saved', ok: true });
+    assert.deepEqual(await saveAndRead('Retried Vault.kdbx'), {
+      type: 'kw-saved',
+      id: 1,
+      ok: true,
+    });
   });
 
   await t.test('a 5xx that never clears is reported once the attempts run out', async () => {
     handlers.save = errStatus(503);
     assert.deepEqual(await saveAndRead('Doomed Vault.kdbx'), {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'HTTP 503',
     });
@@ -706,7 +723,11 @@ test('Google Drive connector', async (t) => {
       }
       return { ok: true, status: 200 };
     };
-    assert.deepEqual(await saveAndRead('Throttled Vault.kdbx'), { type: 'kw-saved', ok: true });
+    assert.deepEqual(await saveAndRead('Throttled Vault.kdbx'), {
+      type: 'kw-saved',
+      id: 1,
+      ok: true,
+    });
     assert.equal(seen, 2, 'the throttled attempt was retried rather than reported');
   });
 
@@ -714,11 +735,84 @@ test('Google Drive connector', async (t) => {
     handlers.save = errStatus(401);
     assert.deepEqual(await saveAndRead('Expired Vault.kdbx'), {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'HTTP 401',
       reason: 'auth-expired',
     });
   });
+
+  // --- Saves that overlap (#91) ---------------------------------------------
+
+  /** A handler whose every call waits until the test lets it through. */
+  function heldHandler(response: () => MockResponse): {
+    handler: Handler;
+    held: Array<() => void>;
+  } {
+    const held: Array<() => void> = [];
+    const handler: Handler = () => new Promise((resolve) => held.push(() => resolve(response())));
+    return { handler, held };
+  }
+
+  function sendSave(id: number, filename: string): void {
+    sendMessage({ type: 'kw-save', id, filename, bytes: new ArrayBuffer(8) }, { source: frameWin });
+  }
+
+  const sentSince = (before: number): unknown[] =>
+    frameInbox.slice(before).map((sent) => sent.message);
+
+  await t.test('overlapping saves are written one at a time, in the order sent', async () => {
+    const { handler, held } = heldHandler(() => ({ ok: true, status: 200 }));
+    handlers.save = handler;
+    const before = frameInbox.length;
+    sendSave(11, 'Busy Vault.kdbx');
+    sendSave(12, 'Busy Vault.kdbx');
+
+    await waitFor(() => held.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(held.length, 1, 'the second write waits for the first to finish');
+
+    held[0]?.();
+    await waitFor(() => held.length === 2);
+    assert.deepEqual(sentSince(before), [{ type: 'kw-saved', id: 11, ok: true }]);
+    held[1]?.();
+    await waitFor(() => frameInbox.length === before + 2);
+    assert.deepEqual(sentSince(before), [
+      { type: 'kw-saved', id: 11, ok: true },
+      { type: 'kw-saved', id: 12, ok: true },
+    ]);
+  });
+
+  await t.test(
+    'a save that overlaps a create updates the created file, not a second one',
+    async () => {
+      await startCreateSession();
+      const { handler, held } = heldHandler(() => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'raced-file' }),
+      }));
+      handlers.create = handler;
+      let updates = 0;
+      handlers.save = async () => {
+        updates += 1;
+        return { ok: true, status: 200 };
+      };
+      const before = frameInbox.length;
+      sendSave(21, 'Raced Vault.kdbx');
+      sendSave(22, 'Raced Vault.kdbx');
+
+      await waitFor(() => held.length === 1);
+      held[0]?.();
+      await waitFor(() => frameInbox.length === before + 2);
+      assert.equal(held.length, 1, 'one file was created');
+      assert.equal(updates, 1, 'and the second save updated it');
+      assert.deepEqual(sentSince(before), [
+        { type: 'kw-saved', id: 21, ok: true },
+        { type: 'kw-saved', id: 22, ok: true },
+      ]);
+    },
+  );
 
   /** Leave the current session and start a fresh create one, so the next save
    * takes the create path rather than updating a file that is already known. */
@@ -748,6 +842,7 @@ test('Google Drive connector', async (t) => {
       });
       assert.deepEqual(await saveAndRead('Headless Vault.kdbx'), {
         type: 'kw-saved',
+        id: 1,
         ok: false,
         error: 'unexpected response',
       });
@@ -758,6 +853,7 @@ test('Google Drive connector', async (t) => {
     handlers.create = async () => ({ ok: true, status: 200, json: async () => ({}) });
     assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'unexpected response',
     });
@@ -765,6 +861,7 @@ test('Google Drive connector', async (t) => {
     handlers.create = async () => ({ ok: true, status: 200, json: async () => ({ id: '' }) });
     assert.deepEqual(await saveAndRead('Nameless Vault.kdbx'), {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'unexpected response',
     });
@@ -774,6 +871,7 @@ test('Google Drive connector', async (t) => {
     handlers.create = errStatus(401);
     assert.deepEqual(await saveAndRead('Stillborn Vault.kdbx'), {
       type: 'kw-saved',
+      id: 1,
       ok: false,
       error: 'HTTP 401',
       reason: 'auth-expired',

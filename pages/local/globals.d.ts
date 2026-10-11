@@ -32,11 +32,13 @@ interface CreateMessage {
 }
 interface SaveMessage {
   type: 'kw-save';
+  id: number;
   filename: string;
   bytes: ArrayBuffer;
 }
 interface SavedMessage {
   type: 'kw-saved';
+  id: number;
   ok: boolean;
   error?: string;
 }
@@ -58,7 +60,7 @@ declare function isTitleMessage(data: unknown): data is TitleMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
 declare function createMessage(): CreateMessage;
-declare function savedMessage(ok: boolean, error?: string): SavedMessage;
+declare function savedMessage(id: number, ok: boolean, error?: string): SavedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 
 declare function must<T>(value: T | null | undefined): T;

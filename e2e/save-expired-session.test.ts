@@ -35,7 +35,7 @@ after(async () => {
 
 declare global {
   interface Window {
-    kwInbox: { type: string }[];
+    kwInbox: { type: string; id?: number }[];
     kwReply: (message: unknown) => void;
   }
 }
@@ -82,7 +82,15 @@ test('an expired session holds the save dialog open against Escape, offering a w
 
   await page.waitForFunction(() => window.kwInbox.some((m) => m?.type === 'kw-save'));
   await page.evaluate(() => {
-    window.kwReply({ type: 'kw-saved', ok: false, error: 'HTTP 401', reason: 'auth-expired' });
+    // A reply names the save it answers, or the app ignores it (#91).
+    const save = window.kwInbox.find((m) => m?.type === 'kw-save');
+    window.kwReply({
+      type: 'kw-saved',
+      id: save?.id,
+      ok: false,
+      error: 'HTTP 401',
+      reason: 'auth-expired',
+    });
   });
 
   await app.waitForFunction(() =>

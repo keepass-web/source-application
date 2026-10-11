@@ -37,11 +37,13 @@ interface CreateMessage {
 }
 interface SaveMessage {
   type: 'kw-save';
+  id: number;
   filename: string;
   bytes: ArrayBuffer;
 }
 interface SavedMessage {
   type: 'kw-saved';
+  id: number;
   ok: boolean;
   error?: string;
   reason?: 'auth-expired';
@@ -86,7 +88,12 @@ declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function isReconnectMessage(data: unknown): data is ReconnectMessage;
 declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
 declare function createMessage(): CreateMessage;
-declare function savedMessage(ok: boolean, error?: string, reason?: 'auth-expired'): SavedMessage;
+declare function savedMessage(
+  id: number,
+  ok: boolean,
+  error?: string,
+  reason?: 'auth-expired',
+): SavedMessage;
 declare function reconnectedMessage(ok: boolean, error?: string): ReconnectedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 

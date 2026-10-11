@@ -37,6 +37,9 @@ let accessToken: string | null = null;
 // The Drive file a save writes back to — null until create's first save
 // makes one, or open picks an existing one.
 let currentFile: DriveFile | null = null;
+/* Saves run one at a time, in the order sent, so an older save cannot land after
+a newer one, and a create sets currentFile before the next save picks create or update (#91). */
+let saveQueue: Promise<void> = Promise.resolve();
 type PendingAction = { kind: 'open'; filename: string; bytes: ArrayBuffer } | { kind: 'create' };
 let pendingAction: PendingAction | null = null;
 let pickerApiLoaded = false;
@@ -445,12 +448,11 @@ function handleFrameMessage(event: MessageEvent): void {
       PEER.target,
     );
   } else if (isSaveMessage(event.data)) {
-    qs('#host-filename').textContent = event.data.filename;
-    if (currentFile) {
-      void saveToDrive(event.data.bytes, source);
-    } else {
-      void createFileOnDrive(event.data.filename, event.data.bytes, source);
-    }
+    const save = event.data;
+    qs('#host-filename').textContent = save.filename;
+    saveQueue = saveQueue.then(() =>
+      currentFile ? saveToDrive(save, source) : createFileOnDrive(save, source),
+    );
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);
@@ -461,7 +463,7 @@ function handleFrameMessage(event: MessageEvent): void {
   }
 }
 
-async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
+async function saveToDrive({ id, bytes }: SaveMessage, source: Window): Promise<void> {
   const file = must(currentFile);
   const result = await driveFetch(buildDriveUpdateUrl(UPLOAD_API, file.id), {
     method: 'PATCH',
@@ -469,11 +471,12 @@ async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
     body: bytes,
   });
   if (result.outcome === 'ok') {
-    source.postMessage(savedMessage(true), PEER.target);
+    source.postMessage(savedMessage(id, true), PEER.target);
     return;
   }
   source.postMessage(
     savedMessage(
+      id,
       false,
       result.error,
       result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
@@ -486,8 +489,7 @@ async function saveToDrive(bytes: ArrayBuffer, source: Window): Promise<void> {
 this creates one instead of the PATCH saveToDrive uses, then remembers it so
 every later save in this session updates that same file. */
 async function createFileOnDrive(
-  filename: string,
-  bytes: ArrayBuffer,
+  { id, filename, bytes }: SaveMessage,
   source: Window,
 ): Promise<void> {
   const { body, boundary } = buildMultipartBody(filename, bytes);
@@ -499,6 +501,7 @@ async function createFileOnDrive(
   if (result.outcome !== 'ok') {
     source.postMessage(
       savedMessage(
+        id,
         false,
         result.error,
         result.outcome === 'auth-expired' ? 'auth-expired' : undefined,
@@ -518,11 +521,11 @@ async function createFileOnDrive(
   same one; reporting success would clear the edits against a file this session
   can no longer reach (#85). */
   if (typeof created.id !== 'string' || created.id === '') {
-    source.postMessage(savedMessage(false, 'unexpected response'), PEER.target);
+    source.postMessage(savedMessage(id, false, 'unexpected response'), PEER.target);
     return;
   }
   currentFile = { id: created.id, name: filename };
-  source.postMessage(savedMessage(true), PEER.target);
+  source.postMessage(savedMessage(id, true), PEER.target);
 }
 
 /** Renew the Google credential without leaving the host screen, so a save that
