@@ -196,8 +196,14 @@ unsaved and disabled included, recolors its icon too. */
   margin-right: 0.4em;
 }
 
+/* Off screen at zero size rather than display: none, which some engines skip
+when resolving a <use> into it (#121). */
 .icon-sprite {
-  display: none;
+  position: absolute;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .icon-btn {
