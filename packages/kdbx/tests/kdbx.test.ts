@@ -161,6 +161,25 @@ test('edit, save, and reload preserves changes', async () => {
 });
 
 for (const version of [3, 4] as const) {
+  test(`a control character never reaches the file's XML, while a protected value keeps it (KDBX ${version})`, async () => {
+    // Plain fields lose it, as in KeePass, so strict readers can still open the
+    // file; a protected value is written as Base64 ciphertext, so it is safe (#129).
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    appendChild(
+      kdbx.getRootGroup(),
+      createEntry({ title: 'Pasted\u0007', password: 'bell\u0007', notes: 'a\u0000b\u001Fc' }),
+    );
+
+    const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+    const fields = fieldsOf(firstEntry(reloaded));
+    assert.equal(fields.Title, 'Pasted');
+    assert.equal(fields.Notes, 'abc');
+    assert.equal(fields.Password, 'bell\u0007');
+  });
+}
+
+for (const version of [3, 4] as const) {
   test(`save rewrites a stale <Meta><HeaderHash> to match the new header (KDBX ${version})`, async () => {
     // Real KeePass checks this hash when present, in 3.1 and 4.x alike (#95).
     const credentials = Credentials.fromPassword('pw');
