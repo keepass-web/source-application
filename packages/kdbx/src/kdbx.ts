@@ -55,6 +55,7 @@ import {
   getChildren,
   getText,
   setAttribute,
+  setGenerator,
   setText,
   touchMetaTime,
   walkAllEntries,
@@ -420,6 +421,7 @@ export class Kdbx {
     const cipher = await createProtectedStreamCipher(this.#innerStreamId, this.#innerStreamKey);
     const clonedRoot = cloneElement(this.root);
     isoTimesToBinary(clonedRoot);
+    setGenerator(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, headerSha);
     applyOutboundProtection(clonedRoot, cipher);
     const xmlBytes = utf8Encode(serializeXml(clonedRoot));
@@ -470,6 +472,7 @@ export class Kdbx {
     );
     const clonedRoot = cloneElement(this.root);
     writeMetaBinaries(clonedRoot, this.binaries);
+    setGenerator(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
     applyOutboundProtection(clonedRoot, cipher);
     let xmlBytes = utf8Encode(serializeXml(clonedRoot));

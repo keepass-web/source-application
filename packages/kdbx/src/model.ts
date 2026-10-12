@@ -313,6 +313,12 @@ export function touchMetaTime(document: XmlElement, name: string): void {
   if (meta) setChildText(meta, name, kx_nowIso());
 }
 
+// Name this app as the writer, so a file names whoever saved it last, as KeePass does (#136).
+export function setGenerator(document: XmlElement): void {
+  const meta = getChild(document, 'Meta');
+  if (meta) setChildText(meta, 'Generator', KX_GENERATOR);
+}
+
 // Bump an entry's or group's LastModificationTime to now; merges keep the newer copy by it (#108).
 export function touchLastModified(element: XmlElement): void {
   kx_setTime(element, 'LastModificationTime', kx_nowIso());

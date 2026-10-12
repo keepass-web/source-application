@@ -173,6 +173,38 @@ for (const version of [3, 4] as const) {
 }
 
 for (const version of [3, 4] as const) {
+  test(`save names this app as the writer, replacing or adding <Meta><Generator> (KDBX ${version})`, async () => {
+    // KeePass renames itself the writer on every save, so the file names whoever saved it last (#136).
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    const meta = getChild(kdbx.root, 'Meta') as XmlElement;
+    setText(getChild(meta, 'Generator') as XmlElement, 'KeePassXC');
+
+    const replaced = await Kdbx.load(await kdbx.save(), credentials);
+    const replacedMeta = getChild(replaced.root, 'Meta') as XmlElement;
+    assert.equal(getText(getChild(replacedMeta, 'Generator') as XmlElement), 'keepass-web');
+
+    replacedMeta.children = replacedMeta.children.filter(
+      (child) => !(child.type === 'element' && child.name === 'Generator'),
+    );
+    const added = await Kdbx.load(await replaced.save(), credentials);
+    const addedMeta = getChild(added.root, 'Meta') as XmlElement;
+    assert.equal(getText(getChild(addedMeta, 'Generator') as XmlElement), 'keepass-web');
+  });
+}
+
+test('save leaves a file without <Meta> without one, rather than failing', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  kdbx.root.children = kdbx.root.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'Meta'),
+  );
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  assert.equal(getChild(reloaded.root, 'Meta'), undefined);
+});
+
+for (const version of [3, 4] as const) {
   test(`a permanent delete's record and a move's LocationChanged survive save/reload (KDBX ${version})`, async () => {
     // Other KeePass clients merge by these, so they must reach the file intact,
     // including through 4.x's binary DateTime encoding (#108).
