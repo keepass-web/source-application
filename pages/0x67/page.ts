@@ -1716,17 +1716,28 @@ function commitEdits(
   attachments: EditAttachment[],
 ): void {
   const db = must(app.db);
+  const rows = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field'));
+  const fields = rows.map((row) => ({
+    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
+    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
+    protect: row.dataset.protected === '1',
+  }));
+  const duplicate = duplicateFieldName(fields);
+  if (duplicate !== null) {
+    const errorEl = qs('#edit-error');
+    errorEl.textContent = `More than one field is named "${duplicate}". Rename or remove one, then save.`;
+    errorEl.hidden = false;
+    // The later one is likelier the one just added or renamed.
+    const row = must(rows[fields.map((field) => field.key).lastIndexOf(duplicate)]);
+    must(row.querySelector<HTMLInputElement>('.edit-key')).focus();
+    return;
+  }
+
   // A brand-new entry has no prior state worth keeping — only snapshot when
   // editing one that already existed, matching real KeePass.
   if (!isNew) {
     pushHistorySnapshot(db.root, entry);
   }
-
-  const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
-    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
-    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
-    protect: row.dataset.protected === '1',
-  }));
   applyEntryEdits(entry, fields);
 
   if (pickedIconId !== undefined) {

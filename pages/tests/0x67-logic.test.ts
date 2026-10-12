@@ -15,6 +15,7 @@ import {
   applyEntryEdits,
   collectAllEntries,
   defaultExpiryLocalInputValue,
+  duplicateFieldName,
   elementIconId,
   entryColumnValue,
   entryField,
@@ -383,6 +384,21 @@ test('applyEntryEdits skips rows with a blank key', () => {
   const entry = createElement('Entry');
   applyEntryEdits(entry, [{ key: '', value: 'ignored', protect: false }]);
   assert.deepEqual(entry.children, []);
+});
+
+test('duplicateFieldName finds a name two fields share, and nothing when all differ (#125)', () => {
+  const field = (key: string) => ({ key, value: '', protect: false });
+  assert.equal(duplicateFieldName([field('Title'), field('Password'), field('PIN')]), null);
+  // A custom field named after a standard one clashes with it.
+  assert.equal(
+    duplicateFieldName([field('Title'), field('Password'), field('Password')]),
+    'Password',
+  );
+  assert.equal(duplicateFieldName([field('PIN'), field('Title'), field('PIN')]), 'PIN');
+  // Names are compared exactly, as KeePass and KeePassXC compare them.
+  assert.equal(duplicateFieldName([field('Password'), field('password')]), null);
+  // Blank-named rows are dropped on save, so two of them clash with nothing.
+  assert.equal(duplicateFieldName([field(''), field('Title'), field('')]), null);
 });
 
 test('isCustomField is false for the five standard fields and true otherwise', () => {
