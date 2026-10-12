@@ -256,6 +256,7 @@ interface EditedField {
 
 declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
 declare function isCustomField(key: string): boolean;
+declare function unlockAttempts(password: string, keyFile: Uint8Array | null): CredentialsInput[];
 declare function openableUrl(raw: string): string | null;
 declare function isValidClipboardTimeout(seconds: number): boolean;
 declare function isValidCurtainTimeout(seconds: number): boolean;

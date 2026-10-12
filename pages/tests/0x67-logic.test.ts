@@ -37,6 +37,7 @@ import {
   openableUrl,
   sortEntries,
   toCsv,
+  unlockAttempts,
 } from '../0x67/logic.ts';
 
 const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -364,6 +365,14 @@ test('applyEntryEdits skips rows with a blank key', () => {
   const entry = createElement('Entry');
   applyEntryEdits(entry, [{ key: '', value: 'ignored', protect: false }]);
   assert.deepEqual(entry.children, []);
+});
+
+test('unlockAttempts tries a key file alone before an empty password with it, and nothing else twice (#127)', () => {
+  const keyFile = new Uint8Array([1, 2, 3]);
+  assert.deepEqual(unlockAttempts('secret', null), [{ password: 'secret' }]);
+  assert.deepEqual(unlockAttempts('', null), [{ password: '' }]);
+  assert.deepEqual(unlockAttempts('secret', keyFile), [{ password: 'secret', keyFile }]);
+  assert.deepEqual(unlockAttempts('', keyFile), [{ keyFile }, { password: '', keyFile }]);
 });
 
 test('isCustomField is false for the five standard fields and true otherwise', () => {
