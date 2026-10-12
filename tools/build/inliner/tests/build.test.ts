@@ -286,7 +286,7 @@ test('VERSION sentinel: renders a linked tag and locale-formatting script when b
   const result = readFileSync(join(dir, 'out.html'), 'utf8');
   assert.ok(
     result.includes(
-      '<a href="https://github.com/keepass-web/source-application/tree/v1.2.3">v1.2.3</a>',
+      '<a href="https://github.com/keepass-web/source-application/tree/v1.2.3" target="_blank" rel="noopener noreferrer">v1.2.3</a>',
     ),
   );
   assert.ok(
@@ -315,7 +315,7 @@ test('VERSION sentinel: falls back to a linked short sha when there is no exact 
   const result = readFileSync(join(dir, 'out.html'), 'utf8');
   assert.ok(
     result.includes(
-      `<a href="https://github.com/keepass-web/source-application/commit/${sha}">sha:${sha.slice(0, 12)}</a>`,
+      `<a href="https://github.com/keepass-web/source-application/commit/${sha}" target="_blank" rel="noopener noreferrer">sha:${sha.slice(0, 12)}</a>`,
     ),
   );
   assert.ok(!result.includes('committed on'));
