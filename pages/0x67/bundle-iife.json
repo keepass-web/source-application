@@ -70,7 +70,6 @@
     "filterEntriesByQuery",
     "sortEntries",
     "toCsv",
-    "toXml",
     "applyEntryEdits",
     "duplicateFieldName",
     "isCustomField",

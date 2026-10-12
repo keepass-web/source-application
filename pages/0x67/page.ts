@@ -1852,13 +1852,11 @@ function openExportDialog(): void {
   const baseName = app.filename.replace(/\.kdbx$/i, '') || 'entries';
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="export-csv"]')).onclick = () => {
-    const entries = collectAllEntries(must(app.db).getRootGroup());
-    downloadTextFile(toCsv(entries), `${baseName}.csv`, 'text/csv');
+    downloadTextFile(toCsv(must(app.db).getRootGroup()), `${baseName}.csv`, 'text/csv');
     dlg.close();
   };
   must(dlg.querySelector<HTMLButtonElement>('[data-action="export-xml"]')).onclick = () => {
-    const entries = collectAllEntries(must(app.db).getRootGroup());
-    downloadTextFile(toXml(entries), `${baseName}.xml`, 'application/xml');
+    downloadTextFile(must(app.db).exportXml(), `${baseName}.xml`, 'application/xml');
     dlg.close();
   };
   wireClose(dlg);

@@ -38,7 +38,6 @@ import {
   openableUrl,
   sortEntries,
   toCsv,
-  toXml,
 } from '../0x67/logic.ts';
 
 const GENERATOR_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -302,7 +301,7 @@ test('toCsv writes a header row, quotes fields only when needed, and joins tags 
   appendChild(root, plain);
   appendChild(root, quoted);
 
-  const csv = toCsv(collectAllEntries(root));
+  const csv = toCsv(root);
   const lines = csv.split('\r\n');
   assert.equal(lines[0], 'Group,Title,UserName,Password,URL,Notes,Tags');
   assert.equal(lines[1], 'Personal,GitHub,octocat,hunter2,,,Work;Urgent');
@@ -310,62 +309,44 @@ test('toCsv writes a header row, quotes fields only when needed, and joins tags 
   assert.equal(lines.length, 3);
 });
 
-test('toCsv writes just the header row for an empty entry list', () => {
-  assert.equal(toCsv([]), 'Group,Title,UserName,Password,URL,Notes,Tags');
+test('toCsv writes just the header row for a database with no entries', () => {
+  assert.equal(toCsv(createGroup('Root')), 'Group,Title,UserName,Password,URL,Notes,Tags');
 });
 
-test('toCsv neutralizes a leading formula-trigger character (CSV/Excel formula injection)', () => {
+test('toCsv writes every value exactly as stored, so another client imports it unchanged (#137)', () => {
   const root = createGroup('Personal');
-  const entry = createEntry({
-    title: '=1+1',
-    username: '+15555550100',
-    password: '-hunter2',
-    url: '@example.com',
-  });
-  appendChild(root, entry);
+  appendChild(
+    root,
+    createEntry({
+      title: '=1+1',
+      username: '+15555550100',
+      password: '-x7@k',
+      url: '@example.com',
+    }),
+  );
+  appendChild(root, createEntry({ password: '=SUM(A1,"x")' }));
 
-  const csv = toCsv(collectAllEntries(root));
-  const lines = csv.split('\r\n');
-  assert.equal(lines[1], "Personal,'=1+1,'+15555550100,'-hunter2,'@example.com,,");
+  const lines = toCsv(root).split('\r\n');
+  assert.equal(lines[1], 'Personal,=1+1,+15555550100,-x7@k,@example.com,,');
+  // Only RFC 4180 quoting, and an empty title stays empty.
+  assert.equal(lines[2], 'Personal,,,"=SUM(A1,""x"")",,,');
 });
 
-test('toCsv combines formula neutralization with RFC 4180 quoting when a field needs both', () => {
-  const root = createGroup('Personal');
-  const entry = createEntry({ title: '=SUM(A1,"x")' });
-  appendChild(root, entry);
-
-  const csv = toCsv(collectAllEntries(root));
-  const lines = csv.split('\r\n');
-  // The apostrophe is added first; the (now longer) value still contains a
-  // comma and a quote, so it's also RFC 4180 quoted, same as any other field.
-  assert.equal(lines[1], `Personal,"'=SUM(A1,""x"")",,,,,`);
-});
-
-test('toCsv leaves a field with no leading formula-trigger character untouched', () => {
-  const root = createGroup('Personal');
-  // '@' appears, but not leading — only a *leading* trigger character is
-  // dangerous to a spreadsheet, so this must not be prefixed.
-  const entry = createEntry({ username: 'plain@example.com' });
-  appendChild(root, entry);
-
-  const csv = toCsv(collectAllEntries(root));
-  const lines = csv.split('\r\n');
-  assert.equal(lines[1], 'Personal,(no title),plain@example.com,,,,');
-});
-
-test('toXml escapes XML-significant characters and wraps entries in <Entries>', () => {
+test('toCsv names each group by its path from the root, as KeePassXC does (#137)', () => {
   const root = createGroup('Root');
-  const entry = createEntry({ title: 'A & B <script> "quote" \'apos\'' });
-  appendChild(root, entry);
+  const banking = createGroup('Banking');
+  const cards = createGroup('Cards');
+  appendChild(root, createEntry({ title: 'Top' }));
+  appendChild(root, banking);
+  appendChild(banking, createEntry({ title: 'Checking' }));
+  appendChild(banking, cards);
+  appendChild(cards, createEntry({ title: 'Visa' }));
 
-  const xml = toXml(collectAllEntries(root));
-  assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<Entries>\n/);
-  assert.match(xml, /<Title>A &amp; B &lt;script&gt; &quot;quote&quot; &apos;apos&apos;<\/Title>/);
-  assert.match(xml, /<\/Entries>\n$/);
-});
-
-test('toXml produces an empty <Entries> element for an empty entry list', () => {
-  assert.match(toXml([]), /<Entries>\n\n<\/Entries>\n$/);
+  const groups = toCsv(root)
+    .split('\r\n')
+    .slice(1)
+    .map((line) => line.split(',').slice(0, 2).join(','));
+  assert.deepEqual(groups, ['Root,Top', 'Root/Banking,Checking', 'Root/Banking/Cards,Visa']);
 });
 
 test('applyEntryEdits replaces all String fields with the given key/value/protect triples', () => {

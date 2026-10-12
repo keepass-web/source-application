@@ -145,6 +145,7 @@ declare class Kdbx {
   header: { version: { major: number } };
   getRootGroup(): XmlElement;
   save(): Promise<Uint8Array>;
+  exportXml(): string;
   addBinary(data: Uint8Array): number;
   getBinaryData(ref: number): Uint8Array | undefined;
   setCredentials(credentials: Credentials): void;
@@ -235,8 +236,7 @@ declare function sortEntries(
   field: EntrySortField,
   direction: EntrySortDirection,
 ): EntryWithGroup[];
-declare function toCsv(entries: EntryWithGroup[]): string;
-declare function toXml(entries: EntryWithGroup[]): string;
+declare function toCsv(rootGroup: XmlElement): string;
 
 type EntryColumnKey =
   | 'username'
