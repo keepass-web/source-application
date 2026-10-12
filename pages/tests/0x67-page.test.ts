@@ -458,6 +458,21 @@ test('0x67 app', async (t) => {
     );
   });
 
+  // With the caret somewhere else entirely, the reveal brings it to the field,
+  // since typing is what comes next (#110).
+  await t.test('revealing the master password puts the caret in the field', () => {
+    const passwordInput = q<HTMLInputElement>('#master-password');
+    passwordInput.blur();
+    assert.notEqual(dom.window.document.activeElement, passwordInput);
+
+    const toggle = q('[data-action="toggle-password"]');
+    dispatch(toggle, 'click');
+    assert.equal(passwordInput.type, 'text');
+    assert.equal(dom.window.document.activeElement, passwordInput);
+
+    dispatch(toggle, 'click'); // hidden again, as the rest of the suite expects
+  });
+
   await t.test('the correct password and key file unlock into the entry list', async () => {
     q<HTMLInputElement>('#master-password').value = PASSWORD;
     dispatch(q('#unlock-form'), 'submit');
@@ -1266,6 +1281,23 @@ test('0x67 app', async (t) => {
       assert.ok(control, `the password row carries a "${title}" control`);
       assert.ok(dispatch(control, 'mousedown').defaultPrevented, `"${title}" keeps the caret put`);
     }
+
+    q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  });
+
+  // The same as the unlock screen's reveal, for the same reason (#110).
+  await t.test('revealing a value in the edit row puts the caret in its field', () => {
+    q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'Password',
+    ) as HTMLElement;
+    const valueInput = passwordRow.querySelector('.edit-value') as HTMLInputElement;
+    valueInput.blur();
+    assert.notEqual(dom.window.document.activeElement, valueInput);
+
+    passwordRow.querySelector<HTMLButtonElement>('[title="Show / hide"]')?.click();
+    assert.equal(valueInput.type, 'text');
+    assert.equal(dom.window.document.activeElement, valueInput);
 
     q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   });

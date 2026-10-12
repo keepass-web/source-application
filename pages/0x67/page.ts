@@ -305,6 +305,7 @@ function showUnlock(relocking = false): void {
   togglePasswordBtn.addEventListener('click', () => {
     passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
     togglePasswordBtn.textContent = passwordInput.type === 'password' ? '👁' : '🙈';
+    passwordInput.focus(); // the next move is usually to type (#110)
   });
 
   const keyfileInput = qs<HTMLInputElement>('#keyfile-input');
@@ -1650,6 +1651,7 @@ function buildEditField(
     const toggle = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
       valueInput.setAttribute('type', valueInput.type === 'password' ? 'text' : 'password');
       toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
+      valueInput.focus(); // the next move is usually to edit the value (#110)
     });
     keepFieldFocus(toggle);
     actions.appendChild(toggle);
