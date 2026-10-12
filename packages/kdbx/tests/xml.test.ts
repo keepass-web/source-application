@@ -70,6 +70,36 @@ test('escapes special characters in attribute values on serialize', () => {
   assert.equal(getAttribute(parseXml(xml), 'note'), '& < "');
 });
 
+test('serialize drops characters XML 1.0 forbids, from text and attribute values (#129)', () => {
+  // A strict reader such as KeePassXC's stops at any of these, so one stray
+  // character would make the whole database unreadable there.
+  // Ends with a lone low surrogate, then a lone high one, which no pair can form.
+  const forbidden = '\u0000\u0001\u0008\u000B\u000C\u001F\uFFFE\uFFFF\uDC00\uD800';
+  const root: XmlElement = {
+    type: 'element',
+    name: 'v',
+    attributes: [['note', `a${forbidden}b`]],
+    children: [{ type: 'text', value: `x${forbidden}y`, cdata: false }],
+  };
+  assert.equal(
+    serializeXml(root),
+    '<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n<v note="ab">xy</v>\n',
+  );
+});
+
+test('serialize keeps tab, line breaks, and characters beyond the BMP (#129)', () => {
+  const kept = 'a\tb\nc\rd 😀 \uD7FF\uE000\uFFFD';
+  const root: XmlElement = {
+    type: 'element',
+    name: 'v',
+    attributes: [['note', kept]],
+    children: [{ type: 'text', value: kept, cdata: false }],
+  };
+  const reparsed = parseXml(serializeXml(root));
+  assert.equal(getText(reparsed), kept);
+  assert.equal(getAttribute(reparsed, 'note'), kept);
+});
+
 test('preserves significant whitespace in text-only elements', () => {
   const root = parseXml('<v>  spaced value  </v>');
   assert.equal(getText(parseXml(serializeXml(root))), '  spaced value  ');

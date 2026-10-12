@@ -211,12 +211,19 @@ export function parseXml(source: string): XmlElement {
   return new KX_XmlParser(source).parse();
 }
 
+// Outside XML 1.0's Char production, lone surrogates too; strict readers stop at one, so KeePass drops them (#129).
+const KX_NON_XML_CHAR = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 function kx_escapeText(value: string): string {
-  return value.replace(/[&<>]/g, (ch) => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;'));
+  return value
+    .replace(KX_NON_XML_CHAR, '')
+    .replace(/[&<>]/g, (ch) => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;'));
 }
 
 function kx_escapeAttribute(value: string): string {
-  return value.replace(/[&<"]/g, (ch) => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&quot;'));
+  return value
+    .replace(KX_NON_XML_CHAR, '')
+    .replace(/[&<"]/g, (ch) => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&quot;'));
 }
 
 function kx_serializeAttributes(attributes: Array<[string, string]>): string {
