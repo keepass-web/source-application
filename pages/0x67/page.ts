@@ -1502,16 +1502,16 @@ function showEntryEdit(isNew: boolean): void {
   const entry = must(app.currentEntry);
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
 
+  // Held until Save, like the fields, so Cancel leaves the entry untouched (#109).
+  let pickedIconId: number | undefined;
+  const attachments = getEntryAttachments(entry);
+
   const iconBtn = qs<HTMLButtonElement>('#edit-icon-btn');
-  const refreshIconBtn = (): void => {
-    iconBtn.textContent = iconEmoji(elementIconId(entry));
-  };
-  refreshIconBtn();
+  iconBtn.textContent = iconEmoji(elementIconId(entry));
   iconBtn.addEventListener('click', () => {
     openIconPicker((iconId) => {
-      // createEntry() always appends an IconID child, so this is always present.
-      setText(getChild(entry, 'IconID') as XmlElement, String(iconId));
-      refreshIconBtn();
+      pickedIconId = iconId;
+      iconBtn.textContent = iconEmoji(String(iconId));
     });
   });
 
@@ -1554,15 +1554,14 @@ function showEntryEdit(isNew: boolean): void {
 
   const db = must(app.db);
   const attachmentsList = qs('#edit-attachments');
-  renderEditAttachments(entry, attachmentsList);
+  renderEditAttachments(attachments, attachmentsList);
   qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
     const data = new Uint8Array(await file.arrayBuffer());
-    const ref = db.addBinary(data);
-    addEntryAttachment(entry, file.name, ref);
-    renderEditAttachments(entry, attachmentsList);
+    attachments.push({ name: file.name, ref: db.addBinary(data) });
+    renderEditAttachments(attachments, attachmentsList);
     input.value = '';
   });
 
@@ -1578,13 +1577,13 @@ function showEntryEdit(isNew: boolean): void {
   });
 
   qs('[data-action="save"]').addEventListener('click', () => {
-    commitEdits(entry, fieldsEl, isNew);
+    commitEdits(entry, fieldsEl, isNew, pickedIconId, attachments);
   });
 }
 
-function renderEditAttachments(entry: XmlElement, container: HTMLElement): void {
+function renderEditAttachments(attachments: EntryAttachment[], container: HTMLElement): void {
   container.innerHTML = '';
-  for (const attachment of getEntryAttachments(entry)) {
+  for (const attachment of attachments) {
     const row = document.createElement('div');
     row.className = 'attachment-row';
 
@@ -1594,15 +1593,13 @@ function renderEditAttachments(entry: XmlElement, container: HTMLElement): void 
     nameInput.value = attachment.name;
     nameInput.addEventListener('change', () => {
       const newName = nameInput.value.trim();
-      if (newName && newName !== attachment.name) {
-        renameEntryAttachment(entry, attachment.name, newName);
-      }
-      renderEditAttachments(entry, container);
+      if (newName) attachment.name = newName;
+      renderEditAttachments(attachments, container);
     });
 
     const removeBtn = makeIconButton('icon-btn', 'Remove attachment', '✕', () => {
-      removeEntryAttachment(entry, attachment.name);
-      renderEditAttachments(entry, container);
+      attachments.splice(attachments.indexOf(attachment), 1);
+      renderEditAttachments(attachments, container);
     });
 
     row.appendChild(nameInput);
@@ -1684,7 +1681,13 @@ function buildEditField(
   return row;
 }
 
-function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): void {
+function commitEdits(
+  entry: XmlElement,
+  fieldsEl: HTMLElement,
+  isNew: boolean,
+  pickedIconId: number | undefined,
+  attachments: EntryAttachment[],
+): void {
   // A brand-new entry has no prior state worth keeping — only snapshot when
   // editing one that already existed, matching real KeePass.
   if (!isNew) {
@@ -1697,6 +1700,13 @@ function commitEdits(entry: XmlElement, fieldsEl: HTMLElement, isNew: boolean): 
     protect: row.dataset.protected === '1',
   }));
   applyEntryEdits(entry, fields);
+
+  if (pickedIconId !== undefined) {
+    // createEntry() always appends an IconID child, so this is always present.
+    setText(getChild(entry, 'IconID') as XmlElement, String(pickedIconId));
+  }
+  for (const { name } of getEntryAttachments(entry)) removeEntryAttachment(entry, name);
+  for (const { name, ref } of attachments) addEntryAttachment(entry, name, ref);
 
   const tagsInput = qs<HTMLInputElement>('#edit-tags');
   setEntryTags(entry, tagsInput.value.split(/[,;]/));

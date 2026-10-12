@@ -179,7 +179,6 @@ interface EntryAttachment {
 
 declare function getEntryAttachments(entry: XmlElement): EntryAttachment[];
 declare function addEntryAttachment(entry: XmlElement, name: string, ref: number): void;
-declare function renameEntryAttachment(entry: XmlElement, oldName: string, newName: string): void;
 declare function removeEntryAttachment(entry: XmlElement, name: string): void;
 
 interface EntryTimes {

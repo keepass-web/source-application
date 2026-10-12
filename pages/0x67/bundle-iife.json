@@ -54,7 +54,6 @@
     "deletePermanently",
     "getEntryAttachments",
     "addEntryAttachment",
-    "renameEntryAttachment",
     "removeEntryAttachment",
     "getEntryHistory",
     "pushHistorySnapshot",
