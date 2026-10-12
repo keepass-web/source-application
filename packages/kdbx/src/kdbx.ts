@@ -54,7 +54,9 @@ import {
   getChild,
   getChildren,
   getText,
+  markProtectedInMemory,
   setAttribute,
+  setGenerator,
   setText,
   touchMetaTime,
   walkAllEntries,
@@ -394,6 +396,22 @@ export class Kdbx {
     return this.header.version.major >= 4 ? this.#save4() : this.#save3();
   }
 
+  /** The whole database as unencrypted KeePass XML, which KeePass and KeePassXC
+  export and import, so it moves into either without loss (#137). Attachments go
+  in Meta, as KDBX 3.1 keeps them, and protected values in the clear. */
+  exportXml(): string {
+    const root = cloneElement(this.root);
+    writeMetaBinaries(root, this.binaries);
+    markProtectedInMemory(root);
+    for (const meta of getChildren(root, 'Meta')) {
+      // It vouches for an encrypted file's header, and plain XML has none.
+      meta.children = meta.children.filter(
+        (child) => !(child.type === 'element' && child.name === 'HeaderHash'),
+      );
+    }
+    return serializeXml(root);
+  }
+
   async #save4(): Promise<Uint8Array> {
     this.#pruneUnreferencedBinaries();
 
@@ -420,6 +438,7 @@ export class Kdbx {
     const cipher = await createProtectedStreamCipher(this.#innerStreamId, this.#innerStreamKey);
     const clonedRoot = cloneElement(this.root);
     isoTimesToBinary(clonedRoot);
+    setGenerator(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, headerSha);
     applyOutboundProtection(clonedRoot, cipher);
     const xmlBytes = utf8Encode(serializeXml(clonedRoot));
@@ -470,6 +489,7 @@ export class Kdbx {
     );
     const clonedRoot = cloneElement(this.root);
     writeMetaBinaries(clonedRoot, this.binaries);
+    setGenerator(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
     applyOutboundProtection(clonedRoot, cipher);
     let xmlBytes = utf8Encode(serializeXml(clonedRoot));

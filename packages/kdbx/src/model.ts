@@ -158,6 +158,14 @@ export function applyOutboundProtection(root: XmlElement, cipher: ProtectedStrea
   });
 }
 
+// Plain XML has no inner stream, so KeePass marks a protected value ProtectInMemory there instead (#137).
+export function markProtectedInMemory(root: XmlElement): void {
+  kx_walkProtected(root, (element) => {
+    element.attributes = element.attributes.filter(([name]) => name !== KX_PROTECTED_ATTRIBUTE);
+    setAttribute(element, 'ProtectInMemory', 'True');
+  });
+}
+
 // --- Builders ---------------------------------------------------------------
 
 function kx_nowIso(): string {
@@ -311,6 +319,12 @@ function kx_setTime(element: XmlElement, name: string, iso: string): void {
 export function touchMetaTime(document: XmlElement, name: string): void {
   const meta = getChild(document, 'Meta');
   if (meta) setChildText(meta, name, kx_nowIso());
+}
+
+// Name this app as the writer, so a file names whoever saved it last, as KeePass does (#136).
+export function setGenerator(document: XmlElement): void {
+  const meta = getChild(document, 'Meta');
+  if (meta) setChildText(meta, 'Generator', KX_GENERATOR);
 }
 
 // Bump an entry's or group's LastModificationTime to now; merges keep the newer copy by it (#108).

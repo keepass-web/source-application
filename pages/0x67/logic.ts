@@ -256,65 +256,27 @@ export function entryColumnValue(entry: XmlElement, column: EntryColumnKey): str
   }
 }
 
-function exportFields(entry: XmlElement, group: XmlElement): [string, string][] {
-  return [
-    ['Group', groupName(group)],
-    ['Title', entryTitle(entry)],
-    ['UserName', entryField(entry, 'UserName')],
-    ['Password', entryField(entry, 'Password')],
-    ['URL', entryField(entry, 'URL')],
-    ['Notes', entryField(entry, 'Notes')],
-    ['Tags', getEntryTags(entry).join(';')],
-  ];
-}
-
-/** A leading =, +, -, @, tab, or CR makes spreadsheets treat a CSV field
-as a formula (CWE-1236); entry data is attacker-controlled here. */
-const CSV_FORMULA_TRIGGER = /^[=+\-@\t\r]/;
-
-/** Quote a CSV field only when needed (RFC 4180), doubling internal quotes.
-A leading formula-trigger char is also neutralized with a leading
-apostrophe — the standard "force text" mitigation spreadsheets honor. */
+// Quote a CSV field only when needed (RFC 4180), doubling internal quotes.
 function csvField(value: string): string {
-  const safe = CSV_FORMULA_TRIGGER.test(value) ? `'${value}` : value;
-  if (/[",\r\n]/.test(safe)) {
-    return `"${safe.replace(/"/g, '""')}"`;
-  }
-  return safe;
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-// Serialize entries as plaintext CSV — see the caller for the required "unencrypted" warning.
-export function toCsv(entries: EntryWithGroup[]): string {
-  const header = ['Group', 'Title', 'UserName', 'Password', 'URL', 'Notes', 'Tags'];
-  const lines = [header.join(',')];
-  for (const { entry, group } of entries) {
-    lines.push(
-      exportFields(entry, group)
-        .map(([, value]) => csvField(value))
-        .join(','),
-    );
-  }
+/** Every entry as plaintext CSV, see the caller for the required "unencrypted"
+warning. Values are exactly as stored, so another client imports them unchanged,
+and Group is the path from the root joined by "/", as KeePassXC writes it (#137). */
+export function toCsv(rootGroup: XmlElement): string {
+  const lines = ['Group,Title,UserName,Password,URL,Notes,Tags'];
+  const walk = (group: XmlElement, path: string): void => {
+    for (const entry of getChildren(group, 'Entry')) {
+      const fields = ['Title', 'UserName', 'Password', 'URL', 'Notes'].map((key) =>
+        entryField(entry, key),
+      );
+      lines.push([path, ...fields, getEntryTags(entry).join(';')].map(csvField).join(','));
+    }
+    for (const sub of getChildren(group, 'Group')) walk(sub, `${path}/${groupName(sub)}`);
+  };
+  walk(rootGroup, groupName(rootGroup));
   return lines.join('\r\n');
-}
-
-function xmlEscape(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-// Serialize entries as plaintext XML, same caveat as toCsv; not a KDBX document.
-export function toXml(entries: EntryWithGroup[]): string {
-  const rows = entries.map(({ entry, group }) => {
-    const body = exportFields(entry, group)
-      .map(([tag, value]) => `    <${tag}>${xmlEscape(value)}</${tag}>`)
-      .join('\n');
-    return `  <Entry>\n${body}\n  </Entry>`;
-  });
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<Entries>\n${rows.join('\n')}\n</Entries>\n`;
 }
 
 /** A single row from the entry-edit form, already read out of the DOM. */
