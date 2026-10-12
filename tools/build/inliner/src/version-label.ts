@@ -53,7 +53,9 @@ export function computeVersionLabel(env: VersionRefEnv): VersionLabel {
  * resolved client-side.
  */
 export function renderVersionFragment(version: VersionLabel, commitDateIso?: string): string {
-  const labelHtml = version.url ? `<a href="${version.url}">${version.label}</a>` : version.label;
+  const labelHtml = version.url
+    ? `<a href="${version.url}" target="_blank" rel="noopener noreferrer">${version.label}</a>`
+    : version.label;
 
   if (commitDateIso === undefined || commitDateIso === '') {
     return labelHtml;

@@ -53,7 +53,7 @@ test('renderVersionFragment: linked label with a commit date adds a locale-forma
   );
   assert.equal(
     html,
-    '<a href="https://example.com/tree/v0.4.0">v0.4.0</a> committed on ' +
+    '<a href="https://example.com/tree/v0.4.0" target="_blank" rel="noopener noreferrer">v0.4.0</a> committed on ' +
       '<time id="commit-date" datetime="2026-07-01T12:00:00Z">2026-07-01T12:00:00Z</time>' +
       "<script>document.getElementById('commit-date').textContent = " +
       "new Date(document.getElementById('commit-date').getAttribute('datetime')).toLocaleString();</script>",
@@ -62,7 +62,10 @@ test('renderVersionFragment: linked label with a commit date adds a locale-forma
 
 test('renderVersionFragment: linked label without a commit date omits the time element and script', () => {
   const html = renderVersionFragment({ label: 'v0.4.0', url: 'https://example.com/tree/v0.4.0' });
-  assert.equal(html, '<a href="https://example.com/tree/v0.4.0">v0.4.0</a>');
+  assert.equal(
+    html,
+    '<a href="https://example.com/tree/v0.4.0" target="_blank" rel="noopener noreferrer">v0.4.0</a>',
+  );
 });
 
 test('renderVersionFragment: unlinked label renders plain text', () => {
