@@ -30,7 +30,7 @@ const entry = getChild(reopened.getRootGroup(), 'Entry')!;
 
 `Kdbx.create` accepts `version` (3 or 4), `cipher` (`aes`/`chacha20`), `kdf` (`argon2id`/`argon2d`/`aes`), `compression`, and KDF tuning. The canonical state of a database is its `<KeePassFile>` XML tree (`db.root`); `Protected="True"` values are held as plaintext in memory and (re-)encrypted with the inner random stream on save. Timestamps are held as ISO 8601 text in memory for every file version, so callers handle one form while 4.x files keep the binary form their format requires.
 
-Callers move, delete, edit and restore through `moveToGroup`, `deletePermanently`, `touchLastModified` and `restoreHistoryEntry` rather than rearranging the tree directly, because KeePass and KeePassXC merge two copies of a database by the `LocationChanged` and `LastModificationTime` times and `DeletedObjects` records those keep current.
+Callers move, delete, edit and restore through `moveToGroup`, `deletePermanently`, `touchLastModified` and `restoreHistoryEntry` rather than rearranging the tree directly, because KeePass and KeePassXC merge two copies of a database by the `LocationChanged` and `LastModificationTime` times and `DeletedObjects` records those keep current. `Kdbx#mergeIn` merges another copy of the same database by those same rules, so the result matches KeePass's and KeePassXC's merge of the two files; see [SPEC.md][spec].
 
 ## Development
 

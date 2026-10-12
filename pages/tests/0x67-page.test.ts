@@ -1701,6 +1701,13 @@ test('0x67 app', async (t) => {
       '45',
       'and neither must an out-of-range auto-lock delay',
     );
+    // Nor a lock put off past the hour, since unlocking is when a newer version is checked for (#74).
+    byId<HTMLInputElement>('auto-lock-timeout').value = '86400';
+    dq('#dlg-settings [data-action="save-settings"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    q('[data-action="settings"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    assert.equal(byId<HTMLInputElement>('auto-lock-timeout').value, '45');
     // The idle clock runs in real time here, so the rest of this walkthrough
     // gets the longest delays rather than a curtain or lock partway through.
     byId<HTMLInputElement>('curtain-timeout').value = '3600';

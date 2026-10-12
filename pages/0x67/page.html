@@ -304,6 +304,7 @@
       <button type="button" class="btn btn-primary" data-action="download">Download</button>
       <button type="button" class="btn btn-primary" data-action="save-host" hidden>Save</button>
       <button type="button" class="btn btn-primary" data-action="reconnect" hidden>Reconnect</button>
+      <button type="button" class="btn btn-primary" data-action="merge" hidden>Merge</button>
     </div>
   </dialog>
 
@@ -368,6 +369,24 @@
       <button type="button" class="btn btn-primary" data-action="confirm-save">Save</button>
       <button type="button" class="btn btn-secondary" data-action="download" hidden>Download</button>
       <button type="button" class="btn btn-primary" data-action="reconnect" hidden>Reconnect</button>
+      <button type="button" class="btn btn-primary" data-action="merge" hidden>Merge</button>
+    </div>
+  </dialog>
+
+  <!-- ============================================================
+       Dialog: Notice (what came in from a version saved elsewhere, #74)
+       ============================================================ -->
+  <dialog id="dlg-notice" class="kw-dialog">
+    <div class="dialog-header">
+      <h2 id="notice-title">Saved elsewhere</h2>
+      <button type="button" class="close-btn" data-action="close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p id="notice-message"></p>
+      <ul id="notice-list" hidden></ul>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-primary" data-action="close">OK</button>
     </div>
   </dialog>
 

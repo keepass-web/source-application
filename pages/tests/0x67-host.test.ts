@@ -65,9 +65,15 @@ const dom = new JSDOM(html, { url: 'https://example.com/keepass/', pretendToBeVi
 
 // Every message the app posts "up" to its host lands here.
 const hostInbox: Array<{ message: Record<string, unknown>; origin: string }> = [];
+/* A host answers every version check (#74). Tests that care set this; the rest
+get "unchanged", as from a host whose file nobody else touched. Null leaves the
+check unanswered, for a test to answer itself or not at all. */
+let checkAnswer: Record<string, unknown> | null = { type: 'kw-checked', status: 'unchanged' };
 const parentMock = {
   postMessage(message: Record<string, unknown>, origin: string): void {
     hostInbox.push({ message, origin });
+    const answer = checkAnswer;
+    if (message.type === 'kw-check' && answer !== null) setTimeout(() => sendFromHost(answer));
   },
 };
 
@@ -221,7 +227,12 @@ const lastHostMessage = (): Record<string, unknown> =>
   hostInbox[hostInbox.length - 1]?.message as Record<string, unknown>;
 
 /** Answer the latest kw-save the way a host does, echoing its id (#91). */
-function replyToSave(result: { ok: boolean; error?: string; reason?: string }): void {
+function replyToSave(result: {
+  ok: boolean;
+  error?: string;
+  reason?: string;
+  version?: string;
+}): void {
   const save = hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1);
   sendFromHost({ type: 'kw-saved', id: save?.message.id, ...result });
 }
@@ -1138,5 +1149,450 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     await waitFor(() => /Reconnect failed/.test(status.textContent ?? ''));
     // Locking stops the idle clock (#84), which would otherwise hold this process open.
     await autoLockNow();
+  });
+});
+
+test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t) => {
+  const credentials = new Credentials({ password: PASSWORD });
+  const base = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Shared Vault',
+  });
+  appendChild(base.getRootGroup(), createEntry({ title: 'Shared' }));
+  const quiet = createEntry({ username: 'quiet' }); // untitled
+  appendChild(base.getRootGroup(), quiet);
+  const v1 = await base.save();
+  const LATER = '2099-01-01T00:00:00Z'; // after anything this tab does
+
+  /** Another workstation's copy of the opened file, with `change` saved later. */
+  async function savedElsewhere(
+    change: (db: Kdbx) => void,
+    password = PASSWORD,
+  ): Promise<ArrayBuffer> {
+    const db = await Kdbx.load(v1, credentials);
+    change(db);
+    if (password !== PASSWORD) db.setCredentials(new Credentials({ password }));
+    return new Uint8Array(await db.save()).buffer;
+  }
+  const addedThere = (title: string) => (db: Kdbx) =>
+    appendChild(db.getRootGroup(), createEntry({ title }));
+  const newer = (bytes: ArrayBuffer, version: string, savedAt?: string) => ({
+    type: 'kw-checked',
+    status: 'newer',
+    bytes,
+    version,
+    ...(savedAt === undefined ? {} : { savedAt }),
+  });
+  const UNCHANGED = { type: 'kw-checked', status: 'unchanged' };
+
+  const notice = (): HTMLDialogElement => dq<HTMLDialogElement>('#dlg-notice');
+  const noticeText = (): string => dq<HTMLElement>('#notice-message').textContent ?? '';
+  const noticeItems = (): string[] =>
+    Array.from(doc.querySelectorAll('#notice-list li')).map((li) => li.textContent ?? '');
+  const closeNotice = (): void => click(dq('#dlg-notice .dialog-footer [data-action="close"]'));
+  const shows = (text: string): boolean => (root().textContent ?? '').includes(text);
+  const lastSave = (): Record<string, unknown> =>
+    hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1)?.message ?? {};
+  const saveStatus = (): string => dq<HTMLElement>('[data-role="save-status"]').textContent ?? '';
+  const saveDlg = (selector: string): HTMLButtonElement =>
+    dq<HTMLButtonElement>(`#dlg-save ${selector}`);
+  const promptDlg = (selector: string): HTMLButtonElement =>
+    dq<HTMLButtonElement>(`#dlg-confirm-discard ${selector}`);
+
+  function fastLongTimers(target: { setTimeout: typeof setTimeout }): () => void {
+    const real = target.setTimeout;
+    target.setTimeout = ((fn: () => void, ms?: number) =>
+      real(fn, ms !== undefined && ms >= 1000 ? 0 : ms)) as typeof setTimeout;
+    return () => {
+      target.setTimeout = real;
+    };
+  }
+
+  async function lockNow(): Promise<void> {
+    const realNow = Date.now;
+    Date.now = () => realNow() + 24 * 3_600_000;
+    try {
+      doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+      await waitFor(() => q('#master-password') !== null);
+    } finally {
+      Date.now = realNow;
+    }
+  }
+
+  function submitUnlock(password = PASSWORD): void {
+    q<HTMLInputElement>('#master-password').value = password;
+    q('#unlock-form').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+    );
+  }
+
+  async function unlock(password = PASSWORD): Promise<void> {
+    submitUnlock(password);
+    await waitFor(() => q('#search-input') !== null);
+  }
+
+  async function unlockFails(password = PASSWORD): Promise<string> {
+    const errorEl = q<HTMLElement>('#unlock-error');
+    errorEl.hidden = true;
+    submitUnlock(password);
+    await waitFor(() => !errorEl.hidden);
+    return errorEl.textContent ?? '';
+  }
+
+  // An unsaved edit: a new entry, saved into the database but not back to the host.
+  async function editUnsaved(): Promise<void> {
+    if (!q('[data-action="add-entry"]')) click(q('[data-action="back"]'));
+    click(q('[data-action="add-entry"]'));
+    await waitFor(() => q('[data-action="save"]') !== null);
+    click(q('[data-action="save"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+    click(saveDlg('[data-role="save-later"]'));
+  }
+
+  async function saveToHost(): Promise<void> {
+    if (!q('[data-action="save-database"]')) click(q('[data-action="back"]'));
+    click(q('[data-action="save-database"]'));
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
+    const before = hostInbox.length;
+    click(saveDlg('[data-action="save-host"]'));
+    await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-save'));
+  }
+
+  async function saveCleanly(version: string): Promise<void> {
+    await saveToHost();
+    replyToSave({ ok: true, version });
+    await waitFor(() => saveStatus() === 'Saved.');
+    click(saveDlg('[data-role="save-later"]'));
+  }
+
+  await t.test(
+    'an open names its version, and a save builds on it and learns the next',
+    async () => {
+      dq<HTMLDialogElement>('#dlg-save').close(); // left held by the previous walkthrough
+      sendFromHost({
+        type: 'kw-open',
+        filename: 'shared.kdbx',
+        bytes: new Uint8Array(v1).buffer,
+        version: 'rev-1',
+      });
+      await waitFor(() => q('#master-password') !== null);
+      const before = hostInbox.length;
+      await unlock();
+      assert.ok(
+        hostInbox.slice(before).every((sent) => sent.message.type !== 'kw-check'),
+        'nothing to check right after opening',
+      );
+
+      await editUnsaved();
+      await saveToHost();
+      assert.equal(lastSave().base, 'rev-1');
+      replyToSave({ ok: true, version: 'rev-2' });
+      await waitFor(() => saveStatus() === 'Saved.');
+      click(saveDlg('[data-role="save-later"]'));
+      await editUnsaved();
+      await saveToHost();
+      assert.equal(lastSave().base, 'rev-2', 'the next save builds on what the last one stored');
+      replyToSave({ ok: true });
+      await waitFor(() => saveStatus() === 'Saved.');
+      click(saveDlg('[data-role="save-later"]'));
+    },
+  );
+
+  await t.test(
+    'unlocking after a lock asks for a newer version, and carries on without one',
+    async () => {
+      await lockNow();
+      const before = hostInbox.length;
+      await unlock();
+      assert.deepEqual(
+        hostInbox.slice(before).find((sent) => sent.message.type === 'kw-check')?.message,
+        { type: 'kw-check', base: 'rev-2' },
+      );
+      assert.equal(notice().open, false);
+    },
+  );
+
+  await t.test('with nothing unsaved, a newer version opens in place of this one', async () => {
+    checkAnswer = newer(await savedElsewhere(addedThere('Added there')), 'rev-3', LATER);
+    await lockNow();
+    await unlock();
+    assert.ok(shows('Added there'));
+    assert.equal(notice().open, true);
+    assert.equal(dq('#notice-title').textContent, 'Opened the newer version');
+    assert.match(noticeText(), /saved elsewhere at .+, so that version is open now/);
+    closeNotice();
+    checkAnswer = UNCHANGED;
+    await editUnsaved();
+    await saveCleanly('rev-4');
+    assert.equal(
+      hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1)?.message.base,
+      'rev-3',
+    );
+  });
+
+  await t.test(
+    'a newer version these credentials cannot open keeps the unlock screen up',
+    async () => {
+      checkAnswer = newer(await savedElsewhere(() => {}, 'another password'), 'rev-5');
+      await lockNow();
+      assert.equal(
+        await unlockFails(),
+        "The version saved elsewhere doesn't open with these credentials.",
+      );
+      checkAnswer = UNCHANGED;
+      await unlock();
+    },
+  );
+
+  await t.test('with unsaved edits, a newer version is merged in and left to review', async () => {
+    await editUnsaved();
+    const there = await savedElsewhere((db) => {
+      appendChild(db.getRootGroup(), createEntry({ title: 'Merged in' }));
+      appendChild(db.getRootGroup(), createEntry({ title: 'Also merged in' }));
+      // Changed there with no History snapshot, so this copy's version is new to it: a conflict.
+      const entry = getChildren(db.getRootGroup(), 'Entry').find(
+        (e) =>
+          getText(getChild(e, 'UUID') as XmlElement) ===
+          getText(getChild(quiet, 'UUID') as XmlElement),
+      ) as XmlElement;
+      const userName = getChildren(entry, 'String')[1] as XmlElement;
+      setText(getChild(userName, 'Value') as XmlElement, 'changed there');
+      const times = getChild(entry, 'Times') as XmlElement;
+      setText(getChild(times, 'LastModificationTime') as XmlElement, LATER);
+    });
+    checkAnswer = newer(there, 'rev-6', LATER);
+    await lockNow();
+    await unlock();
+    assert.ok(shows('Merged in') && shows('Also merged in'));
+    assert.equal(dq('#notice-title').textContent, 'Merged with the version saved elsewhere');
+    assert.match(noticeText(), /\d+ changes from there are now merged with your unsaved changes/);
+    assert.deepEqual(noticeItems(), ['(untitled)']);
+    closeNotice();
+    assert.equal(q<HTMLButtonElement>('[data-action="save-database"]').disabled, false, 'unsaved');
+    checkAnswer = UNCHANGED;
+    await saveCleanly('rev-7');
+    assert.equal(
+      hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1)?.message.base,
+      'rev-6',
+    );
+  });
+
+  await t.test(
+    'a password changed elsewhere is named, and merging waits for the old one',
+    async () => {
+      await editUnsaved();
+      checkAnswer = newer(
+        await savedElsewhere(addedThere('Behind a new key'), 'new password'),
+        'rev-8',
+      );
+      await lockNow();
+      assert.match(
+        await unlockFails('new password'),
+        /These credentials open the version saved elsewhere, but your unsaved changes here are locked with the previous ones/,
+      );
+      assert.match(await unlockFails('neither'), /./, 'a wrong password is still just wrong');
+
+      await unlock(); // the previous password opens this copy, but not the newer one
+      assert.equal(dq('#notice-title').textContent, 'Could not merge');
+      assert.ok(!shows('Behind a new key'));
+      closeNotice();
+      checkAnswer = UNCHANGED;
+      await saveToHost();
+      assert.equal(lastSave().base, 'rev-7', 'still built on what it had, so a save is refused');
+      replyToSave({ ok: true, version: 'rev-9' });
+      await waitFor(() => saveStatus() === 'Saved.');
+      click(saveDlg('[data-role="save-later"]'));
+    },
+  );
+
+  await t.test('a file gone from storage still unlocks, with a warning', async () => {
+    checkAnswer = { type: 'kw-checked', status: 'gone' };
+    await lockNow();
+    await unlock();
+    assert.equal(dq('#notice-title').textContent, 'This file is gone from storage');
+    closeNotice();
+    checkAnswer = UNCHANGED;
+  });
+
+  await t.test('a host that never answers the check lets the unlock go ahead', async () => {
+    checkAnswer = null;
+    await lockNow();
+    const restore = fastLongTimers(dom.window as unknown as { setTimeout: typeof setTimeout });
+    try {
+      await unlock();
+    } finally {
+      restore();
+    }
+    assert.equal(notice().open, false);
+    checkAnswer = UNCHANGED;
+  });
+
+  // --- A save refused because of a version saved elsewhere --------------------
+
+  async function reachConflict(): Promise<void> {
+    await editUnsaved();
+    await saveToHost();
+    replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
+    await waitFor(() => /stored file changed since it was opened here/.test(saveStatus()));
+  }
+
+  await t.test(
+    'a refused save offers Merge or a copy, and holds the dialog until one is taken',
+    async () => {
+      await reachConflict();
+      assert.equal(saveDlg('[data-action="merge"]').hidden, false);
+      assert.equal(saveDlg('[data-action="download"]').hidden, false);
+      assert.equal(saveDlg('[data-action="download"]').textContent, 'Download a copy');
+      assert.equal(saveDlg('[data-action="save-host"]').hidden, true);
+      assert.equal(
+        saveDlg('[data-role="save-later"]').hidden,
+        true,
+        'held: the edits are only here',
+      );
+
+      click(saveDlg('[data-action="download"]'));
+      await waitFor(() => /Copy downloaded\. Merge to save back/.test(saveStatus()));
+      assert.equal(saveDlg('[data-role="save-later"]').hidden, false, 'a copy lets it go');
+      assert.equal(saveDlg('[data-action="merge"]').hidden, false);
+    },
+  );
+
+  await t.test('a merge that finds nothing newer, or no file, or no answer, says so', async () => {
+    checkAnswer = UNCHANGED;
+    click(saveDlg('[data-action="merge"]'));
+    await waitFor(() => saveStatus() === 'Nothing newer is stored now, so save again.');
+    assert.equal(saveDlg('[data-action="save-host"]').hidden, false);
+
+    for (const [status, expected] of [
+      ['gone', /removed or replaced in storage/],
+      ['unknown', /Could not fetch the version saved elsewhere/],
+    ] as const) {
+      const before = hostInbox.length;
+      click(saveDlg('[data-action="save-host"]'));
+      await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-save'));
+      replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
+      await waitFor(() => /stored file changed since it was opened here/.test(saveStatus()));
+      checkAnswer = { type: 'kw-checked', status };
+      click(saveDlg('[data-action="merge"]'));
+      await waitFor(() => expected.test(saveStatus()));
+      assert.equal(saveDlg('[data-action="merge"]').hidden, false, 'still on offer');
+    }
+  });
+
+  await t.test(
+    'a newer version that will not open is not merged, and a copy stays on offer',
+    async () => {
+      checkAnswer = newer(await savedElsewhere(() => {}, 'another password'), 'rev-10');
+      click(saveDlg('[data-action="merge"]'));
+      await waitFor(() =>
+        /couldn't be opened or read with this database's credentials/.test(saveStatus()),
+      );
+      assert.equal(saveDlg('[data-action="download"]').hidden, false);
+
+      const realSave = Kdbx.prototype.save;
+      Kdbx.prototype.save = (): Promise<Uint8Array> => {
+        throw new Error('cannot serialize');
+      };
+      try {
+        click(saveDlg('[data-action="download"]'));
+        await waitFor(() => /Could not prepare a copy/.test(saveStatus()));
+      } finally {
+        Kdbx.prototype.save = realSave;
+      }
+      assert.equal(saveDlg('[data-role="save-later"]').hidden, true, 'still held');
+    },
+  );
+
+  await t.test('a merge waits on the host, and a lock meanwhile is reported', async () => {
+    checkAnswer = null;
+    const before = hostInbox.length;
+    click(saveDlg('[data-action="merge"]'));
+    await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-check'));
+    assert.equal(saveDlg('[data-action="merge"]').disabled, true);
+    assert.equal(saveDlg('[data-action="download"]').disabled, true);
+    await lockNow();
+    sendFromHost(UNCHANGED);
+    await waitFor(() => /database locked/.test(saveStatus()));
+    checkAnswer = UNCHANGED;
+    click(saveDlg('[data-role="save-later"]'));
+    await unlock();
+  });
+
+  await t.test(
+    'an unlock while a merge waits supersedes its check, not holding the dialog',
+    async () => {
+      await reachConflict();
+      checkAnswer = null;
+      const before = hostInbox.length;
+      click(saveDlg('[data-action="merge"]'));
+      await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-check'));
+      await lockNow();
+      checkAnswer = UNCHANGED;
+      await unlock(); // its own check replaces the merge's, which the host never answered
+      await waitFor(() => /database locked/.test(saveStatus()));
+      assert.equal(saveDlg('[data-role="save-later"]').hidden, false, 'released at once');
+      click(saveDlg('[data-role="save-later"]'));
+    },
+  );
+
+  await t.test(
+    'a merge brings the newer version in, closes the dialog and shows what came',
+    async () => {
+      await reachConflict();
+      checkAnswer = newer(await savedElsewhere(addedThere('One more')), 'rev-11', LATER);
+      click(saveDlg('[data-action="merge"]'));
+      await waitFor(() => notice().open);
+      assert.equal(dq<HTMLDialogElement>('#dlg-save').open, false);
+      assert.match(noticeText(), /1 change from there is now merged/);
+      assert.ok(shows('One more'));
+      closeNotice();
+      checkAnswer = UNCHANGED;
+      await saveCleanly('rev-12');
+      assert.equal(
+        hostInbox.filter((sent) => sent.message.type === 'kw-save').at(-1)?.message.base,
+        'rev-11',
+      );
+    },
+  );
+
+  await t.test('the close prompt offers the same merge, and does not close after it', async () => {
+    await editUnsaved();
+    sendFromHost({ type: 'kw-close-request' });
+    await waitFor(() => dq<HTMLDialogElement>('#dlg-confirm-discard').open);
+    let before = hostInbox.length;
+    click(promptDlg('[data-action="confirm-save"]'));
+    await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-save'));
+    const own = lastSave().bytes as ArrayBuffer;
+    replyToSave({ ok: false, error: 'it was saved elsewhere since', reason: 'conflict' });
+    const status = dq<HTMLElement>('[data-role="confirm-discard-status"]');
+    await waitFor(() =>
+      /stored file changed since it was opened here/.test(status.textContent ?? ''),
+    );
+    assert.equal(promptDlg('[data-action="confirm-discard"]').hidden, true);
+    assert.equal(promptDlg('[data-action="cancel-discard"]').hidden, true);
+
+    click(promptDlg('[data-action="download"]'));
+    await waitFor(() => /Copy downloaded\. Merge to save back/.test(status.textContent ?? ''));
+
+    // The newer version is this tab's own save, so nothing new comes in.
+    checkAnswer = newer(own, 'rev-13');
+    before = hostInbox.length;
+    click(promptDlg('[data-action="merge"]'));
+    await waitFor(() => notice().open);
+    assert.equal(dq<HTMLDialogElement>('#dlg-confirm-discard').open, false);
+    assert.match(noticeText(), /with nothing your copy here lacked/);
+    assert.ok(
+      hostInbox.slice(before).every((sent) => sent.message.type !== 'kw-close'),
+      'merging is not consent to close',
+    );
+    closeNotice();
+    checkAnswer = UNCHANGED;
+    await saveCleanly('rev-14');
+    // Locking stops the idle clock, which would otherwise hold this process open.
+    await lockNow();
   });
 });

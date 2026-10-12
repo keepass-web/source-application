@@ -51,6 +51,7 @@ export {
   type KdbxCreateOptions,
   type KdbxKdf,
 } from './kdbx.ts';
+export { type MergeSummary, mergeDocuments } from './merge.ts';
 export {
   addEntryAttachment,
   appendChild,

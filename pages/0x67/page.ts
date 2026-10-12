@@ -13,6 +13,7 @@ interface AppState {
   curtainTimeout: number; // seconds idle before the curtain hides the page
   autoLockTimeout: number; // seconds idle before the database locks itself
   dirty: boolean; // unsaved edits exist
+  baseVersion: string | null; // the stored version these edits build on, as the host names it (#74)
   sortField: EntrySortField;
   sortDir: EntrySortDirection;
   entryView: EntryView;
@@ -30,6 +31,7 @@ const app: AppState = {
   curtainTimeout: 60,
   autoLockTimeout: 300,
   dirty: false,
+  baseVersion: null,
   sortField: 'title',
   sortDir: 'asc',
   // Tile view reads better on narrow phones; this only sets the initial default.
@@ -276,11 +278,12 @@ async function handleFile(file: File): Promise<void> {
 
 // Screen: Unlock
 
-/** `preserveDirty` is true only when arriving here from lockDatabase(), whose
+/** `relocking` is true only when arriving here from lockDatabase(), whose
 edits were never actually persisted anywhere — everywhere else, unlocking
 starts a database whose only state is what's on disk/the host, so nothing is
-unsaved yet. */
-function showUnlock(preserveDirty = false): void {
+unsaved yet. Time away is also when a newer version may have been saved
+elsewhere, so a relock asks the host first (#74). */
+function showUnlock(relocking = false): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-unlock'));
   publishTitle();
@@ -325,12 +328,17 @@ function showUnlock(preserveDirty = false): void {
       const input: CredentialsInput = { password: passwordInput.value };
       if (keyfileData) input.keyFile = keyfileData;
       const creds = new Credentials(input);
-      app.db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
-      app.currentGroup = app.db.getRootGroup();
+      const latest = relocking && isHosted() ? await requestCheck() : null;
+      const notice =
+        latest?.status === 'newer'
+          ? await openNewer(creds, latest)
+          : await openHeld(creds, latest?.status === 'gone');
+      app.currentGroup = must(app.db).getRootGroup();
       app.searchQuery = '';
-      setDirty(preserveDirty && app.dirty);
+      setDirty(relocking && app.dirty);
       showEntryList();
       armIdleWatch();
+      if (notice) showNotice(notice);
     } catch (err) {
       errorEl.textContent =
         err instanceof Error ? err.message : 'Incorrect credentials or corrupt file.';
@@ -1099,9 +1107,8 @@ async function lockDatabase(): Promise<void> {
   try {
     const bytes = await must(app.db).save();
     app.file = bytes.buffer as ArrayBuffer;
-    const wasDirty = app.dirty;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
-    showUnlock(wasDirty);
+    showUnlock(true);
     curtain().close(); // only now, so the re-encrypting page never shows through (#84)
   } finally {
     locking = false;
@@ -1114,6 +1121,7 @@ function closeDatabase(): void {
     db: null,
     file: null,
     filename: '',
+    baseVersion: null,
     currentGroup: null,
     currentEntry: null,
     searchQuery: '',
@@ -1830,16 +1838,29 @@ type DialogState =
   | 'saved'
   | 'expired'
   | 'recovered'
-  | 'locked-out';
+  | 'locked-out'
+  | 'conflict'
+  | 'merging'
+  | 'conflict-copied';
 
 const EXPIRED_MESSAGE =
   'Your session with the storage provider expired. Reconnect to save, or download a copy.';
 const LOCKED_OUT_MESSAGE = 'The database locked while this dialog was open. Unlock it to save.';
+const CONFLICT_MESSAGE =
+  'The stored file changed since it was opened here, and saving would overwrite that. Merge the change in, then save again, or download a copy.';
+
+// Why a merge found nothing to merge, for each answer that isn't a newer version (#74).
+const NOT_MERGED: Record<'unchanged' | 'gone' | 'unknown', string> = {
+  unchanged: 'Nothing newer is stored now, so save again.',
+  gone: 'The file was removed or replaced in storage. Download a copy to keep your changes.',
+  unknown: 'Could not fetch the version saved elsewhere. Try again, or download a copy.',
+};
 
 interface ExpiredSession {
   status: HTMLElement;
   reconnectBtn: HTMLButtonElement;
   downloadBtn: HTMLButtonElement;
+  mergeBtn: HTMLButtonElement;
   /** The only way this dialog's controls change, and total over all of them. */
   apply: (state: DialogState) => void;
   retrySave: () => Promise<void>;
@@ -1849,6 +1870,50 @@ function showExpired(session: ExpiredSession): void {
   setSaveStatus(session.status, EXPIRED_MESSAGE, 'error');
   session.apply('expired');
   session.reconnectBtn.focus(); // the control that had focus was just hidden
+}
+
+function showConflict(session: ExpiredSession): void {
+  setSaveStatus(session.status, CONFLICT_MESSAGE, 'error');
+  session.apply('conflict');
+  session.mergeBtn.focus();
+}
+
+/** Merge in the version saved elsewhere that refused this save, by KeePass's
+rules (packages/kdbx), leaving the result unsaved to review and save again (#74). */
+async function runMerge(session: ExpiredSession, dlg: HTMLDialogElement): Promise<void> {
+  setSaveStatus(session.status, 'Bringing in the version saved elsewhere…');
+  session.apply('merging');
+  const latest = await requestCheck();
+  const db = app.db;
+  if (db === null) {
+    setSaveStatus(session.status, LOCKED_OUT_MESSAGE, 'error');
+    session.apply('locked-out');
+    return;
+  }
+  if (latest.status !== 'newer') {
+    setSaveStatus(session.status, NOT_MERGED[latest.status], 'error');
+    session.apply(latest.status === 'unchanged' ? 'normal' : 'conflict');
+    return;
+  }
+  let summary: MergeSummary;
+  try {
+    summary = await db.mergeIn(new Uint8Array(latest.bytes));
+  } catch {
+    setSaveStatus(
+      session.status,
+      "The version saved elsewhere couldn't be opened or read with this database's credentials. Download a copy to keep your changes.",
+      'error',
+    );
+    session.apply('conflict');
+    return;
+  }
+  app.baseVersion = latest.version;
+  setDirty(true);
+  dlg.close();
+  // What was on screen may have changed or gone, so the merged database is shown from the top.
+  Object.assign(app, { currentGroup: db.getRootGroup(), currentEntry: null, searchQuery: '' });
+  showEntryList();
+  showNotice(mergeNotice(summary, latest.savedAt));
 }
 
 /** Renew the credential, then let the dialog's own save run again. Both
@@ -1879,7 +1944,7 @@ async function runReconnect(session: ExpiredSession): Promise<void> {
 /* Auto-lock runs off its own timer and does not care that a dialog is open, so
 the database can be gone before either control is used; locking re-encrypted
 the edits, leaving nothing here to save or copy (#85). */
-async function runDownload(session: ExpiredSession): Promise<void> {
+async function runDownload(session: ExpiredSession, conflicted = false): Promise<void> {
   if (app.db === null) {
     setSaveStatus(session.status, LOCKED_OUT_MESSAGE, 'error');
     session.apply('locked-out');
@@ -1890,12 +1955,13 @@ async function runDownload(session: ExpiredSession): Promise<void> {
   } catch {
     // A throw here would leave the held dialog with no status and no way out (#85).
     setSaveStatus(session.status, 'Could not prepare a copy to download.', 'error');
-    session.apply('expired');
+    session.apply(conflicted ? 'conflict' : 'expired');
     return;
   }
   // A copy on disk means the edits are no longer stranded, so the dialog lets go.
-  setSaveStatus(session.status, 'Copy downloaded. Reconnect to save back to the provider.');
-  session.apply('recovered');
+  const next = conflicted ? 'Merge' : 'Reconnect';
+  setSaveStatus(session.status, `Copy downloaded. ${next} to save back to the provider.`);
+  session.apply(conflicted ? 'conflict-copied' : 'recovered');
 }
 
 function openSaveDialog(): void {
@@ -1910,6 +1976,7 @@ function openSaveDialog(): void {
   const downloadBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]'));
   const hostBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="save-host"]'));
   const reconnectBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="reconnect"]'));
+  const mergeBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="merge"]'));
   const laterBtn = must(dlg.querySelector<HTMLButtonElement>('[data-role="save-later"]'));
   const dismissBtns = Array.from(dlg.querySelectorAll<HTMLButtonElement>('[data-action="close"]'));
 
@@ -1917,10 +1984,16 @@ function openSaveDialog(): void {
     const expired = state === 'expired';
     // A copy being out does not make the provider current, so recovery stays offered.
     const offeringRecovery = expired || state === 'recovered';
-    /* Nothing may dismiss: while expired the edits exist nowhere but this tab,
-    and a save in flight reports here, including an expired session that only
-    this dialog can recover (#85). */
-    const held = expired || state === 'retrying' || state === 'saving';
+    const conflicted = state === 'conflict' || state === 'merging' || state === 'conflict-copied';
+    /* Nothing may dismiss: while expired or in conflict the edits exist nowhere
+    but this tab, and a save in flight reports here, including an expired
+    session that only this dialog can recover (#85, #74). */
+    const held =
+      expired ||
+      state === 'retrying' ||
+      state === 'saving' ||
+      state === 'conflict' ||
+      state === 'merging';
     // Still asking its original question, rather than reporting an outcome.
     const asking = state === 'normal' || state === 'saving' || state === 'recovered';
 
@@ -1942,12 +2015,17 @@ function openSaveDialog(): void {
     reconnectBtn.disabled = false;
     reconnectBtn.onclick = () => void runReconnect(session);
 
-    downloadBtn.hidden = offeringRecovery ? false : !(asking && !isHosted());
-    downloadBtn.disabled = false;
-    downloadBtn.textContent = offeringRecovery ? 'Download a copy' : 'Download';
-    downloadBtn.className = offeringRecovery ? 'btn btn-secondary' : 'btn btn-primary';
-    downloadBtn.onclick = offeringRecovery
-      ? () => void runDownload(session)
+    mergeBtn.hidden = !conflicted;
+    mergeBtn.disabled = state === 'merging';
+    mergeBtn.onclick = () => void runMerge(session, dlg);
+
+    const copying = offeringRecovery || conflicted;
+    downloadBtn.hidden = copying ? false : !(asking && !isHosted());
+    downloadBtn.disabled = state === 'merging';
+    downloadBtn.textContent = copying ? 'Download a copy' : 'Download';
+    downloadBtn.className = copying ? 'btn btn-secondary' : 'btn btn-primary';
+    downloadBtn.onclick = copying
+      ? () => void runDownload(session, conflicted)
       : () => void downloadAndClose();
   }
 
@@ -1969,6 +2047,10 @@ function openSaveDialog(): void {
       showExpired(session);
       return;
     }
+    if (result.reason === 'conflict') {
+      showConflict(session);
+      return;
+    }
     setSaveStatus(status, result.error ? `Save failed: ${result.error}` : 'Save failed.', 'error');
     apply('normal');
   }
@@ -1977,6 +2059,7 @@ function openSaveDialog(): void {
     status,
     reconnectBtn,
     downloadBtn,
+    mergeBtn,
     apply,
     retrySave: () => saveToHost(true),
   };
@@ -2033,7 +2116,8 @@ async function performSave(): Promise<SaveResult> {
   lastSaveId += 1;
   const id = lastSaveId;
   // Copy into a fresh, exactly-sized ArrayBuffer for the structured clone.
-  postToHost(saveMessage(id, app.filename, new Uint8Array(bytes).buffer));
+  const base = app.baseVersion ?? undefined; // the host refuses to replace any other version (#74)
+  postToHost(saveMessage(id, app.filename, new Uint8Array(bytes).buffer, base));
   const result = await new Promise<SaveResult>((resolve) => {
     const settle = (value: SaveResult): void => {
       window.clearTimeout(timer);
@@ -2046,7 +2130,10 @@ async function performSave(): Promise<SaveResult> {
     );
     pendingSaves.set(id, settle);
   });
-  if (result.ok) setDirty(false);
+  if (result.ok) {
+    if (result.version !== undefined) app.baseVersion = result.version;
+    setDirty(false);
+  }
   return result;
 }
 
@@ -2154,6 +2241,7 @@ function confirmUnsavedChanges(
 
   const downloadBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="download"]'));
   const reconnectBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="reconnect"]'));
+  const mergeBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="merge"]'));
   const cancelBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="cancel-discard"]'));
   const discardBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-discard"]'));
   const saveBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="confirm-save"]'));
@@ -2165,10 +2253,16 @@ function confirmUnsavedChanges(
   function apply(state: DialogState): void {
     const expired = state === 'expired';
     const offeringRecovery = expired || state === 'recovered';
+    const conflicted = state === 'conflict' || state === 'merging' || state === 'conflict-copied';
     /* The same hold as the save dialog, with a second reason of its own: this
     prompt runs proceed() on success, so a cancel landing mid-save would close a
     database the user just backed out of (#85). */
-    const held = expired || state === 'retrying' || state === 'saving';
+    const held =
+      expired ||
+      state === 'retrying' ||
+      state === 'saving' ||
+      state === 'conflict' ||
+      state === 'merging';
     const asking = state === 'normal' || state === 'saving' || state === 'recovered';
 
     cancelBtn.hidden = held;
@@ -2198,11 +2292,16 @@ function confirmUnsavedChanges(
     reconnectBtn.disabled = false;
     reconnectBtn.onclick = () => void runReconnect(session);
 
-    downloadBtn.hidden = !offeringRecovery;
-    downloadBtn.disabled = false;
+    // A merge leaves edits to review, so it ends this prompt rather than proceeding (#74).
+    mergeBtn.hidden = !conflicted;
+    mergeBtn.disabled = state === 'merging';
+    mergeBtn.onclick = () => void runMerge(session, dlg);
+
+    downloadBtn.hidden = !(offeringRecovery || conflicted);
+    downloadBtn.disabled = state === 'merging';
     downloadBtn.textContent = 'Download a copy';
     downloadBtn.className = 'btn btn-secondary';
-    downloadBtn.onclick = () => void runDownload(session);
+    downloadBtn.onclick = () => void runDownload(session, conflicted);
   }
 
   async function saveThenProceed(held = false): Promise<void> {
@@ -2218,6 +2317,10 @@ function confirmUnsavedChanges(
       showExpired(session);
       return;
     }
+    if (result.reason === 'conflict') {
+      showConflict(session);
+      return;
+    }
     setSaveStatus(status, result.error ? `Save failed: ${result.error}` : 'Save failed.', 'error');
     apply('normal');
   }
@@ -2226,6 +2329,7 @@ function confirmUnsavedChanges(
     status,
     reconnectBtn,
     downloadBtn,
+    mergeBtn,
     apply,
     retrySave: () => saveThenProceed(true),
   };
@@ -2233,6 +2337,124 @@ function confirmUnsavedChanges(
   apply('normal');
   dlg.showModal();
   saveBtn.focus();
+}
+
+// ============================================================
+// Newer versions saved elsewhere (#74)
+// ============================================================
+
+interface Notice {
+  title: string;
+  message: string;
+  items?: string[];
+}
+
+function showNotice(notice: Notice): void {
+  const dlg = byId<HTMLDialogElement>('dlg-notice');
+  byId('notice-title').textContent = notice.title;
+  byId('notice-message').textContent = notice.message;
+  const list = byId('notice-list');
+  list.innerHTML = '';
+  for (const item of notice.items ?? []) {
+    const li = document.createElement('li');
+    li.textContent = item;
+    list.appendChild(li);
+  }
+  list.hidden = list.children.length === 0;
+  for (const btn of dlg.querySelectorAll<HTMLButtonElement>('[data-action="close"]')) {
+    btn.onclick = () => dlg.close();
+  }
+  dlg.showModal();
+}
+
+function savedWhen(savedAt: string | undefined): string {
+  return savedAt === undefined ? '' : ` at ${formatDateTime(savedAt)}`;
+}
+
+function mergeNotice(summary: MergeSummary, savedAt: string | undefined): Notice {
+  const saved = `This database was also saved elsewhere${savedWhen(savedAt)}`;
+  const changes =
+    summary.changed === 1 ? '1 change from there is' : `${summary.changed} changes from there are`;
+  const notice: Notice = {
+    title: 'Merged with the version saved elsewhere',
+    message:
+      summary.changed === 0
+        ? `${saved}, with nothing your copy here lacked. Save when ready.`
+        : `${saved}. ${changes} now merged with your unsaved changes here; review them, then save.`,
+  };
+  if (summary.conflicts.length > 0) {
+    notice.message +=
+      ' These entries changed in both places, and each keeps the other version in its History:';
+    notice.items = summary.conflicts.map((title) => title || '(untitled)');
+  }
+  return notice;
+}
+
+async function openHeld(creds: Credentials, gone: boolean): Promise<Notice | null> {
+  app.db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
+  if (!gone) return null;
+  return {
+    title: 'This file is gone from storage',
+    message:
+      'It was removed or replaced since it was opened here, so saving back will fail. Download a copy to keep this database.',
+  };
+}
+
+async function opens(bytes: Uint8Array, creds: Credentials): Promise<boolean> {
+  try {
+    await Kdbx.load(bytes, creds);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Open the version saved elsewhere while this tab was locked. With nothing
+unsaved here it replaces this copy; with unsaved edits the two are merged by
+KeePass's rules and the result left unsaved to review. Throws what the unlock
+screen should say when these credentials can't do either. */
+async function openNewer(
+  creds: Credentials,
+  newer: Extract<CheckResult, { status: 'newer' }>,
+): Promise<Notice> {
+  const bytes = new Uint8Array(newer.bytes);
+  const when = savedWhen(newer.savedAt);
+  if (!app.dirty) {
+    try {
+      app.db = await Kdbx.load(bytes, creds);
+    } catch {
+      throw new Error(`The version saved elsewhere${when} doesn't open with these credentials.`);
+    }
+    app.file = newer.bytes;
+    app.baseVersion = newer.version;
+    return {
+      title: 'Opened the newer version',
+      message: `This database was saved elsewhere${when}, so that version is open now.`,
+    };
+  }
+
+  let db: Kdbx;
+  try {
+    db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
+  } catch (err) {
+    if (await opens(bytes, creds)) {
+      throw new Error(
+        `These credentials open the version saved elsewhere${when}, but your unsaved changes here are locked with the previous ones. Enter those to merge the two.`,
+      );
+    }
+    throw err;
+  }
+  app.db = db;
+  try {
+    const summary = await db.mergeIn(bytes);
+    app.baseVersion = newer.version;
+    return mergeNotice(summary, newer.savedAt);
+  } catch {
+    return {
+      title: 'Could not merge',
+      message: `The version saved elsewhere${when} couldn't be opened or read with these credentials, so your unsaved changes here aren't merged into it, and saving here will be refused. Download a copy to keep them.`,
+    };
+  }
 }
 
 // ============================================================
@@ -2421,11 +2643,13 @@ function openMoveToDialog(
 // packages/embed-protocol, rather than hand-checked here, so the app and host
 // side of the protocol can't drift out of sync with each other:
 //   app  → host : kw-ready          app booted, send a vault or a create instruction
-//   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer)
+//   host → app  : kw-open           open this vault (filename, bytes: ArrayBuffer, version?)
 //   host → app  : kw-create         start a brand-new, empty vault
 //   host → app  : kw-find           host saw the find keystroke; take it
-//   app  → host : kw-save           user saved; please persist (id, filename, bytes: ArrayBuffer)
-//   host → app  : kw-saved          result of the persist with that id (id, ok, error?, reason?)
+//   app  → host : kw-save           user saved; please persist (id, filename, bytes, base?)
+//   host → app  : kw-saved          result of the persist with that id (id, ok, error?, reason?, version?)
+//   app  → host : kw-check          is a newer version than this one stored? (base?)
+//   host → app  : kw-checked        unchanged, newer (bytes, version, savedAt?), gone, or unknown
 //   app  → host : kw-reconnect      the host credential expired; please renew it
 //   host → app  : kw-reconnected    result of that renewal (ok, error?)
 //   host → app  : kw-close-request  host wants to remove this iframe; may I?
@@ -2445,7 +2669,31 @@ const BASE_TITLE = document.title;
 interface SaveResult {
   ok: boolean;
   error?: string;
-  reason?: 'auth-expired';
+  reason?: 'auth-expired' | 'conflict';
+  version?: string;
+}
+
+type CheckResult =
+  | { status: 'unchanged' | 'gone' | 'unknown' }
+  | { status: 'newer'; bytes: ArrayBuffer; version: string; savedAt?: string };
+
+let pendingCheck: ((result: CheckResult) => void) | null = null;
+
+/** Ask the host whether a newer version than the one these edits build on is
+stored. A host that never answers counts as unknown, on the reconnect's budget
+since the host may need to renew its credential first (#74). */
+function requestCheck(): Promise<CheckResult> {
+  pendingCheck?.({ status: 'unknown' }); // a newer check supersedes one still waiting
+  postToHost(app.baseVersion === null ? checkMessage() : checkMessage(app.baseVersion));
+  return new Promise<CheckResult>((resolve) => {
+    const settle = (result: CheckResult): void => {
+      window.clearTimeout(timer);
+      pendingCheck = null;
+      resolve(result);
+    };
+    const timer = window.setTimeout(() => settle({ status: 'unknown' }), RECONNECT_TIMEOUT_MS);
+    pendingCheck = settle;
+  });
 }
 
 /* Saves can overlap, so each waits under its own id and a kw-saved reply settles
@@ -2510,16 +2758,23 @@ function handleHostMessage(event: MessageEvent): void {
     hostState = 'hosted';
     app.filename = event.data.filename;
     app.file = event.data.bytes;
+    app.baseVersion = event.data.version ?? null;
     showUnlock();
   } else if (isCreateMessage(event.data)) {
     hostState = 'hosted';
+    app.baseVersion = null;
     showCreateDatabase();
   } else if (isSavedMessage(event.data)) {
-    const { id, ok, error, reason } = event.data;
+    const { id, ok, error, reason, version } = event.data;
     const result: SaveResult = { ok };
     if (error !== undefined) result.error = error;
     if (reason !== undefined) result.reason = reason;
+    if (version !== undefined) result.version = version;
     pendingSaves.get(id)?.(result);
+  } else if (isCheckedMessage(event.data)) {
+    const resolve = pendingCheck;
+    pendingCheck = null;
+    resolve?.(event.data as CheckResult);
   } else if (isReconnectedMessage(event.data)) {
     const resolve = pendingReconnect;
     pendingReconnect = null;

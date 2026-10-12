@@ -90,7 +90,7 @@ export function getAttribute(element: XmlElement, name: string): string | undefi
 }
 
 // Set the text of `parent`'s named child, adding the child if it is absent.
-function kx_setChildText(parent: XmlElement, name: string, text: string): void {
+export function setChildText(parent: XmlElement, name: string, text: string): void {
   const child = getChild(parent, name);
   if (child) {
     setText(child, text);
@@ -304,13 +304,13 @@ export function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIs
 // Set one of an entry's or group's Times, adding it if the file left it out; no-op without Times.
 function kx_setTime(element: XmlElement, name: string, iso: string): void {
   const times = getChild(element, 'Times');
-  if (times) kx_setChildText(times, name, iso);
+  if (times) setChildText(times, name, iso);
 }
 
 // Set one of Meta's *Changed times to now, adding it if the file left it out; no-op without Meta.
 export function touchMetaTime(document: XmlElement, name: string): void {
   const meta = getChild(document, 'Meta');
-  if (meta) kx_setChildText(meta, name, kx_nowIso());
+  if (meta) setChildText(meta, name, kx_nowIso());
 }
 
 // Bump an entry's or group's LastModificationTime to now; merges keep the newer copy by it (#108).
@@ -556,8 +556,8 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   // createGroup() always appends a UUID child first, so this is always present.
   const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
 
-  kx_setChildText(meta, 'RecycleBinUUID', binUuid);
-  kx_setChildText(meta, 'RecycleBinChanged', kx_nowIso());
+  setChildText(meta, 'RecycleBinUUID', binUuid);
+  setChildText(meta, 'RecycleBinChanged', kx_nowIso());
   return bin;
 }
 

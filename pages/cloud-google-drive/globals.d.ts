@@ -18,6 +18,13 @@ interface DriveFile {
   name: string;
 }
 
+interface DriveRevision {
+  version: string;
+  sha256?: string;
+  savedAt?: string;
+  trashed: boolean;
+}
+
 declare function identifyFormat(
   header: Uint8Array,
 ):
@@ -31,6 +38,7 @@ interface OpenMessage {
   type: 'kw-open';
   filename: string;
   bytes: ArrayBuffer;
+  version?: string;
 }
 interface CreateMessage {
   type: 'kw-create';
@@ -40,13 +48,30 @@ interface SaveMessage {
   id: number;
   filename: string;
   bytes: ArrayBuffer;
+  base?: string;
 }
-interface SavedMessage {
+interface SavedDetails {
+  error?: string;
+  reason?: 'auth-expired' | 'conflict';
+  version?: string;
+}
+interface SavedMessage extends SavedDetails {
   type: 'kw-saved';
   id: number;
   ok: boolean;
-  error?: string;
-  reason?: 'auth-expired';
+}
+interface CheckMessage {
+  type: 'kw-check';
+  base?: string;
+}
+interface Newer {
+  bytes: ArrayBuffer;
+  version: string;
+  savedAt?: string;
+}
+interface CheckedMessage extends Partial<Newer> {
+  type: 'kw-checked';
+  status: 'unchanged' | 'newer' | 'gone' | 'unknown';
 }
 interface ReconnectMessage {
   type: 'kw-reconnect';
@@ -70,7 +95,10 @@ interface CloseMessage {
 
 declare function must<T>(value: T | null | undefined): T;
 declare function buildDriveDownloadUrl(apiBase: string, id: string): string;
+declare function buildDriveMetadataUrl(apiBase: string, id: string): string;
 declare function buildDriveUpdateUrl(uploadBase: string, id: string): string;
+declare function readDriveRevision(body: unknown): DriveRevision | undefined;
+declare function sha256Hex(bytes: ArrayBuffer): Promise<string>;
 declare function buildDriveCreateUrl(uploadBase: string): string;
 declare function buildMultipartBody(
   filename: string,
@@ -86,14 +114,12 @@ declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isTitleMessage(data: unknown): data is TitleMessage;
 declare function isCloseMessage(data: unknown): data is CloseMessage;
 declare function isReconnectMessage(data: unknown): data is ReconnectMessage;
-declare function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage;
+declare function isCheckMessage(data: unknown): data is CheckMessage;
+declare function openMessage(filename: string, bytes: ArrayBuffer, version?: string): OpenMessage;
 declare function createMessage(): CreateMessage;
-declare function savedMessage(
-  id: number,
-  ok: boolean,
-  error?: string,
-  reason?: 'auth-expired',
-): SavedMessage;
+declare function savedMessage(id: number, ok: boolean, details?: SavedDetails): SavedMessage;
+declare function checkedMessage(status: 'unchanged' | 'gone' | 'unknown'): CheckedMessage;
+declare function checkedMessage(status: 'newer', newer: Newer): CheckedMessage;
 declare function reconnectedMessage(ok: boolean, error?: string): ReconnectedMessage;
 declare function closeRequestMessage(): CloseRequestMessage;
 

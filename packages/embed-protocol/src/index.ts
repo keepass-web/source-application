@@ -2,16 +2,23 @@
 keepass-web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders so both ends provably agree on the wire
 format: kw-ready, kw-open, kw-create, kw-save, kw-saved, kw-title, kw-find,
-kw-close-request, kw-close-ack, kw-close (#1), kw-reconnect, kw-reconnected (#85). */
+kw-close-request, kw-close-ack, kw-close (#1), kw-reconnect, kw-reconnected (#85),
+kw-check, kw-checked (#74). */
 
 export interface ReadyMessage {
   type: 'kw-ready';
 }
 
+/* Which stored version of the file a database builds on, as an opaque token
+only the host reads; the app hands it back so a save never replaces a version
+it didn't build on (#74). Absent where the host can't tell versions apart. */
+export type Version = string;
+
 export interface OpenMessage {
   type: 'kw-open';
   filename: string;
   bytes: ArrayBuffer;
+  version?: Version;
 }
 
 // Host tells the app to start a brand-new, empty database instead of opening one.
@@ -25,19 +32,46 @@ export interface SaveMessage {
   id: number;
   filename: string;
   bytes: ArrayBuffer;
+  base?: Version; // the version these bytes build on; the host refuses to replace any other
 }
 
 /* A failure the app must handle differently from a generic error, rather than
-report as a status code; the host's credential expiring is recoverable in
-place, so the app offers a reconnect instead (#85). */
-export type SavedFailureReason = 'auth-expired';
+report as a status code: an expired credential is recoverable in place by a
+reconnect (#85), and a conflict, a newer version saved elsewhere, by a merge (#74). */
+export type SavedFailureReason = 'auth-expired' | 'conflict';
 
-export interface SavedMessage {
+export interface SavedDetails {
+  error?: string;
+  reason?: SavedFailureReason;
+  version?: Version; // what a successful save stored, so the next one builds on it
+}
+
+export interface SavedMessage extends SavedDetails {
   type: 'kw-saved';
   id: number;
   ok: boolean;
-  error?: string;
-  reason?: SavedFailureReason;
+}
+
+// The app asks whether storage holds a newer version than the one it builds on (#74).
+export interface CheckMessage {
+  type: 'kw-check';
+  base?: Version;
+}
+
+/* `unknown` when storage can't be reached or the host can't tell; `gone` when the
+file was removed or replaced. A newer version comes with its bytes, so the app
+can open or merge it without a second round trip. */
+export type CheckStatus = 'unchanged' | 'newer' | 'gone' | 'unknown';
+
+export interface Newer {
+  bytes: ArrayBuffer;
+  version: Version;
+  savedAt?: string; // ISO 8601, for telling the user when
+}
+
+export interface CheckedMessage extends Partial<Newer> {
+  type: 'kw-checked';
+  status: CheckStatus;
 }
 
 /* The app asks its host to renew the credential a save just failed on. The app
@@ -86,6 +120,10 @@ function hasType(data: unknown, type: string): data is { type: string } {
   );
 }
 
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
 function isFileMessage(
   data: unknown,
   type: 'kw-open' | 'kw-save',
@@ -102,7 +140,9 @@ export function isReadyMessage(data: unknown): data is ReadyMessage {
 }
 
 export function isOpenMessage(data: unknown): data is OpenMessage {
-  return isFileMessage(data, 'kw-open');
+  return (
+    isFileMessage(data, 'kw-open') && isOptionalString((data as Record<string, unknown>).version)
+  );
 }
 
 export function isCreateMessage(data: unknown): data is CreateMessage {
@@ -111,15 +151,34 @@ export function isCreateMessage(data: unknown): data is CreateMessage {
 
 export function isSaveMessage(data: unknown): data is SaveMessage {
   if (!isFileMessage(data, 'kw-save')) return false;
-  return typeof (data as Record<string, unknown>).id === 'number';
+  const rec = data as Record<string, unknown>;
+  return typeof rec.id === 'number' && isOptionalString(rec.base);
 }
 
 export function isSavedMessage(data: unknown): data is SavedMessage {
   if (!hasType(data, 'kw-saved')) return false;
   const rec = data as Record<string, unknown>;
   if (typeof rec.id !== 'number' || typeof rec.ok !== 'boolean') return false;
-  if (rec.error !== undefined && typeof rec.error !== 'string') return false;
-  return rec.reason === undefined || rec.reason === 'auth-expired';
+  if (!isOptionalString(rec.error) || !isOptionalString(rec.version)) return false;
+  return rec.reason === undefined || rec.reason === 'auth-expired' || rec.reason === 'conflict';
+}
+
+export function isCheckMessage(data: unknown): data is CheckMessage {
+  return hasType(data, 'kw-check') && isOptionalString((data as Record<string, unknown>).base);
+}
+
+export function isCheckedMessage(data: unknown): data is CheckedMessage {
+  if (!hasType(data, 'kw-checked')) return false;
+  const rec = data as Record<string, unknown>;
+  if (rec.status === 'newer') {
+    return (
+      rec.bytes instanceof ArrayBuffer &&
+      typeof rec.version === 'string' &&
+      rec.version !== '' &&
+      isOptionalString(rec.savedAt)
+    );
+  }
+  return rec.status === 'unchanged' || rec.status === 'gone' || rec.status === 'unknown';
 }
 
 export function isReconnectMessage(data: unknown): data is ReconnectMessage {
@@ -161,28 +220,43 @@ export function readyMessage(): ReadyMessage {
   return { type: 'kw-ready' };
 }
 
-export function openMessage(filename: string, bytes: ArrayBuffer): OpenMessage {
-  return { type: 'kw-open', filename, bytes };
+export function openMessage(filename: string, bytes: ArrayBuffer, version?: Version): OpenMessage {
+  return version === undefined
+    ? { type: 'kw-open', filename, bytes }
+    : { type: 'kw-open', filename, bytes, version };
 }
 
 export function createMessage(): CreateMessage {
   return { type: 'kw-create' };
 }
 
-export function saveMessage(id: number, filename: string, bytes: ArrayBuffer): SaveMessage {
-  return { type: 'kw-save', id, filename, bytes };
+export function saveMessage(
+  id: number,
+  filename: string,
+  bytes: ArrayBuffer,
+  base?: Version,
+): SaveMessage {
+  return base === undefined
+    ? { type: 'kw-save', id, filename, bytes }
+    : { type: 'kw-save', id, filename, bytes, base };
 }
 
-export function savedMessage(
-  id: number,
-  ok: boolean,
-  error?: string,
-  reason?: SavedFailureReason,
-): SavedMessage {
+export function savedMessage(id: number, ok: boolean, details: SavedDetails = {}): SavedMessage {
   const message: SavedMessage = { type: 'kw-saved', id, ok };
-  if (error !== undefined) message.error = error;
-  if (reason !== undefined) message.reason = reason;
+  if (details.error !== undefined) message.error = details.error;
+  if (details.reason !== undefined) message.reason = details.reason;
+  if (details.version !== undefined) message.version = details.version;
   return message;
+}
+
+export function checkMessage(base?: Version): CheckMessage {
+  return base === undefined ? { type: 'kw-check' } : { type: 'kw-check', base };
+}
+
+export function checkedMessage(status: Exclude<CheckStatus, 'newer'>): CheckedMessage;
+export function checkedMessage(status: 'newer', newer: Newer): CheckedMessage;
+export function checkedMessage(status: CheckStatus, newer?: Newer): CheckedMessage {
+  return { type: 'kw-checked', status, ...newer };
 }
 
 export function reconnectMessage(): ReconnectMessage {

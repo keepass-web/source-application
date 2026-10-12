@@ -188,6 +188,9 @@ function handleFrameMessage(event: MessageEvent): void {
   } else if (isSaveMessage(event.data)) {
     qs('#host-filename').textContent = event.data.filename;
     downloadAndAck(event.data, source);
+  } else if (isCheckMessage(event.data)) {
+    // The file was read once and nothing here can see it again, so whether it changed is unknown (#74).
+    source.postMessage(checkedMessage('unknown'), PEER.target);
   } else if (isTitleMessage(event.data)) {
     appUnlocked = !event.data.locked;
     applyTabState(document, BASE_TITLE, event.data.filename, event.data.locked);

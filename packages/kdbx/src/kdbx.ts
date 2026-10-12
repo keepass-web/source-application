@@ -38,6 +38,7 @@ import {
 } from './inner-header.ts';
 import { aesKdf, transformWithKdfParameters } from './kdf.ts';
 import { deriveCipherKey, deriveHeaderHmacKey, deriveHmacBaseKey } from './key.ts';
+import { type MergeSummary, mergeDocuments } from './merge.ts';
 import {
   readMetaBinaries,
   remapEntryBinaryRefs,
@@ -215,6 +216,16 @@ export class Kdbx {
   setCredentials(credentials: Credentials): void {
     this.#credentials = credentials;
     touchMetaTime(this.root, 'MasterKeyChanged');
+  }
+
+  /** Merge another copy of this database, which must open with this one's
+  credentials, into this one by KeePass's synchronization rules (#74). */
+  async mergeIn(data: Uint8Array): Promise<MergeSummary> {
+    const other = await Kdbx.load(data, this.#credentials);
+    return mergeDocuments(this.root, other.root, (ref) => {
+      const binary = other.getBinaryData(ref);
+      return binary === undefined ? -1 : this.addBinary(binary); // a stale reference stays stale
+    });
   }
 
   // Add a binary attachment, reusing an identical one if present; returns its pool index.

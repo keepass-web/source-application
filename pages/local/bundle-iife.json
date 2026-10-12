@@ -17,6 +17,8 @@
     "openMessage",
     "createMessage",
     "savedMessage",
+    "isCheckMessage",
+    "checkedMessage",
     "closeRequestMessage",
     "must",
     "applyTabState",
