@@ -1495,6 +1495,9 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
 // Screen: Entry Edit
 // ============================================================
 
+// A picked file stays bytes until Save adds it to the database (#109).
+type EditAttachment = EntryAttachment | { name: string; data: Uint8Array };
+
 function showEntryEdit(isNew: boolean): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-edit'));
@@ -1502,9 +1505,9 @@ function showEntryEdit(isNew: boolean): void {
   const entry = must(app.currentEntry);
   qs('#edit-title').textContent = isNew ? 'New Entry' : 'Edit Entry';
 
-  // Held until Save, like the fields, so Cancel leaves the entry untouched (#109).
+  // Held until Save, like the fields, so Cancel changes nothing (#109).
   let pickedIconId: number | undefined;
-  const attachments = getEntryAttachments(entry);
+  const attachments: EditAttachment[] = getEntryAttachments(entry);
 
   const iconBtn = qs<HTMLButtonElement>('#edit-icon-btn');
   iconBtn.textContent = iconEmoji(elementIconId(entry));
@@ -1552,15 +1555,13 @@ function showEntryEdit(isNew: boolean): void {
     fieldsEl.appendChild(buildEditField('', '', false, true));
   });
 
-  const db = must(app.db);
   const attachmentsList = qs('#edit-attachments');
   renderEditAttachments(attachments, attachmentsList);
   qs<HTMLInputElement>('#edit-attachment-input').addEventListener('change', async (e) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    const data = new Uint8Array(await file.arrayBuffer());
-    attachments.push({ name: file.name, ref: db.addBinary(data) });
+    attachments.push({ name: file.name, data: new Uint8Array(await file.arrayBuffer()) });
     renderEditAttachments(attachments, attachmentsList);
     input.value = '';
   });
@@ -1581,7 +1582,7 @@ function showEntryEdit(isNew: boolean): void {
   });
 }
 
-function renderEditAttachments(attachments: EntryAttachment[], container: HTMLElement): void {
+function renderEditAttachments(attachments: EditAttachment[], container: HTMLElement): void {
   container.innerHTML = '';
   for (const attachment of attachments) {
     const row = document.createElement('div');
@@ -1686,12 +1687,13 @@ function commitEdits(
   fieldsEl: HTMLElement,
   isNew: boolean,
   pickedIconId: number | undefined,
-  attachments: EntryAttachment[],
+  attachments: EditAttachment[],
 ): void {
+  const db = must(app.db);
   // A brand-new entry has no prior state worth keeping — only snapshot when
   // editing one that already existed, matching real KeePass.
   if (!isNew) {
-    pushHistorySnapshot(must(app.db).root, entry);
+    pushHistorySnapshot(db.root, entry);
   }
 
   const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
@@ -1706,7 +1708,9 @@ function commitEdits(
     setText(getChild(entry, 'IconID') as XmlElement, String(pickedIconId));
   }
   for (const { name } of getEntryAttachments(entry)) removeEntryAttachment(entry, name);
-  for (const { name, ref } of attachments) addEntryAttachment(entry, name, ref);
+  for (const held of attachments) {
+    addEntryAttachment(entry, held.name, 'data' in held ? db.addBinary(held.data) : held.ref);
+  }
 
   const tagsInput = qs<HTMLInputElement>('#edit-tags');
   setEntryTags(entry, tagsInput.value.split(/[,;]/));
