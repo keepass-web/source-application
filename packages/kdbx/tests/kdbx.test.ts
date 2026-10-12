@@ -17,6 +17,7 @@ import {
   Kdbx,
   type KdbxCreateOptions,
   moveToGroup,
+  parseXml,
   pushHistorySnapshot,
   readOuterHeader,
   removeEntryAttachment,
@@ -25,6 +26,7 @@ import {
   setText,
   sha256,
   toBase64,
+  utf8Encode,
   type XmlElement,
 } from '../src/index.ts';
 
@@ -173,6 +175,38 @@ for (const version of [3, 4] as const) {
 }
 
 for (const version of [3, 4] as const) {
+  test(`save names this app as the writer, replacing or adding <Meta><Generator> (KDBX ${version})`, async () => {
+    // KeePass renames itself the writer on every save, so the file names whoever saved it last (#136).
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    const meta = getChild(kdbx.root, 'Meta') as XmlElement;
+    setText(getChild(meta, 'Generator') as XmlElement, 'KeePassXC');
+
+    const replaced = await Kdbx.load(await kdbx.save(), credentials);
+    const replacedMeta = getChild(replaced.root, 'Meta') as XmlElement;
+    assert.equal(getText(getChild(replacedMeta, 'Generator') as XmlElement), 'keepass-web');
+
+    replacedMeta.children = replacedMeta.children.filter(
+      (child) => !(child.type === 'element' && child.name === 'Generator'),
+    );
+    const added = await Kdbx.load(await replaced.save(), credentials);
+    const addedMeta = getChild(added.root, 'Meta') as XmlElement;
+    assert.equal(getText(getChild(addedMeta, 'Generator') as XmlElement), 'keepass-web');
+  });
+}
+
+test('save leaves a file without <Meta> without one, rather than failing', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  kdbx.root.children = kdbx.root.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'Meta'),
+  );
+
+  const reloaded = await Kdbx.load(await kdbx.save(), credentials);
+  assert.equal(getChild(reloaded.root, 'Meta'), undefined);
+});
+
+for (const version of [3, 4] as const) {
   test(`a permanent delete's record and a move's LocationChanged survive save/reload (KDBX ${version})`, async () => {
     // Other KeePass clients merge by these, so they must reach the file intact,
     // including through 4.x's binary DateTime encoding (#108).
@@ -214,6 +248,76 @@ for (const version of [3, 4] as const) {
     const reloadedMoved = getChild(reloadedDestination, 'Entry') as XmlElement;
     assert.equal(getText(timeOf(reloadedMoved, 'LocationChanged')), locationChanged);
     assert.notEqual(locationChanged, '2000-01-01T00:00:00Z');
+  });
+}
+
+/** The Value element of an entry's String field with the given key. */
+function stringValue(entry: XmlElement, key: string): XmlElement {
+  const string = getChildren(entry, 'String').find(
+    (s) => getText(getChild(s, 'Key') as XmlElement) === key,
+  );
+  return getChild(string as XmlElement, 'Value') as XmlElement;
+}
+
+for (const version of [3, 4] as const) {
+  test(`exportXml writes the whole database as KeePass XML, leaving the open one as it was (KDBX ${version}, #137)`, async () => {
+    // KeePass and KeePassXC import this form, so a database moves into either without loss.
+    const credentials = Credentials.fromPassword('pw');
+    const kdbx = await Kdbx.create(credentials, options({ version }));
+    const entry = createEntry({
+      title: 'Server',
+      password: 's3cret',
+      fields: [{ key: 'Recovery codes', value: 'one\ntwo' }],
+    });
+    addEntryAttachment(entry, 'key.pem', kdbx.addBinary(utf8Encode('KEY')));
+    pushHistorySnapshot(kdbx.root, entry);
+    appendChild(kdbx.getRootGroup(), entry);
+    appendChild(getChild(kdbx.root, 'Meta') as XmlElement, createElement('HeaderHash', 'c3RhbGU='));
+    // Through a real file: 3.1 keeps attachments in Meta, and 4.x stores times in binary.
+    const opened = await Kdbx.load(await kdbx.save(), credentials);
+
+    const xml = parseXml(opened.exportXml());
+    assert.equal(xml.name, 'KeePassFile');
+    const meta = getChild(xml, 'Meta') as XmlElement;
+    assert.equal(getChild(meta, 'HeaderHash'), undefined, 'plain XML has no header to vouch for');
+    const binary = getChild(getChild(meta, 'Binaries') as XmlElement, 'Binary') as XmlElement;
+    assert.equal(getAttribute(binary, 'ID'), '0');
+    assert.equal(getText(binary), toBase64(utf8Encode('KEY')));
+
+    const exportedRoot = getChild(getChild(xml, 'Root') as XmlElement, 'Group') as XmlElement;
+    const exported = getChild(exportedRoot, 'Entry') as XmlElement;
+    assert.deepEqual(fieldsOf(exported), {
+      Title: 'Server',
+      UserName: '',
+      Password: 's3cret',
+      URL: '',
+      Notes: '',
+      'Recovery codes': 'one\ntwo',
+    });
+    assert.deepEqual(getEntryAttachments(exported), [{ name: 'key.pem', ref: 0 }]);
+    const [snapshot] = getEntryHistory(exported) as [XmlElement];
+    assert.equal(getEntryHistory(exported).length, 1);
+    // The password is marked as KeePass marks a protected value in plain XML, in History too.
+    for (const copy of [exported, snapshot]) {
+      const password = stringValue(copy, 'Password');
+      assert.equal(getAttribute(password, 'ProtectInMemory'), 'True');
+      assert.equal(getAttribute(password, 'Protected'), undefined);
+      assert.equal(getText(password), 's3cret');
+    }
+    const modified = getChild(getChild(exported, 'Times') as XmlElement, 'LastModificationTime');
+    assert.match(
+      getText(modified as XmlElement),
+      /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/,
+      'times as text',
+    );
+
+    // The open database is untouched: still protected, still hashed, attachments in the pool.
+    const openedMeta = getChild(opened.root, 'Meta') as XmlElement;
+    assert.ok(getChild(openedMeta, 'HeaderHash'));
+    assert.equal(getChild(openedMeta, 'Binaries'), undefined);
+    const openPassword = stringValue(firstEntry(opened), 'Password');
+    assert.equal(getAttribute(openPassword, 'Protected'), 'True');
+    assert.equal(getAttribute(openPassword, 'ProtectInMemory'), undefined);
   });
 }
 
