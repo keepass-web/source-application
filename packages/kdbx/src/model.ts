@@ -158,6 +158,14 @@ export function applyOutboundProtection(root: XmlElement, cipher: ProtectedStrea
   });
 }
 
+// Plain XML has no inner stream, so KeePass marks a protected value ProtectInMemory there instead (#137).
+export function markProtectedInMemory(root: XmlElement): void {
+  kx_walkProtected(root, (element) => {
+    element.attributes = element.attributes.filter(([name]) => name !== KX_PROTECTED_ATTRIBUTE);
+    setAttribute(element, 'ProtectInMemory', 'True');
+  });
+}
+
 // --- Builders ---------------------------------------------------------------
 
 function kx_nowIso(): string {
