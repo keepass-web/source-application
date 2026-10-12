@@ -29,10 +29,24 @@ test('keyFileComponent: a raw 32-byte key file is used as-is', async () => {
 
 test('keyFileComponent: a 64-character ASCII hex key file is decoded as hex', async () => {
   const hex = 'a1'.repeat(32); // 64 hex chars, not 32 bytes long as text
-  const keyFile = utf8Encode(`${hex}\r\n`); // trailing CR/LF must be trimmed
-  const component = await keyFileComponent(keyFile);
+  const component = await keyFileComponent(utf8Encode(hex));
   assert.equal(component.length, 32);
   assert.equal(component[0], 0xa1);
+});
+
+test('keyFileComponent: hex with a trailing newline is hashed whole, as KeePass and KeePassXC hash it (#128)', async () => {
+  // What `openssl rand -hex 32 > key` writes; reading it as hex would key it
+  // differently here than in every other KeePass client.
+  for (const ending of ['\n', '\r\n']) {
+    const keyFile = utf8Encode(`${'a1'.repeat(32)}${ending}`);
+    assert.deepEqual(await keyFileComponent(keyFile), await sha256(keyFile));
+  }
+});
+
+test('keyFileComponent: 64 bytes that are not all hex are hashed whole', async () => {
+  const keyFile = utf8Encode(`${'a1'.repeat(31)}zz`);
+  assert.equal(keyFile.length, 64);
+  assert.deepEqual(await keyFileComponent(keyFile), await sha256(keyFile));
 });
 
 test('keyFileComponent: non-hex, non-32-byte content falls back to SHA-256 of the raw bytes', async () => {
@@ -43,14 +57,6 @@ test('keyFileComponent: non-hex, non-32-byte content falls back to SHA-256 of th
 
 test('keyFileComponent: non-ASCII bytes also fall back to SHA-256', async () => {
   const keyFile = new Uint8Array([0x00, 0x01, 0xff, 0xfe, 0x10, 0x20]); // 0xff is not ASCII
-  const component = await keyFileComponent(keyFile);
-  assert.equal(component.length, 32);
-});
-
-test('keyFileComponent: a disallowed control byte also falls back to SHA-256', async () => {
-  // 0x01 (SOH) is below 0x20 and not tab/LF/CR, so it fails the ASCII check
-  // by a different branch than a byte above 0x7e.
-  const keyFile = new Uint8Array([0x41, 0x01, 0x42, 0x43, 0x44, 0x45]);
   const component = await keyFileComponent(keyFile);
   assert.equal(component.length, 32);
 });
