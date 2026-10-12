@@ -51,7 +51,6 @@ import {
   moveToGroup,
   pushHistorySnapshot,
   removeEntryAttachment,
-  renameEntryAttachment,
   restoreHistoryEntry,
   setAttribute,
   setEntryExpiry,
@@ -190,7 +189,6 @@ Object.assign(globalThis, {
   deletePermanently,
   getEntryAttachments,
   addEntryAttachment,
-  renameEntryAttachment,
   removeEntryAttachment,
   getEntryHistory,
   pushHistorySnapshot,
@@ -943,7 +941,7 @@ test('0x67 app', async (t) => {
   });
 
   await t.test(
-    'the entry icon picker defaults to Key, can be closed without picking, and updates the entry when a choice is made',
+    'the entry icon picker defaults to Key, can be closed without picking, and shows the choice made',
     () => {
       const iconBtn = q<HTMLButtonElement>('#edit-icon-btn');
       assert.equal(iconBtn.textContent, '🔑', 'new entries default to the Key icon');
@@ -2456,6 +2454,100 @@ test('entry history: edits are snapshotted, and a past version can be restored o
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),
   );
+});
+
+// They wait for Save like every other edit, so History keeps the version before them (#109).
+test('icon and attachment edits apply on Save, after the History snapshot, and Cancel discards them', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Passport' });
+  addEntryAttachment(entry, 'scan.pdf', kdbx.addBinary(new TextEncoder().encode('scan')));
+  addEntryAttachment(entry, 'photo.jpg', kdbx.addBinary(new TextEncoder().encode('photo')));
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('held-edits.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: Element): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const editNameInputs = (): HTMLInputElement[] =>
+    Array.from(root().querySelectorAll<HTMLInputElement>('#edit-attachments .attachment-name'));
+  const detailNames = (): string[] =>
+    Array.from(root().querySelectorAll('#detail-attachments .attachment-name')).map(
+      (el) => el.textContent ?? '',
+    );
+  // Opens the edit screen, picks Bank, renames one attachment, removes another and adds a third.
+  const editIconAndAttachments = async (): Promise<void> => {
+    click(q('[data-action="edit"]'));
+    click(q('#edit-icon-btn'));
+    const bank = Array.from(
+      byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
+    ).find((b) => b.title === 'Bank') as HTMLButtonElement;
+    click(bank);
+
+    const scan = editNameInputs().find((input) => input.value === 'scan.pdf') as HTMLInputElement;
+    scan.value = 'passport.pdf';
+    dispatch(scan, 'change');
+    const photo = editNameInputs().find((input) => input.value === 'photo.jpg') as HTMLElement;
+    click(
+      photo.closest('.attachment-row')?.querySelector('[title="Remove attachment"]') as Element,
+    );
+    const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+    setFiles(attachmentInput, [makeFile('visa.pdf', new TextEncoder().encode('visa'))]);
+    dispatch(attachmentInput, 'change');
+    await waitFor(() => editNameInputs().length === 2);
+
+    assert.equal(q<HTMLElement>('#edit-icon-btn').textContent, '🏦');
+    assert.deepEqual(
+      editNameInputs().map((input) => input.value),
+      ['passport.pdf', 'visa.pdf'],
+    );
+  };
+
+  click(q('.entry-row'));
+  await editIconAndAttachments();
+  click(q('[data-action="cancel"]'));
+  assert.equal(q<HTMLElement>('#detail-title').textContent, '🔑 Passport', 'Cancel keeps the icon');
+  assert.deepEqual(detailNames(), ['scan.pdf', 'photo.jpg'], 'Cancel keeps the attachments');
+  click(q('[data-action="back"]'));
+  assert.equal(
+    q<HTMLButtonElement>('[data-action="save-database"]').disabled,
+    true,
+    'Cancel leaves nothing unsaved',
+  );
+
+  click(q('.entry-row'));
+  await editIconAndAttachments();
+  click(q('[data-action="save"]'));
+  assert.equal(q<HTMLElement>('#detail-title').textContent, '🏦 Passport');
+  assert.deepEqual(detailNames(), ['passport.pdf', 'visa.pdf']);
+  click(dq('#dlg-save [data-action="close"]'));
+
+  // The snapshot Save took is the entry before this edit, so restoring it brings both back.
+  click(q('#detail-history [title="Restore this version"]'));
+  assert.equal(q<HTMLElement>('#detail-title').textContent, '🔑 Passport');
+  assert.deepEqual(detailNames(), ['scan.pdf', 'photo.jpg']);
+
+  click(q('[data-action="back"]'));
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
 test('a rename, a move and permanent deletes reach the saved file as other KeePass clients merge them', async () => {
