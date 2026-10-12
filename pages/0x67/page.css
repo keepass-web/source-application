@@ -1310,10 +1310,14 @@ body:not(.app-mode) .screen-edit {
 }
 
 textarea.edit-value {
-  min-height: 6em;
   resize: vertical;
   /* What browsers give the single-line inputs beside it (#89). */
   font-family: system-ui, sans-serif;
+}
+
+/* A protected value with line breaks, which a password input would drop (#126). */
+textarea.edit-value.concealed {
+  -webkit-text-security: disc;
 }
 
 .edit-field:has(textarea) {
