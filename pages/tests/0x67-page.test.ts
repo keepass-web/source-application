@@ -2550,6 +2550,78 @@ test('icon and attachment edits apply on Save, after the History snapshot, and C
   click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
+// A save drops attachment data nothing uses, which can move the rest while the card stays open (#119).
+test("an open card's Download still fetches its own attachment after a save moves the stored data", async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  // Only First's History version holds old.txt, whose data is stored ahead of Second's keep.txt.
+  const first = createEntry({ title: 'First' });
+  addEntryAttachment(first, 'old.txt', kdbx.addBinary(new TextEncoder().encode('old')));
+  pushHistorySnapshot(kdbx.root, first);
+  removeEntryAttachment(first, 'old.txt');
+  const second = createEntry({ title: 'Second' });
+  addEntryAttachment(second, 'keep.txt', kdbx.addBinary(new TextEncoder().encode('keep')));
+  appendChild(kdbx.getRootGroup(), first);
+  appendChild(kdbx.getRootGroup(), second);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('renumbered.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: Element): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const openEntryTitled = (title: string): void => {
+    const rows = Array.from(root().querySelectorAll('.entry-row'));
+    click(rows.find((row) => row.textContent?.includes(title)) as Element);
+  };
+
+  // Deleting First's History version leaves old.txt's data unused.
+  openEntryTitled('First');
+  click(q('#detail-history [title="Delete this version"]'));
+  click(q('[data-action="back"]'));
+
+  // Second's card is drawn by Save, and the save prompt over it drops old.txt's data, moving keep.txt's.
+  openEntryTitled('Second');
+  click(q('[data-action="edit"]'));
+  click(q('[data-action="save"]'));
+  click(dq('#dlg-save [data-action="download"]'));
+  await waitFor(() => byId<HTMLDialogElement>('dlg-save').open === false);
+
+  const downloaded: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloaded.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(q('#detail-attachments [title="Download"]'));
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  assert.equal(downloaded.length, 1, 'the card still downloads its attachment');
+  assert.equal(await (downloaded[0] as Blob).text(), 'keep');
+
+  click(q('[data-action="back"]'));
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
 test('a rename, a move and permanent deletes reach the saved file as other KeePass clients merge them', async () => {
   // KeePass and KeePassXC merge two copies by these times and DeletedObjects
   // records, so they are checked in the bytes a save writes, not just in memory (#108).

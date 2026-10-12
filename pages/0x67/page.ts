@@ -1432,7 +1432,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
 
 function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLElement): void {
   container.innerHTML = '';
-  for (const attachment of getEntryAttachments(entry)) {
+  for (const [index, attachment] of getEntryAttachments(entry).entries()) {
     const row = document.createElement('div');
     row.className = 'attachment-row';
 
@@ -1441,7 +1441,10 @@ function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLEle
     label.textContent = attachment.name;
 
     const downloadBtn = makeIconButton('icon-btn', 'Download', '⬇', () => {
-      const data = db.getBinaryData(attachment.ref);
+      /* Looked up on click: a save can renumber stored attachments under an open
+      card, while anything that changes the attachments themselves redraws it (#119). */
+      const { ref } = getEntryAttachments(entry)[index] as EntryAttachment;
+      const data = db.getBinaryData(ref);
       if (!data) return;
       const blob = new Blob([new Uint8Array(data)]);
       const url = URL.createObjectURL(blob);
