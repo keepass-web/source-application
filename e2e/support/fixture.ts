@@ -40,7 +40,14 @@ export async function writeKdbxFixture(url = ''): Promise<KdbxFixture> {
   });
   appendChild(
     kdbx.getRootGroup(),
-    createEntry({ title: entryTitle, username: 'octocat', password: 'hunter2', url }),
+    createEntry({
+      title: entryTitle,
+      username: 'octocat',
+      password: 'hunter2',
+      url,
+      // A protected value with line breaks, as KeePass and KeePassXC write them (#126).
+      fields: [{ key: 'SSH key', value: 'first line\nsecond line', protect: true }],
+    }),
   );
   appendChild(kdbx.getRootGroup(), createGroup(groupName));
   const bytes = await kdbx.save();
