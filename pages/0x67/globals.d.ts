@@ -227,6 +227,10 @@ declare function groupPathTo(
   target: XmlElement,
   path?: string[],
 ): string[] | null;
+declare function collectSearchableEntries(
+  document: XmlElement,
+  group: XmlElement,
+): EntryWithGroup[];
 declare function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[];
 
 type EntrySortField = 'title' | 'username' | 'modified';

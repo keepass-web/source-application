@@ -9,12 +9,14 @@ source, not build, and breaks when actually run from build output. */
 import {
   appendChild,
   createElement,
+  getAttribute,
   getChild,
   getChildren,
   getEntryAttachments,
   getEntryTags,
   getEntryTimes,
   getText,
+  isInRecycleBin,
   setAttribute,
 } from '../../build/packages/kdbx/src/model.js';
 import type { XmlElement } from '../../build/packages/kdbx/src/xml.js';
@@ -184,13 +186,38 @@ export function groupPathTo(
   return null;
 }
 
-// Keep only entries with a String field or tag matching the query, case-insensitively.
+/** Every entry search looks through: none in the recycle bin or in a group with
+searching off, which a group without its own setting inherits, as in KeePass and KeePassXC (#131). */
+export function collectSearchableEntries(
+  document: XmlElement,
+  group: XmlElement,
+  inherited = true,
+  results: EntryWithGroup[] = [],
+): EntryWithGroup[] {
+  if (isInRecycleBin(document, group)) return results;
+  const setting = getChild(group, 'EnableSearching');
+  const value = setting ? getText(setting).trim().toLowerCase() : '';
+  const searchable = value === 'true' || (value !== 'false' && inherited);
+  if (searchable) {
+    for (const entry of getChildren(group, 'Entry')) results.push({ entry, group });
+  }
+  for (const sub of getChildren(group, 'Group')) {
+    collectSearchableEntries(document, sub, searchable, results);
+  }
+  return results;
+}
+
+/** Keep only entries with a field or tag matching the query, case-insensitively;
+a password or other protected value never matches, as in KeePass and KeePassXC (#131). */
 export function filterEntriesByQuery(entries: EntryWithGroup[], query: string): EntryWithGroup[] {
   const q = query.toLowerCase();
   return entries.filter(({ entry }) => {
     for (const string of getChildren(entry, 'String')) {
+      const k = getChild(string, 'Key');
       const v = getChild(string, 'Value');
-      if (v && getText(v).toLowerCase().includes(q)) return true;
+      if (!k || !v || getText(k) === 'Password' || getAttribute(v, 'Protected') === 'True')
+        continue;
+      if (getText(v).toLowerCase().includes(q)) return true;
     }
     return getEntryTags(entry).some((tag) => tag.toLowerCase().includes(q));
   });

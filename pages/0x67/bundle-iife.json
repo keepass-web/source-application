@@ -67,6 +67,7 @@
     "isDescendantGroup",
     "collectAllEntries",
     "groupPathTo",
+    "collectSearchableEntries",
     "filterEntriesByQuery",
     "sortEntries",
     "toCsv",
