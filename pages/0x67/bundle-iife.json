@@ -71,6 +71,7 @@
     "sortEntries",
     "toCsv",
     "applyEntryEdits",
+    "duplicateFieldName",
     "isCustomField",
     "openableUrl",
     "isValidClipboardTimeout",
