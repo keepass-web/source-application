@@ -8,6 +8,98 @@
   <!--STYLES-->
 </head>
 <body>
+  <!-- Every icon this page draws (#121): the controls' first, then KeePass's standard set in IconID order. -->
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="icon-eye-off" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm1-9 18 18"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="icon-open" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10 14M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-remove" viewBox="0 0 24 24"><path d="M3 6h11M3 18h11M3 12h.01M6 12h.01M11 12h10m-3-3 3 3-3 3"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="icon-drawer-open" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16M5.5 8h2M5.5 12h2M5.5 16h2m6.5-7 3 3-3 3"/></symbol>
+    <symbol id="icon-drawer-close" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16M5.5 8h2M5.5 12h2M5.5 16h2m9.5-7-3 3 3 3"/></symbol>
+    <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="icon-export" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="icon-restore" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+    <symbol id="icon-dice" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/></symbol>
+    <symbol id="icon-tiles" viewBox="0 0 24 24"><path d="M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z"/></symbol>
+    <symbol id="icon-table" viewBox="0 0 24 24"><path d="M3 4h18v16H3zm0 5h18M3 14h18M9 9v11"/></symbol>
+    <symbol id="icon-unknown" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m0 4h.01"/></symbol>
+    <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2m-5 5 3 3m0-6 2 2"/></symbol>
+    <symbol id="icon-web" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></symbol>
+    <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 3 2 21h20zm0 7v4m0 3.5h.01"/></symbol>
+    <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/></symbol>
+    <symbol id="icon-folder-marked" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm6 6.5 2 2 4-4"/></symbol>
+    <symbol id="icon-conversation" viewBox="0 0 24 24"><path d="M3 4h13v9H9l-4 3v-3H3zm13 4h5v9h-2v3l-4-3h-4v-4"/></symbol>
+    <symbol id="icon-parts" viewBox="0 0 24 24"><path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4h-4a2 2 0 1 0-4 0H4v-4a2 2 0 1 0 0-4z"/></symbol>
+    <symbol id="icon-notepad" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 2v4m6-4v4m-6 5h6m-6 4h6"/></symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4m-7 4v-4h14v4"/></symbol>
+    <symbol id="icon-identity" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="11" r="2"/><path d="M5 16a3 3 0 0 1 6 0m3-6h4m-4 4h4"/></symbol>
+    <symbol id="icon-document-ready" viewBox="0 0 24 24"><path d="M5 2h9l5 5v15H5zm9 0v5h5m-10.5 7.5 2.5 2.5 4.5-4.5"/></symbol>
+    <symbol id="icon-camera" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="icon-wireless" viewBox="0 0 24 24"><path d="M4 12h.01M8 8.5a5 5 0 0 1 0 7M12 5a10 10 0 0 1 0 14M16 2a14 14 0 0 1 0 20"/></symbol>
+    <symbol id="icon-keys" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.1 8.1 20 20M15.9 8.1 4 20m13-3 2-2M7 17l-2-2"/></symbol>
+    <symbol id="icon-energy" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="icon-scanner" viewBox="0 0 24 24"><path d="M3 14h18v6H3zm0 0 16-7M7 17h6"/></symbol>
+    <symbol id="icon-favorite-site" viewBox="0 0 24 24"><circle cx="9" cy="15" r="6.5"/><path d="M2.5 15h13M9 8.5a10 10 0 0 1 0 13 10 10 0 0 1 0-13M18 1.9l1.1 2.8 3 .2-2.3 1.9.7 2.9-2.5-1.6-2.5 1.6.7-2.9-2.3-1.9 3-.2z"/></symbol>
+    <symbol id="icon-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2.5"/><path d="M12 6a6 6 0 0 0-6 6"/></symbol>
+    <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/></symbol>
+    <symbol id="icon-email" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></symbol>
+    <symbol id="icon-configuration" viewBox="0 0 24 24"><path d="M4 6h2m4 0h10M4 12h10m4 0h2M4 18h4m4 0h8"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></symbol>
+    <symbol id="icon-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 2h6v4H9zm0 12 2 2 4-4"/></symbol>
+    <symbol id="icon-document-new" viewBox="0 0 24 24"><path d="M5 2h9l5 5v15H5zm9 0v5h5m-7 4v7m-3.5-3.5h7"/></symbol>
+    <symbol id="icon-window" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 6.5h.01M9 6.5h.01"/></symbol>
+    <symbol id="icon-high-voltage" viewBox="0 0 24 24"><path d="M12 3 2 21h20zm1 6-3 5h4l-3 5"/></symbol>
+    <symbol id="icon-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></symbol>
+    <symbol id="icon-save" viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm2 0v5h8V3M7 21v-7h10v7"/></symbol>
+    <symbol id="icon-drive" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h4"/></symbol>
+    <symbol id="icon-document-question" viewBox="0 0 24 24"><path d="M5 2h9l5 5v15H5zm9 0v5h5m-9.5 5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .7-1 1.4m0 2.8h.01"/></symbol>
+    <symbol id="icon-terminal-encrypted" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="13" width="6" height="5" rx="1"/><path d="m6 9 3 3-3 3m7.5-2v-1.5a1.5 1.5 0 0 1 3 0V13"/></symbol>
+    <symbol id="icon-console" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3m6 0h5"/></symbol>
+    <symbol id="icon-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+    <symbol id="icon-programs" viewBox="0 0 24 24"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/></symbol>
+    <symbol id="icon-run" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4z"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></symbol>
+    <symbol id="icon-web-computer" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="13" rx="2"/><circle cx="12" cy="9.5" r="3.5"/><path d="M8.5 9.5h7M8 21h8m-4-5v5"/></symbol>
+    <symbol id="icon-archive" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8m-10 4h4"/></symbol>
+    <symbol id="icon-bank" viewBox="0 0 24 24"><path d="M3 21h18M4 10h16m-8-7 9 5H3zM6 10v8m4-8v8m4-8v8m4-8v8"/></symbol>
+    <symbol id="icon-drive-system" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h.01M14 10h4v4h-4zm2 0v4m-2-2h4"/></symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="icon-email-search" viewBox="0 0 24 24"><path d="M12 16H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5M2 5l9 6.5L20 5m-.8 13.2 2.3 2.3"/><circle cx="17" cy="16" r="3"/></symbol>
+    <symbol id="icon-document-flagged" viewBox="0 0 24 24"><path d="M5 2h9l5 5v15H5zm9 0v5h5M9 19v-9l6 2.5-6 2.5"/></symbol>
+    <symbol id="icon-memory" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zm0-7v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14m-8 4v7m4-7v7"/></symbol>
+    <symbol id="icon-note" viewBox="0 0 24 24"><path d="M4 4h16v10l-6 6H4zm10 16v-6h6"/></symbol>
+    <symbol id="icon-expired" viewBox="0 0 24 24"><path d="M5 2h14M5 22h14M7 2v4.5l5 5.5 5-5.5V2M7 22v-4.5l5-5.5 5 5.5V22"/></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5m0-3h.01"/></symbol>
+    <symbol id="icon-package" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7zM3 7l9 5 9-5m-9 5v10"/></symbol>
+    <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="icon-folder-open" viewBox="0 0 24 24"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2M3 19l3-9h16l-3 9z"/></symbol>
+    <symbol id="icon-folder-package" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm7 4h4v5h-4zm2 0v2"/></symbol>
+    <symbol id="icon-lock-open" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.75-1.4"/></symbol>
+    <symbol id="icon-document-locked" viewBox="0 0 24 24"><rect x="8.5" y="14" width="7" height="5" rx="1"/><path d="M5 2h9l5 5v15H5zm9 0v5h5m-9 7v-1.5a2 2 0 0 1 4 0V14"/></symbol>
+    <symbol id="icon-checked" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="icon-pen" viewBox="0 0 24 24"><path d="m17 3 4 4L8 20H4v-4zm-3 3 4 4"/></symbol>
+    <symbol id="icon-picture" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    <symbol id="icon-book" viewBox="0 0 24 24"><path d="M5 4a2 2 0 0 1 2-2h12v16H7a2 2 0 0 0-2 2zm0 16a2 2 0 0 0 2 2h12v-4"/></symbol>
+    <symbol id="icon-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="icon-user-key" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><circle cx="16" cy="18" r="2.5"/><path d="M2 21a7 7 0 0 1 10-6.3m5.8 1.5L22 12m-2 2 1.5 1.5"/></symbol>
+    <symbol id="icon-tool" viewBox="0 0 24 24"><path d="M15 3a5 5 0 0 0-4.5 7L3 17.5 6.5 21l7.5-7.5A5 5 0 0 0 21 9l-3 3-3-3 3-3a5 5 0 0 0-3-3z"/></symbol>
+    <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 9.5V21h14V9.5M10 21v-6h4v6"/></symbol>
+    <symbol id="icon-star" viewBox="0 0 24 24"><path d="m12 2.6 2.5 6.6 7 .3-5.5 4.4 1.9 6.8-5.9-3.9-5.9 3.9 1.9-6.8-5.5-4.4 7-.3z"/></symbol>
+    <symbol id="icon-linux" viewBox="0 0 24 24"><path d="M12 2C9 2 7.5 4.5 7.5 8c0 2.5-3.5 5.5-3.5 9.5C4 20 6 21 8 21h8c2 0 4-1 4-3.5 0-4-3.5-7-3.5-9.5 0-3.5-1.5-6-4.5-6zm-2.5 13c0-2.5 1-4 2.5-4s2.5 1.5 2.5 4-1 4-2.5 4-2.5-1.5-2.5-4zm1-8h.01m2.99 0h.01M11 9.5h2"/></symbol>
+    <symbol id="icon-feather" viewBox="0 0 24 24"><path d="M6 18C6 9 12 4 21 3c-1 9-6 15-15 15zm-3 3L16 8"/></symbol>
+    <symbol id="icon-apple" viewBox="0 0 24 24"><path d="M12 7.5C10 6 5 6 5 12s3.5 9 5.5 9c.8 0 1-.5 1.5-.5s.7.5 1.5.5c2 0 5.5-3.5 5.5-9s-5-6-7-4.5zm0 0c0-2.5 1-4.5 3-5"/></symbol>
+    <symbol id="icon-wiki" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m6.5 9 2.5 7 3-6 3 6 2.5-7"/></symbol>
+    <symbol id="icon-money" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></symbol>
+    <symbol id="icon-certificate" viewBox="0 0 24 24"><circle cx="12" cy="9" r="6"/><path d="M8.5 13.9 7 22l5-3 5 3-1.5-8.1"/></symbol>
+    <symbol id="icon-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+  </svg>
+
   <!-- Live screen container -->
   <div id="root"></div>
 
@@ -18,7 +110,7 @@
     <div class="screen screen-upload">
       <div class="wordmark"><span class="mark"></span>KeePass Web</div>
       <div id="drop-zone" class="drop-zone">
-        <div class="drop-zone-icon">🔑</div>
+        <div class="drop-zone-icon"><svg class="icon" aria-hidden="true"><use href="#icon-key"/></svg></div>
         <p class="drop-zone-label">Drop your .kdbx file here</p>
         <label class="btn btn-primary">
           Choose a database…
@@ -42,7 +134,7 @@
           <label for="master-password">Master password</label>
           <div class="password-field-wrap">
             <input type="password" id="master-password" autocomplete="current-password">
-            <button type="button" class="icon-btn" data-action="toggle-password" title="Show / hide">👁</button>
+            <button type="button" class="icon-btn" data-action="toggle-password" title="Show / hide"><svg class="icon" aria-hidden="true"><use href="#icon-eye"/></svg></button>
           </div>
         </div>
         <div class="field">
@@ -98,17 +190,17 @@
   <template id="tpl-entry-list">
     <div class="screen screen-app">
       <header class="app-header">
-        <button type="button" class="icon-btn sidebar-toggle-btn" data-action="toggle-sidebar" title="Groups" aria-label="Show groups">☰</button>
+        <button type="button" class="icon-btn sidebar-toggle-btn" data-action="toggle-sidebar" title="Groups" aria-label="Show groups"><svg class="icon" aria-hidden="true"><use href="#icon-drawer-open"/></svg></button>
         <span class="wordmark"><span class="mark"></span>KeePass Web</span>
         <div class="search-wrap">
           <input type="search" id="search-input" class="search-input" placeholder="Search all entries…" autocomplete="off">
         </div>
         <div class="header-actions">
-          <button type="button" class="icon-btn" data-action="save-database" title="Save" aria-label="Save">💾</button>
-          <button type="button" class="icon-btn" data-action="export" title="Export">⬆</button>
-          <button type="button" class="icon-btn" data-action="settings" title="Settings">⚙</button>
-          <button type="button" class="icon-btn" data-action="lock" title="Lock">🔒</button>
-          <button type="button" class="icon-btn" data-action="close" title="Close">✕</button>
+          <button type="button" class="icon-btn" data-action="save-database" title="Save" aria-label="Save"><svg class="icon" aria-hidden="true"><use href="#icon-save"/></svg></button>
+          <button type="button" class="icon-btn" data-action="export" title="Export"><svg class="icon" aria-hidden="true"><use href="#icon-export"/></svg></button>
+          <button type="button" class="icon-btn" data-action="settings" title="Settings"><svg class="icon" aria-hidden="true"><use href="#icon-settings"/></svg></button>
+          <button type="button" class="icon-btn" data-action="lock" title="Lock"><svg class="icon" aria-hidden="true"><use href="#icon-lock"/></svg></button>
+          <button type="button" class="icon-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
         </div>
       </header>
       <div class="app-body">
@@ -117,8 +209,8 @@
           <div class="sidebar-header">
             <span class="sidebar-label">Groups</span>
             <div class="sidebar-header-actions">
-              <button type="button" class="icon-btn" data-action="add-group" title="New group">➕</button>
-              <button type="button" class="icon-btn" id="delete-group-btn" data-action="delete-group" title="Delete group" aria-label="Delete group">🗑</button>
+              <button type="button" class="icon-btn" data-action="add-group" title="New group"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+              <button type="button" class="icon-btn" id="delete-group-btn" data-action="delete-group" title="Delete group" aria-label="Delete group"><svg class="icon" aria-hidden="true"><use href="#icon-trash"/></svg></button>
             </div>
           </div>
           <nav id="group-tree" class="group-tree"></nav>
@@ -129,10 +221,10 @@
             <span id="panel-title" class="panel-title"></span>
             <div class="panel-header-actions">
               <div class="view-toggle">
-                <button type="button" class="view-toggle-btn" data-action="view-tile" title="Tile view">▦</button>
-                <button type="button" class="view-toggle-btn" data-action="view-table" title="Table view">▤</button>
+                <button type="button" class="view-toggle-btn" data-action="view-tile" title="Tile view"><svg class="icon" aria-hidden="true"><use href="#icon-tiles"/></svg></button>
+                <button type="button" class="view-toggle-btn" data-action="view-table" title="Table view"><svg class="icon" aria-hidden="true"><use href="#icon-table"/></svg></button>
               </div>
-              <button type="button" class="icon-btn panel-menu-btn" data-action="toggle-panel-menu" title="More options" aria-label="More options">⋯</button>
+              <button type="button" class="icon-btn panel-menu-btn" data-action="toggle-panel-menu" title="More options" aria-label="More options"><svg class="icon" aria-hidden="true"><use href="#icon-more"/></svg></button>
               <div id="panel-menu" class="panel-menu">
                 <div class="column-picker">
                   <button type="button" class="btn btn-secondary" id="column-picker-btn" data-action="toggle-columns" hidden>Columns</button>
@@ -147,7 +239,7 @@
                   <option value="modified:asc">Modified (oldest)</option>
                 </select>
               </div>
-              <button type="button" class="icon-btn" data-action="add-entry" title="New entry">➕</button>
+              <button type="button" class="icon-btn" data-action="add-entry" title="New entry"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
             </div>
           </div>
           <div id="entry-list" class="entry-list"></div>
@@ -229,7 +321,7 @@
   <dialog id="dlg-settings" class="kw-dialog">
     <div class="dialog-header">
       <h2>Settings</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <div class="field">
@@ -273,7 +365,7 @@
   <dialog id="dlg-export" class="kw-dialog">
     <div class="dialog-header">
       <h2>Export</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <p class="warning-text">
@@ -292,7 +384,7 @@
   <dialog id="dlg-save" class="kw-dialog">
     <div class="dialog-header">
       <h2>Save database</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <p data-role="save-local">Download the updated database file to your computer.</p>
@@ -330,7 +422,7 @@
   <dialog id="dlg-generate-password" class="kw-dialog">
     <div class="dialog-header">
       <h2>Generate password</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <div class="generator-preview" id="generator-preview"></div>
@@ -379,7 +471,7 @@
   <dialog id="dlg-notice" class="kw-dialog">
     <div class="dialog-header">
       <h2 id="notice-title">Saved elsewhere</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <p id="notice-message"></p>
@@ -399,7 +491,7 @@
   <dialog id="dlg-new-group" class="kw-dialog">
     <div class="dialog-header">
       <h2 id="new-group-title">New group</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <button type="button" class="icon-picker-btn" id="new-group-icon-btn" title="Choose icon"></button>
@@ -420,7 +512,7 @@
   <dialog id="dlg-move-to" class="kw-dialog">
     <div class="dialog-header">
       <h2 id="move-to-title">Move to…</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <div id="move-to-tree" class="move-to-tree"></div>
@@ -436,7 +528,7 @@
   <dialog id="dlg-icon-picker" class="kw-dialog">
     <div class="dialog-header">
       <h2>Choose an icon</h2>
-      <button type="button" class="close-btn" data-action="close">✕</button>
+      <button type="button" class="close-btn" data-action="close" title="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
       <div id="icon-grid" class="icon-grid"></div>

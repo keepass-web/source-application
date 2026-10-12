@@ -272,8 +272,8 @@ interface PasswordGeneratorOptions {
 declare function generatePassword(options: PasswordGeneratorOptions): string;
 
 declare function elementIconId(element: XmlElement): string;
-declare function iconEmoji(iconId: string): string;
-declare const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }>;
+declare function iconName(iconId: string): string;
+declare const ICON_PALETTE: ReadonlyArray<{ icon: string; label: string }>;
 
 declare function isoToLocalInputValue(iso: string): string;
 declare function localInputValueToIso(value: string): string;

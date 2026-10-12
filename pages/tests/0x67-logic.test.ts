@@ -25,7 +25,8 @@ import {
   generatePassword,
   groupName,
   groupPathTo,
-  iconEmoji,
+  ICON_PALETTE,
+  iconName,
   isCustomField,
   isDescendantGroup,
   isoToLocalInputValue,
@@ -500,10 +501,93 @@ test('elementIconId reads the IconID child, or falls back to "0" when absent', (
   assert.equal(elementIconId(bare), '0');
 });
 
-test('iconEmoji maps known IDs and falls back to a generic icon for unknown ones', () => {
-  assert.equal(iconEmoji('0'), '🔑');
-  assert.equal(iconEmoji('49'), '📁');
-  assert.equal(iconEmoji('9999'), '❔');
+/* KeePass's PwIcon enum (KeePassLib/PwEnums.cs), whose position is the IconID
+every KeePass app writes, beside the symbol drawn for it (#121). The enum names
+the meaning, which is what a choice made here has to carry into other apps,
+whatever picture each app draws for it. */
+const KEEPASS_ICONS: ReadonlyArray<[string, string]> = [
+  ['Key', 'key'],
+  ['World', 'web'],
+  ['Warning', 'warning'],
+  ['NetworkServer', 'server'],
+  ['MarkedDirectory', 'folder-marked'],
+  ['UserCommunication', 'conversation'],
+  ['Parts', 'parts'],
+  ['Notepad', 'notepad'],
+  ['WorldSocket', 'network'],
+  ['Identity', 'identity'],
+  ['PaperReady', 'document-ready'],
+  ['Digicam', 'camera'],
+  ['IRCommunication', 'wireless'],
+  ['MultiKeys', 'keys'],
+  ['Energy', 'energy'],
+  ['Scanner', 'scanner'],
+  ['WorldStar', 'favorite-site'],
+  ['CDRom', 'disc'],
+  ['Monitor', 'monitor'],
+  ['EMail', 'email'],
+  ['Configuration', 'configuration'],
+  ['ClipboardReady', 'clipboard'],
+  ['PaperNew', 'document-new'],
+  ['Screen', 'window'],
+  ['EnergyCareful', 'high-voltage'],
+  ['EMailBox', 'inbox'],
+  ['Disk', 'save'],
+  ['Drive', 'drive'],
+  ['PaperQ', 'document-question'],
+  ['TerminalEncrypted', 'terminal-encrypted'],
+  ['Console', 'console'],
+  ['Printer', 'printer'],
+  ['ProgramIcons', 'programs'],
+  ['Run', 'run'],
+  ['Settings', 'settings'],
+  ['WorldComputer', 'web-computer'],
+  ['Archive', 'archive'],
+  ['Homebanking', 'bank'],
+  ['DriveWindows', 'drive-system'],
+  ['Clock', 'clock'],
+  ['EMailSearch', 'email-search'],
+  ['PaperFlag', 'document-flagged'],
+  ['Memory', 'memory'],
+  ['TrashBin', 'trash'],
+  ['Note', 'note'],
+  ['Expired', 'expired'],
+  ['Info', 'info'],
+  ['Package', 'package'],
+  ['Folder', 'folder'],
+  ['FolderOpen', 'folder-open'],
+  ['FolderPackage', 'folder-package'],
+  ['LockOpen', 'lock-open'],
+  ['PaperLocked', 'document-locked'],
+  ['Checked', 'checked'],
+  ['Pen', 'pen'],
+  ['Thumbnail', 'picture'],
+  ['Book', 'book'],
+  ['List', 'list'],
+  ['UserKey', 'user-key'],
+  ['Tool', 'tool'],
+  ['Home', 'home'],
+  ['Star', 'star'],
+  ['Tux', 'linux'],
+  ['Feather', 'feather'],
+  ['Apple', 'apple'],
+  ['Wiki', 'wiki'],
+  ['Money', 'money'],
+  ['Certificate', 'certificate'],
+  ['BlackBerry', 'phone'],
+];
+
+test("iconName draws each of KeePass's standard IconIDs by its KeePass meaning", () => {
+  assert.equal(ICON_PALETTE.length, KEEPASS_ICONS.length, 'one choice per KeePass icon');
+  for (const [iconId, [pwIcon, symbol]] of KEEPASS_ICONS.entries()) {
+    assert.equal(iconName(String(iconId)), symbol, `IconID ${iconId} is KeePass's ${pwIcon}`);
+  }
+});
+
+test("iconName falls back to a generic icon outside KeePass's standard set", () => {
+  assert.equal(iconName('69'), 'unknown');
+  assert.equal(iconName('-1'), 'unknown');
+  assert.equal(iconName('not a number'), 'unknown');
 });
 
 test('isoToLocalInputValue / localInputValueToIso round-trip an ISO-UTC timestamp through datetime-local format', () => {

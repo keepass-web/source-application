@@ -107,18 +107,38 @@ function qs<T extends HTMLElement = HTMLElement>(selector: string): T {
   return must(byId('root').querySelector<T>(selector));
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// A symbol from page.html's sprite, hidden from assistive tech so its control's title names it (#121).
+function icon(symbol: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', `#icon-${symbol}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+// An entry or group's own icon ahead of its name, outside the name's text (#121).
+function labelWithIcon(target: HTMLElement, element: XmlElement, name: string): void {
+  const lead = icon(iconName(elementIconId(element)));
+  lead.classList.add('icon-lead');
+  target.replaceChildren(lead, name);
+}
+
 // Icon button helper: this app's many small icon-only controls all share this exact shape.
 function makeIconButton(
   className: string,
   title: string,
-  glyph: string,
+  symbol: string,
   onClick: (event: MouseEvent) => void,
 ): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = className;
   btn.title = title;
-  btn.textContent = glyph;
+  btn.appendChild(icon(symbol));
   btn.addEventListener('click', onClick);
   return btn;
 }
@@ -304,7 +324,7 @@ function showUnlock(relocking = false): void {
   keepFieldFocus(togglePasswordBtn);
   togglePasswordBtn.addEventListener('click', () => {
     passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
-    togglePasswordBtn.textContent = passwordInput.type === 'password' ? '👁' : '🙈';
+    togglePasswordBtn.replaceChildren(icon(passwordInput.type === 'password' ? 'eye' : 'eye-off'));
     passwordInput.focus(); // the next move is usually to type (#110)
   });
 
@@ -438,6 +458,9 @@ function showEntryList(): void {
 function setSidebarOpen(open: boolean): void {
   qs('#sidebar').classList.toggle('sidebar-open', open);
   qs<HTMLElement>('#sidebar-backdrop').hidden = !open;
+  const toggle = qs('[data-action="toggle-sidebar"]');
+  toggle.replaceChildren(icon(open ? 'drawer-close' : 'drawer-open'));
+  toggle.setAttribute('aria-label', open ? 'Hide groups' : 'Show groups');
 }
 
 const SIDEBAR_WIDTH_MIN = 180;
@@ -537,7 +560,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `group-btn${isActive ? ' active' : ''}`;
-  btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+  labelWithIcon(btn, group, groupName(group));
   btn.title = groupName(group); // the rail truncates; hover still gives the whole name (#63)
   btn.addEventListener('click', () => {
     groupMenuFor = null;
@@ -551,7 +574,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   // neither movable nor deletable.
   if (!isRoot) {
     row.appendChild(
-      makeIconButton('icon-btn group-menu-btn', 'Group actions', '⋯', () => {
+      makeIconButton('icon-btn group-menu-btn', 'Group actions', 'more', () => {
         groupMenuFor = groupMenuFor === group ? null : group;
         selectGroup(group);
       }),
@@ -756,7 +779,7 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 
   const titleEl = document.createElement('div');
   titleEl.className = 'entry-row-title';
-  titleEl.textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
+  labelWithIcon(titleEl, entry, entryTitle(entry));
 
   const metaEl = document.createElement('div');
   metaEl.className = 'entry-row-meta';
@@ -832,7 +855,7 @@ function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string):
 /* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
 and focusable so copying is reachable without a pointer at all. */
 function copyHint(value: string, label: string): HTMLButtonElement {
-  return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, '📋', () => {
+  return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, 'copy', () => {
     copyToClipboard(value, label);
   });
 }
@@ -840,7 +863,7 @@ function copyHint(value: string, label: string): HTMLButtonElement {
 /* noopener and noreferrer, so the site neither learns where it was opened from
 nor gets a handle back into this page (#86). */
 function openUrlButton(className: string, href: string): HTMLButtonElement {
-  return makeIconButton(className, 'Open URL in a new tab', '↗', () => {
+  return makeIconButton(className, 'Open URL in a new tab', 'open', () => {
     window.open(href, '_blank', 'noopener,noreferrer');
   });
 }
@@ -985,7 +1008,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     // The icon is the entry's, not the title's, so it keeps out of the copied text's cell (#87).
     const iconTd = document.createElement('td');
     iconTd.className = 'entry-table-icon';
-    iconTd.textContent = iconEmoji(elementIconId(entry));
+    iconTd.appendChild(icon(iconName(elementIconId(entry))));
     tr.appendChild(iconTd);
 
     const titleTd = buildEntryCell(entryTitle(entry), entryTitle(entry), 'Title');
@@ -1008,7 +1031,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     // The only way into the card, so opening to edit stays a deliberate act (#67).
     const openTd = document.createElement('td');
     openTd.className = 'entry-table-open';
-    openTd.appendChild(makeIconButton('icon-btn', 'Open entry', '›', () => openEntry(entry)));
+    openTd.appendChild(makeIconButton('icon-btn', 'Open entry', 'chevron', () => openEntry(entry)));
     tr.appendChild(openTd);
 
     tbody.appendChild(tr);
@@ -1273,7 +1296,7 @@ function showEntryDetail(): void {
   setRoot(cloneTemplate('tpl-entry-detail'));
 
   const entry = must(app.currentEntry);
-  qs('#detail-title').textContent = `${iconEmoji(elementIconId(entry))} ${entryTitle(entry)}`;
+  labelWithIcon(qs('#detail-title'), entry, entryTitle(entry));
 
   const times = getEntryTimes(entry);
   const metaParts = [
@@ -1406,10 +1429,10 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
 
   if (isProtected) {
     let revealed = false;
-    const revealBtn = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
+    const revealBtn = makeIconButton('icon-btn', 'Show / hide', 'eye', () => {
       revealed = !revealed;
       valueSpan.textContent = revealed ? value : '••••••••';
-      revealBtn.textContent = revealed ? '🙈' : '👁';
+      revealBtn.replaceChildren(icon(revealed ? 'eye-off' : 'eye'));
     });
     actions.appendChild(revealBtn);
   }
@@ -1418,7 +1441,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
   if (href) actions.appendChild(openUrlButton('icon-btn', href));
 
   // Leads the value, as copy does everywhere, so it is plainly that value's (#87).
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
     copyToClipboard(value, fieldLabel(key));
   });
 
@@ -1440,7 +1463,7 @@ function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLEle
     label.className = 'attachment-name';
     label.textContent = attachment.name;
 
-    const downloadBtn = makeIconButton('icon-btn', 'Download', '⬇', () => {
+    const downloadBtn = makeIconButton('icon-btn', 'Download', 'download', () => {
       /* Looked up on click: a save can renumber stored attachments under an open
       card, while anything that changes the attachments themselves redraws it (#119). */
       const { ref } = getEntryAttachments(entry)[index] as EntryAttachment;
@@ -1475,13 +1498,13 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
     const times = getEntryTimes(snapshot);
     label.textContent = `${formatDateTime(times.modified)} — ${entryTitle(snapshot)}`;
 
-    const restoreBtn = makeIconButton('icon-btn', 'Restore this version', '↩', () => {
+    const restoreBtn = makeIconButton('icon-btn', 'Restore this version', 'restore', () => {
       restoreHistoryEntry(db.root, entry, snapshot);
       setDirty(true);
       showEntryDetail();
     });
 
-    const deleteBtn = makeIconButton('icon-btn', 'Delete this version', '🗑', () => {
+    const deleteBtn = makeIconButton('icon-btn', 'Delete this version', 'trash', () => {
       deleteHistoryEntry(entry, snapshot);
       setDirty(true);
       renderDetailHistory(db, entry, container);
@@ -1513,11 +1536,11 @@ function showEntryEdit(isNew: boolean): void {
   const attachments: EditAttachment[] = getEntryAttachments(entry);
 
   const iconBtn = qs<HTMLButtonElement>('#edit-icon-btn');
-  iconBtn.textContent = iconEmoji(elementIconId(entry));
+  iconBtn.replaceChildren(icon(iconName(elementIconId(entry))));
   iconBtn.addEventListener('click', () => {
     openIconPicker((iconId) => {
       pickedIconId = iconId;
-      iconBtn.textContent = iconEmoji(String(iconId));
+      iconBtn.replaceChildren(icon(iconName(String(iconId))));
     });
   });
 
@@ -1601,7 +1624,7 @@ function renderEditAttachments(attachments: EditAttachment[], container: HTMLEle
       renderEditAttachments(attachments, container);
     });
 
-    const removeBtn = makeIconButton('icon-btn', 'Remove attachment', '✕', () => {
+    const removeBtn = makeIconButton('icon-btn', 'Remove attachment', 'remove', () => {
       attachments.splice(attachments.indexOf(attachment), 1);
       renderEditAttachments(attachments, container);
     });
@@ -1649,16 +1672,16 @@ function buildEditField(
 
   if (isProtected) {
     valueInput.setAttribute('type', 'password');
-    const toggle = makeIconButton('icon-btn', 'Show / hide', '👁', () => {
+    const toggle = makeIconButton('icon-btn', 'Show / hide', 'eye', () => {
       valueInput.setAttribute('type', valueInput.type === 'password' ? 'text' : 'password');
-      toggle.textContent = valueInput.type === 'password' ? '👁' : '🙈';
+      toggle.replaceChildren(icon(valueInput.type === 'password' ? 'eye' : 'eye-off'));
       valueInput.focus(); // the next move is usually to edit the value (#110)
     });
     keepFieldFocus(toggle);
     actions.appendChild(toggle);
   }
 
-  const copyBtn = makeIconButton('icon-btn', 'Copy', '📋', () => {
+  const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
     copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
@@ -1667,7 +1690,7 @@ function buildEditField(
   lead.appendChild(copyBtn);
 
   if (key === 'Password') {
-    const generateBtn = makeIconButton('icon-btn', 'Generate password', '🎲', () => {
+    const generateBtn = makeIconButton('icon-btn', 'Generate password', 'dice', () => {
       openPasswordGenerator((password) => {
         valueInput.value = password;
       });
@@ -1677,7 +1700,7 @@ function buildEditField(
   }
 
   if (removable) {
-    const removeBtn = makeIconButton('icon-btn', 'Remove field', '✕', () => row.remove());
+    const removeBtn = makeIconButton('icon-btn', 'Remove field', 'remove', () => row.remove());
     removeBtn.style.color = 'var(--danger)';
     actions.appendChild(removeBtn);
   }
@@ -2514,14 +2537,14 @@ function openIconPicker(onPick: (iconId: number) => void): void {
   const grid = byId<HTMLElement>('icon-grid');
   grid.innerHTML = '';
 
-  for (const icon of ICON_PALETTE) {
+  for (const [iconId, choice] of ICON_PALETTE.entries()) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'icon-grid-btn';
-    btn.title = icon.label;
-    btn.textContent = icon.emoji;
+    btn.title = choice.label;
+    btn.appendChild(icon(choice.icon));
     btn.addEventListener('click', () => {
-      onPick(icon.id);
+      onPick(iconId);
       dlg.close();
     });
     grid.appendChild(btn);
@@ -2545,8 +2568,8 @@ function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
   const titleEl = byId('new-group-title');
   const submitBtn = must(dlg.querySelector<HTMLButtonElement>('[data-action="create-group"]'));
 
-  // 49 matches createGroup()'s own default group icon.
-  let selectedIconId = mode.type === 'rename' ? Number.parseInt(elementIconId(mode.group), 10) : 49;
+  // 48 is Folder, KeePass's own default for a new group (#121).
+  let selectedIconId = mode.type === 'rename' ? Number.parseInt(elementIconId(mode.group), 10) : 48;
   if (mode.type === 'rename') {
     titleEl.textContent = 'Rename group';
     submitBtn.textContent = 'Save';
@@ -2558,11 +2581,11 @@ function openGroupDialog(mode: GroupDialogMode, onDone: () => void): void {
   }
 
   const iconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
-  iconBtn.textContent = iconEmoji(String(selectedIconId));
+  iconBtn.replaceChildren(icon(iconName(String(selectedIconId))));
   iconBtn.onclick = () => {
     openIconPicker((iconId) => {
       selectedIconId = iconId;
-      iconBtn.textContent = iconEmoji(String(selectedIconId));
+      iconBtn.replaceChildren(icon(iconName(String(selectedIconId))));
     });
   };
 
@@ -2618,7 +2641,7 @@ function openMoveToDialog(
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'move-to-btn';
-    btn.textContent = `${iconEmoji(elementIconId(group))} ${groupName(group)}`;
+    labelWithIcon(btn, group, groupName(group));
     btn.disabled = !isValidTarget(group);
     btn.addEventListener('click', () => {
       dlg.close();

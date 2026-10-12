@@ -197,11 +197,26 @@ Object.assign(globalThis, {
   ...logic,
 });
 
+// Every sprite icon the app draws across the whole file, recorded from before
+// page.ts boots, so the last test can check each against the sprite (#121).
+const drawnIcons = new Set<string>();
+function recordIcons(node: Node): void {
+  if (!(node instanceof dom.window.Element || node instanceof dom.window.DocumentFragment)) return;
+  for (const use of node.querySelectorAll('use')) drawnIcons.add(use.getAttribute('href') ?? '');
+}
+new dom.window.MutationObserver((records) => {
+  for (const record of records) record.addedNodes.forEach(recordIcons);
+}).observe(dom.window.document, { childList: true, subtree: true });
+
 await import('../0x67/page.ts');
 
 // ============================================================
 // Test helpers
 // ============================================================
+
+// The sprite symbol an element draws (#121).
+const iconOf = (el: Element): string | null | undefined =>
+  el.querySelector('use')?.getAttribute('href');
 
 const root = (): HTMLElement => dom.window.document.getElementById('root') as HTMLElement;
 // Scoped to #root: the currently-active screen (upload/unlock/entry-list/
@@ -272,8 +287,11 @@ async function buildTestDatabase(): Promise<Uint8Array> {
     createEntry({ title: 'Second Entry', username: 'user2', password: 'pw2' }),
   );
   // No username at all: entryField('UserName') is '', exercising the "fall
-  // back to ''" branch of buildEntryRow's `username || url || ''`.
-  appendChild(rootGroup, createEntry({ title: 'No Contact Info' }));
+  // back to ''" branch of buildEntryRow's `username || url || ''`. Its IconID
+  // is past KeePass's standard set, as a newer app might write (#121).
+  const noContactEntry = createEntry({ title: 'No Contact Info' });
+  setText(getChild(noContactEntry, 'IconID') as XmlElement, '99');
+  appendChild(rootGroup, noContactEntry);
   // No username but a URL: exercises the middle `|| url` branch instead.
   // Also carries one hand-built, deliberately malformed <String> (a Key with
   // no matching Value) — createEntry() itself always produces complete
@@ -436,15 +454,15 @@ test('0x67 app', async (t) => {
 
   await t.test('the master password field can be revealed and hidden again', () => {
     const passwordInput = q<HTMLInputElement>('#master-password');
+    const toggle = q('[data-action="toggle-password"]');
     assert.equal(passwordInput.type, 'password');
-    q('[data-action="toggle-password"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
+    assert.equal(iconOf(toggle), '#icon-eye');
+    toggle.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(passwordInput.type, 'text');
-    q('[data-action="toggle-password"]').dispatchEvent(
-      new dom.window.Event('click', { bubbles: true }),
-    );
+    assert.equal(iconOf(toggle), '#icon-eye-off', 'a revealed field offers to hide it (#121)');
+    toggle.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(passwordInput.type, 'password');
+    assert.equal(iconOf(toggle), '#icon-eye');
   });
 
   // jsdom never moves focus on a press, so the observable here is that the
@@ -490,17 +508,20 @@ test('0x67 app', async (t) => {
   await t.test(
     'entry rows fall back through username/URL/blank meta text, and malformed fields are skipped',
     () => {
-      // Row titles are icon-prefixed ("🔑 GitHub"), so match by substring.
+      // The icon is drawn, not text, so a row title is exactly the entry's title (#121).
       const rowFor = (title: string): HTMLElement =>
-        Array.from(root().querySelectorAll('.entry-row')).find((r) =>
-          r.querySelector('.entry-row-title')?.textContent?.includes(title),
+        Array.from(root().querySelectorAll('.entry-row')).find(
+          (r) => r.querySelector('.entry-row-title')?.textContent === title,
         ) as HTMLElement;
 
       // Has a username: meta shows it (already covered by every other row
       // in this fixture — asserted here too for a clear three-way contrast).
       assert.equal(rowFor('GitHub').querySelector('.entry-row-meta')?.textContent, 'octocat');
+      assert.equal(iconOf(rowFor('GitHub')), '#icon-key');
       // No username, no URL: falls all the way back to ''.
       assert.equal(rowFor('No Contact Info').querySelector('.entry-row-meta')?.textContent, '');
+      // An IconID past KeePass's standard set still draws something (#121).
+      assert.equal(iconOf(rowFor('No Contact Info')), '#icon-unknown');
       // No username, but a URL: falls back to the URL specifically.
       assert.equal(
         rowFor('URL Only').querySelector('.entry-row-meta')?.textContent,
@@ -595,15 +616,18 @@ test('0x67 app', async (t) => {
 
     // Pick a non-default icon before naming and creating the group.
     const groupIconBtn = byId<HTMLButtonElement>('new-group-icon-btn');
-    assert.equal(groupIconBtn.textContent, '📁', 'defaults to the Folder icon');
+    assert.equal(iconOf(groupIconBtn), '#icon-folder', "defaults to KeePass's Folder icon");
     groupIconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, true);
-    const webIconOption = Array.from(
+    const options = Array.from(
       byId<HTMLElement>('icon-grid').querySelectorAll<HTMLButtonElement>('.icon-grid-btn'),
-    ).find((b) => b.title === 'Web') as HTMLButtonElement;
+    );
+    assert.equal(options.length, 69, "the picker offers all of KeePass's standard icons (#121)");
+    const webIconOption = options[1] as HTMLButtonElement;
+    assert.equal(webIconOption.title, 'Web', 'in IconID order');
     webIconOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(byId<HTMLDialogElement>('dlg-icon-picker').open, false);
-    assert.equal(groupIconBtn.textContent, '🌐');
+    assert.equal(iconOf(groupIconBtn), '#icon-web');
 
     const nameInput = byId<HTMLInputElement>('new-group-name');
     nameInput.value = 'Personal';
@@ -615,10 +639,9 @@ test('0x67 app', async (t) => {
     assert.equal(dlg.open, false);
     assert.equal(q<HTMLElement>('#panel-title').textContent, 'Personal');
     assert.equal(root().querySelector('.entry-empty')?.textContent, 'No entries in this group.');
-    assert.ok(
-      q('#group-tree').querySelector('.group-btn.active')?.textContent?.startsWith('🌐'),
-      'the chosen icon carries through to the group tree',
-    );
+    const activeGroup = q('#group-tree').querySelector('.group-btn.active') as Element;
+    assert.equal(iconOf(activeGroup), '#icon-web', 'the chosen icon carries through to the tree');
+    assert.equal(activeGroup.textContent, 'Personal', 'and stays out of the name');
   });
 
   await t.test(
@@ -655,9 +678,8 @@ test('0x67 app', async (t) => {
         q('#group-tree').querySelector<HTMLButtonElement>('.group-btn') as HTMLButtonElement;
       assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-menu-btn'), null);
 
-      // Group rows are icon-prefixed ("🌐 Personal"), and the root's own
-      // label ("📁 Personal Vault") would falsely match a plain substring
-      // check against "Personal" — match on the trailing name instead.
+      // The root's own label ("Personal Vault") would falsely match a plain
+      // substring check against "Personal" — match on the trailing name instead.
       const groupBtnFor = (name: string): HTMLButtonElement =>
         Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
           b.textContent?.endsWith(name),
@@ -944,7 +966,7 @@ test('0x67 app', async (t) => {
     'the entry icon picker defaults to Key, can be closed without picking, and shows the choice made',
     () => {
       const iconBtn = q<HTMLButtonElement>('#edit-icon-btn');
-      assert.equal(iconBtn.textContent, '🔑', 'new entries default to the Key icon');
+      assert.equal(iconOf(iconBtn), '#icon-key', 'new entries default to the Key icon');
 
       // Closing (✕) without picking anything leaves the icon unchanged.
       iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
@@ -954,7 +976,7 @@ test('0x67 app', async (t) => {
         new dom.window.Event('click', { bubbles: true }),
       );
       assert.equal(dlg.open, false);
-      assert.equal(iconBtn.textContent, '🔑');
+      assert.equal(iconOf(iconBtn), '#icon-key');
 
       iconBtn.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       const bankOption = Array.from(
@@ -962,7 +984,7 @@ test('0x67 app', async (t) => {
       ).find((b) => b.title === 'Bank') as HTMLButtonElement;
       bankOption.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       assert.equal(dlg.open, false);
-      assert.equal(iconBtn.textContent, '🏦');
+      assert.equal(iconOf(iconBtn), '#icon-bank');
     },
   );
 
@@ -1328,11 +1350,13 @@ test('0x67 app', async (t) => {
     const valueSpan = passwordRow.querySelector('.detail-value') as HTMLElement;
     assert.equal(valueSpan.textContent, '••••••••');
 
-    const revealBtn = passwordRow.querySelector<HTMLButtonElement>('[title="Show / hide"]');
-    revealBtn?.click();
+    const revealBtn = passwordRow.querySelector('[title="Show / hide"]') as HTMLButtonElement;
+    revealBtn.click();
     assert.notEqual(valueSpan.textContent, '••••••••');
-    revealBtn?.click();
+    assert.equal(iconOf(revealBtn), '#icon-eye-off');
+    revealBtn.click();
     assert.equal(valueSpan.textContent, '••••••••');
+    assert.equal(iconOf(revealBtn), '#icon-eye');
   });
 
   await t.test('the print button calls window.print()', () => {
@@ -1616,7 +1640,6 @@ test('0x67 app', async (t) => {
   await t.test(
     'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
     () => {
-      // Group/entry labels are icon-prefixed ("📁 Recycle Bin"), so match by substring.
       const clickGroupNamed = (name: string): void => {
         const btn = Array.from(
           q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
@@ -2514,7 +2537,7 @@ test('icon and attachment edits apply on Save, after the History snapshot, and C
     dispatch(attachmentInput, 'change');
     await waitFor(() => editNameInputs().length === 2);
 
-    assert.equal(q<HTMLElement>('#edit-icon-btn').textContent, '🏦');
+    assert.equal(iconOf(q('#edit-icon-btn')), '#icon-bank');
     assert.deepEqual(
       editNameInputs().map((input) => input.value),
       ['passport.pdf', 'visa.pdf'],
@@ -2524,7 +2547,8 @@ test('icon and attachment edits apply on Save, after the History snapshot, and C
   click(q('.entry-row'));
   await editIconAndAttachments();
   click(q('[data-action="cancel"]'));
-  assert.equal(q<HTMLElement>('#detail-title').textContent, '🔑 Passport', 'Cancel keeps the icon');
+  assert.equal(iconOf(q('#detail-title')), '#icon-key', 'Cancel keeps the icon');
+  assert.equal(q<HTMLElement>('#detail-title').textContent, 'Passport');
   assert.deepEqual(detailNames(), ['scan.pdf', 'photo.jpg'], 'Cancel keeps the attachments');
   click(q('[data-action="back"]'));
   assert.equal(
@@ -2536,13 +2560,13 @@ test('icon and attachment edits apply on Save, after the History snapshot, and C
   click(q('.entry-row'));
   await editIconAndAttachments();
   click(q('[data-action="save"]'));
-  assert.equal(q<HTMLElement>('#detail-title').textContent, '🏦 Passport');
+  assert.equal(iconOf(q('#detail-title')), '#icon-bank');
   assert.deepEqual(detailNames(), ['passport.pdf', 'visa.pdf']);
   click(dq('#dlg-save [data-action="close"]'));
 
   // The snapshot Save took is the entry before this edit, so restoring it brings both back.
   click(q('#detail-history [title="Restore this version"]'));
-  assert.equal(q<HTMLElement>('#detail-title').textContent, '🔑 Passport');
+  assert.equal(iconOf(q('#detail-title')), '#icon-key');
   assert.deepEqual(detailNames(), ['scan.pdf', 'photo.jpg']);
 
   click(q('[data-action="back"]'));
@@ -2670,7 +2694,6 @@ test('a rename, a move and permanent deletes reach the saved file as other KeePa
   const click = (el: EventTarget): void => {
     el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   };
-  // Rows are icon-prefixed ("📁 Keep"), so match on the trailing name.
   const groupBtnFor = (name: string): HTMLButtonElement =>
     Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
       b.textContent?.endsWith(name),
@@ -2960,10 +2983,10 @@ test('entry list table view: columns, masked password, click to copy, button to 
     'copy-hint',
     'it comes before the text box, as a sibling of it',
   );
-  // The entry's icon has a cell of its own, so nothing sits between 📋 and the title (#87).
+  // The entry's icon has a cell of its own, so nothing sits between copy and the title (#87).
   assert.equal(firstCell.querySelector('.entry-cell-text')?.textContent, 'GitHub');
   assert.equal(firstCell.previousElementSibling?.className, 'entry-table-icon');
-  assert.equal(firstCell.previousElementSibling?.textContent, '🔑');
+  assert.equal(iconOf(firstCell.previousElementSibling as Element), '#icon-key');
   assert.equal(usernameCell, 'octocat');
   assert.equal(passwordCell, '••••••••', 'password is masked on screen');
   assert.equal(urlCell, 'https://github.com');
@@ -3005,7 +3028,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
   assert.equal(q('#detail-title'), null, 'copying never opens the card');
 
-  // The 📋 is a real button, so a keyboard reaches it; its click must not also
+  // The copy control is a real button, so a keyboard reaches it; its click must not also
   // run the cell's own handler underneath.
   clipboardText = '';
   const hintBtn = maskedCell().querySelector('.copy-hint') as HTMLButtonElement;
@@ -3204,13 +3227,20 @@ test('entry list: the sidebar drawer and panel overflow menu (mobile layout) ope
   assert.equal(sidebar.classList.contains('sidebar-open'), false);
   assert.equal(backdrop.hidden, true);
 
-  dispatch(q('[data-action="toggle-sidebar"]'), 'click');
+  const drawerToggle = q('[data-action="toggle-sidebar"]');
+  assert.equal(iconOf(drawerToggle), '#icon-drawer-open');
+  dispatch(drawerToggle, 'click');
   assert.equal(sidebar.classList.contains('sidebar-open'), true);
   assert.equal(backdrop.hidden, false);
+  // The toggle shows and names what pressing it next does (#121).
+  assert.equal(iconOf(drawerToggle), '#icon-drawer-close');
+  assert.equal(drawerToggle.getAttribute('aria-label'), 'Hide groups');
 
   dispatch(backdrop, 'click');
   assert.equal(sidebar.classList.contains('sidebar-open'), false);
   assert.equal(backdrop.hidden, true);
+  assert.equal(iconOf(drawerToggle), '#icon-drawer-open');
+  assert.equal(drawerToggle.getAttribute('aria-label'), 'Show groups');
 
   dispatch(q('[data-action="toggle-sidebar"]'), 'click');
   assert.equal(sidebar.classList.contains('sidebar-open'), true);
@@ -3410,4 +3440,37 @@ test('must() throws when a screen template is missing an element it depends on',
 
   assert.ok(captured, 'removing #root should make the next screen render throw');
   assert.match(String(captured?.message ?? captured), /expected element not found/);
+});
+
+// Last on purpose: it checks every icon the tests above made the app draw. A
+// misspelled symbol name draws nothing rather than failing, and an unused
+// symbol is download weight with no purpose, so both are caught here (#121).
+test('every icon drawn names a sprite symbol, every symbol is drawn, and the sprite only draws', () => {
+  const doc = dom.window.document;
+  for (const template of doc.querySelectorAll('template')) recordIcons(template.content);
+  recordIcons(doc.body);
+  const symbols = Array.from(doc.querySelectorAll('.icon-sprite symbol'), (s) => `#${s.id}`);
+  for (const href of drawnIcons) assert.ok(symbols.includes(href), `${href} names no symbol`);
+  for (const href of symbols) assert.ok(drawnIcons.has(href), `${href} is never drawn`);
+
+  // Nothing in the sprite can load, link, or run anything: plain shapes only.
+  const shapes = new Set(['symbol', 'path', 'circle', 'rect']);
+  const geometry = new Set([
+    'id',
+    'viewBox',
+    'd',
+    'cx',
+    'cy',
+    'r',
+    'x',
+    'y',
+    'width',
+    'height',
+    'rx',
+  ]);
+  for (const el of doc.querySelectorAll('.icon-sprite *')) {
+    assert.ok(shapes.has(el.localName), `<${el.localName}> in the sprite`);
+    for (const attr of el.attributes)
+      assert.ok(geometry.has(attr.name), `${attr.name} in the sprite`);
+  }
 });

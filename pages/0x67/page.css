@@ -179,6 +179,33 @@ body:not(.app-mode) {
   width: 100%;
 }
 
+/* Drawn in the text color (#121), so every state that recolors a control,
+unsaved and disabled included, recolors its icon too. */
+.icon {
+  width: 1.25em;
+  height: 1.25em;
+  vertical-align: -0.25em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-lead {
+  margin-right: 0.4em;
+}
+
+/* Off screen at zero size rather than display: none, which some engines skip
+when resolving a <use> into it (#121). */
+.icon-sprite {
+  position: absolute;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .icon-btn {
   background: none;
   border: none;

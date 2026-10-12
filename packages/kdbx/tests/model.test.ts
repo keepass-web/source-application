@@ -287,6 +287,11 @@ test('findOrCreateRecycleBin creates the bin once, under the root group, and reu
 
   const bin = findOrCreateRecycleBin(document);
   assert.equal(getText(getChild(bin, 'Name') as XmlElement), 'Recycle Bin');
+  assert.deepEqual(
+    getChildren(bin, 'IconID').map(getText),
+    ['43'],
+    "one IconID, KeePass's TrashBin, as KeePass gives its own bin (#121)",
+  );
   const uuidEl = getChild(meta, 'RecycleBinUUID') as XmlElement;
   assert.equal(getText(uuidEl), getText(getChild(bin, 'UUID') as XmlElement));
   const changedEl = getChild(meta, 'RecycleBinChanged') as XmlElement;
