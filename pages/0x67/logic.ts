@@ -43,38 +43,83 @@ export function elementIconId(element: XmlElement): string {
   return iconEl ? getText(iconEl) : '0';
 }
 
-/** Curated icon palette (not KeePass's bitmap spritesheet). IDs 0/49 match
-createEntry/createGroup's defaults; unknown IDs round-trip via a generic icon. */
-export const ICON_PALETTE: ReadonlyArray<{ id: number; emoji: string; label: string }> = [
-  { id: 0, emoji: '🔑', label: 'Key' },
-  { id: 1, emoji: '🌐', label: 'Web' },
-  { id: 2, emoji: '📧', label: 'Email' },
-  { id: 3, emoji: '💻', label: 'Computer' },
-  { id: 4, emoji: '🏦', label: 'Bank' },
-  { id: 5, emoji: '💳', label: 'Card' },
-  { id: 6, emoji: '🛒', label: 'Shopping' },
-  { id: 7, emoji: '🎮', label: 'Gaming' },
-  { id: 8, emoji: '📱', label: 'Phone' },
-  { id: 9, emoji: '☁️', label: 'Cloud' },
-  { id: 10, emoji: '🔒', label: 'Security' },
-  { id: 11, emoji: '🗂️', label: 'Documents' },
-  { id: 12, emoji: '⭐', label: 'Starred' },
-  { id: 13, emoji: '🏠', label: 'Home' },
-  { id: 14, emoji: '💼', label: 'Work' },
-  { id: 15, emoji: '🎓', label: 'Education' },
-  { id: 16, emoji: '✈️', label: 'Travel' },
-  { id: 17, emoji: '🎵', label: 'Media' },
-  { id: 18, emoji: '🛡️', label: 'Shield' },
-  { id: 19, emoji: '🧩', label: 'Other' },
-  { id: 49, emoji: '📁', label: 'Folder' },
+/* KeePass's standard icons, indexed by IconID, so an icon picked here means the
+same in every KeePass app (#121); each names a symbol in page.html's sprite. */
+export const ICON_PALETTE: ReadonlyArray<{ icon: string; label: string }> = [
+  { icon: 'key', label: 'Key' },
+  { icon: 'web', label: 'Web' },
+  { icon: 'warning', label: 'Warning' },
+  { icon: 'server', label: 'Server' },
+  { icon: 'folder-marked', label: 'Marked folder' },
+  { icon: 'conversation', label: 'Conversation' },
+  { icon: 'parts', label: 'Parts' },
+  { icon: 'notepad', label: 'Notepad' },
+  { icon: 'network', label: 'Network' },
+  { icon: 'identity', label: 'Identity' },
+  { icon: 'document-ready', label: 'Document ready' },
+  { icon: 'camera', label: 'Camera' },
+  { icon: 'wireless', label: 'Wireless' },
+  { icon: 'keys', label: 'Keys' },
+  { icon: 'energy', label: 'Energy' },
+  { icon: 'scanner', label: 'Scanner' },
+  { icon: 'favorite-site', label: 'Favorite site' },
+  { icon: 'disc', label: 'Disc' },
+  { icon: 'monitor', label: 'Monitor' },
+  { icon: 'email', label: 'Email' },
+  { icon: 'configuration', label: 'Configuration' },
+  { icon: 'clipboard', label: 'Clipboard' },
+  { icon: 'document-new', label: 'New document' },
+  { icon: 'window', label: 'Window' },
+  { icon: 'high-voltage', label: 'High voltage' },
+  { icon: 'inbox', label: 'Inbox' },
+  { icon: 'save', label: 'Disk' },
+  { icon: 'drive', label: 'Drive' },
+  { icon: 'document-question', label: 'Question' },
+  { icon: 'terminal-encrypted', label: 'Encrypted terminal' },
+  { icon: 'console', label: 'Console' },
+  { icon: 'printer', label: 'Printer' },
+  { icon: 'programs', label: 'Programs' },
+  { icon: 'run', label: 'Run' },
+  { icon: 'settings', label: 'Settings' },
+  { icon: 'web-computer', label: 'Web computer' },
+  { icon: 'archive', label: 'Archive' },
+  { icon: 'bank', label: 'Bank' },
+  { icon: 'drive-system', label: 'System drive' },
+  { icon: 'clock', label: 'Clock' },
+  { icon: 'email-search', label: 'Email search' },
+  { icon: 'document-flagged', label: 'Flagged document' },
+  { icon: 'memory', label: 'Memory' },
+  { icon: 'trash', label: 'Trash' },
+  { icon: 'note', label: 'Note' },
+  { icon: 'expired', label: 'Expired' },
+  { icon: 'info', label: 'Info' },
+  { icon: 'package', label: 'Package' },
+  { icon: 'folder', label: 'Folder' },
+  { icon: 'folder-open', label: 'Open folder' },
+  { icon: 'folder-package', label: 'Folder package' },
+  { icon: 'lock-open', label: 'Unlocked' },
+  { icon: 'document-locked', label: 'Locked document' },
+  { icon: 'checked', label: 'Checked' },
+  { icon: 'pen', label: 'Pen' },
+  { icon: 'picture', label: 'Picture' },
+  { icon: 'book', label: 'Book' },
+  { icon: 'list', label: 'List' },
+  { icon: 'user-key', label: 'User key' },
+  { icon: 'tool', label: 'Tool' },
+  { icon: 'home', label: 'Home' },
+  { icon: 'star', label: 'Star' },
+  { icon: 'linux', label: 'Linux' },
+  { icon: 'feather', label: 'Feather' },
+  { icon: 'apple', label: 'Apple' },
+  { icon: 'wiki', label: 'Wiki' },
+  { icon: 'money', label: 'Money' },
+  { icon: 'certificate', label: 'Certificate' },
+  { icon: 'phone', label: 'Phone' },
 ];
 
-const ICON_FALLBACK = '❔';
-
-// The emoji for a given IconID text value, or a generic fallback.
-export function iconEmoji(iconId: string): string {
-  const id = Number.parseInt(iconId, 10);
-  return ICON_PALETTE.find((icon) => icon.id === id)?.emoji ?? ICON_FALLBACK;
+// The sprite symbol for a given IconID text value, or a generic one outside KeePass's set.
+export function iconName(iconId: string): string {
+  return ICON_PALETTE[Number.parseInt(iconId, 10)]?.icon ?? 'unknown';
 }
 
 // Find the group that directly contains the given entry.

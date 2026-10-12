@@ -25,7 +25,8 @@ import {
   generatePassword,
   groupName,
   groupPathTo,
-  iconEmoji,
+  ICON_PALETTE,
+  iconName,
   isCustomField,
   isDescendantGroup,
   isoToLocalInputValue,
@@ -500,10 +501,17 @@ test('elementIconId reads the IconID child, or falls back to "0" when absent', (
   assert.equal(elementIconId(bare), '0');
 });
 
-test('iconEmoji maps known IDs and falls back to a generic icon for unknown ones', () => {
-  assert.equal(iconEmoji('0'), '🔑');
-  assert.equal(iconEmoji('49'), '📁');
-  assert.equal(iconEmoji('9999'), '❔');
+test("iconName follows KeePass's standard IconIDs and falls back to a generic icon outside them", () => {
+  assert.equal(ICON_PALETTE.length, 69, 'KeePass defines IconIDs 0 through 68');
+  assert.equal(iconName('0'), 'key');
+  assert.equal(iconName('19'), 'email');
+  assert.equal(iconName('37'), 'bank');
+  assert.equal(iconName('48'), 'folder');
+  assert.equal(iconName('49'), 'folder-open');
+  assert.equal(iconName('68'), 'phone');
+  assert.equal(iconName('69'), 'unknown');
+  assert.equal(iconName('-1'), 'unknown');
+  assert.equal(iconName('not a number'), 'unknown');
 });
 
 test('isoToLocalInputValue / localInputValueToIso round-trip an ISO-UTC timestamp through datetime-local format', () => {
