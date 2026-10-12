@@ -2442,6 +2442,114 @@ test('a stale attachment Ref (pointing to no pool data) is shown but downloading
   );
 });
 
+test("Save keeps every field's line breaks, touched or not, and masks a protected multi-line value (#126)", async () => {
+  // KeePass and KeePassXC edit custom fields in multi-line boxes, so an SSH key
+  // or an address written there must survive an edit here that never touched it.
+  const sshKey = '-----BEGIN KEY-----\nAAAA\nBBBB\n-----END KEY-----';
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({
+    title: 'Server\nwest', // a line break where KeePass offers one line still has to survive
+    username: 'admin',
+    notes: 'one line',
+    fields: [
+      { key: 'Address', value: '1 Main St\nSpringfield' },
+      { key: 'SSH key', value: sshKey, protect: true },
+      { key: 'PIN', value: '1234' },
+    ],
+  });
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('multiline.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const editRow = (key: string): HTMLElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === key,
+    ) as HTMLElement;
+  const valueBox = (key: string) =>
+    editRow(key).querySelector('.edit-value') as HTMLInputElement | HTMLTextAreaElement;
+
+  // The standard single-line fields stay inputs; Notes and custom fields take lines,
+  // and so does any field whose value already holds a line break.
+  assert.equal(valueBox('UserName').tagName, 'INPUT');
+  assert.equal(valueBox('Title').tagName, 'TEXTAREA');
+  assert.equal(valueBox('Title').getAttribute('rows'), '2');
+  assert.equal(valueBox('Password').tagName, 'INPUT');
+  assert.equal(valueBox('Password').getAttribute('type'), 'password');
+  assert.equal(valueBox('Notes').tagName, 'TEXTAREA');
+  assert.equal(valueBox('Notes').getAttribute('rows'), '5', 'Notes opens with room to write');
+  assert.equal(valueBox('Address').tagName, 'TEXTAREA');
+  assert.equal(valueBox('Address').getAttribute('rows'), '2', 'as tall as its value');
+  assert.equal(valueBox('PIN').tagName, 'TEXTAREA');
+  assert.equal(valueBox('PIN').getAttribute('rows'), '1');
+
+  // A protected multi-line value is masked, and kept from spell checkers, like a password input.
+  const sshValue = valueBox('SSH key') as HTMLTextAreaElement;
+  assert.equal(sshValue.tagName, 'TEXTAREA');
+  assert.equal(sshValue.value, sshKey);
+  assert.equal(sshValue.classList.contains('concealed'), true);
+  assert.equal(sshValue.getAttribute('spellcheck'), 'false');
+  assert.equal(sshValue.getAttribute('autocapitalize'), 'off');
+  assert.equal(sshValue.getAttribute('autocorrect'), 'off');
+  assert.equal(valueBox('Address').hasAttribute('spellcheck'), false, 'unprotected, left as is');
+  const reveal = editRow('SSH key').querySelector<HTMLButtonElement>(
+    '[title="Show / hide"]',
+  ) as HTMLButtonElement;
+  reveal.click();
+  assert.equal(sshValue.classList.contains('concealed'), false);
+  assert.equal(iconOf(reveal), '#icon-eye-off');
+  assert.equal(
+    dom.window.document.activeElement,
+    sshValue,
+    'revealing puts the caret there (#110)',
+  );
+  reveal.click();
+  assert.equal(sshValue.classList.contains('concealed'), true);
+  assert.equal(iconOf(reveal), '#icon-eye');
+
+  // Saved without touching anything: every line break is still there.
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const detailValue = (key: string): string =>
+    Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === key)
+      ?.querySelector('.detail-value')?.textContent ?? '';
+  assert.equal(detailValue('Title'), 'Server\nwest');
+  assert.equal(detailValue('Address'), '1 Main St\nSpringfield');
+  const sshDetail = Array.from(root().querySelectorAll<HTMLElement>('.detail-field')).find(
+    (row) => row.querySelector('.detail-label')?.textContent === 'SSH key',
+  ) as HTMLElement;
+  sshDetail.querySelector<HTMLButtonElement>('[title="Show / hide"]')?.click();
+  assert.equal(detailValue('SSH key'), sshKey);
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+});
+
 test('entry history: edits are snapshotted, and a past version can be restored or deleted', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

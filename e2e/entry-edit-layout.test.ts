@@ -146,6 +146,47 @@ test('at phone width, a refused Save shows its reason beside the fields, within 
   }
 });
 
+test('at phone width, a protected value with line breaks is masked until revealed (#126)', async () => {
+  // Only a real browser applies the CSS mask that stands in for a password input here.
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 900 });
+  try {
+    const app = await openApp(page, server.origin, fixture);
+    await app.click('.entry-table-open button'); // the desktop table's way into the card
+    await app.click('[data-action="edit"]');
+    await app.waitForSelector('#edit-fields .edit-field');
+    await page.setViewport({ width: 375, height: 900 });
+
+    const sshKey = () =>
+      app.$$eval('.edit-field', (rows) => {
+        const row = rows.find(
+          (r) => r.querySelector<HTMLInputElement>('.edit-key')?.value === 'SSH key',
+        );
+        const box = row?.querySelector<HTMLTextAreaElement>('textarea.edit-value');
+        return {
+          mask: box ? getComputedStyle(box).getPropertyValue('-webkit-text-security') : '',
+          value: box?.value ?? '',
+          right: box?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY,
+          pageWidth: document.documentElement.scrollWidth,
+        };
+      });
+    const hidden = await sshKey();
+    assert.equal(hidden.mask, 'disc', 'masked as a password input would be');
+    assert.equal(hidden.value, 'first line\nsecond line', 'with both lines in the box');
+    assert.ok(hidden.right <= 375 && hidden.pageWidth <= 375, 'and it fits across the phone');
+
+    await app.$$eval('.edit-field', (rows) => {
+      const row = rows.find(
+        (r) => r.querySelector<HTMLInputElement>('.edit-key')?.value === 'SSH key',
+      );
+      row?.querySelector<HTMLButtonElement>('[title="Show / hide"]')?.click();
+    });
+    assert.equal((await sshKey()).mask, 'none', 'Show reveals it');
+  } finally {
+    await page.close();
+  }
+});
+
 test('a saved entry shows its notes line by line, at full width', async () => {
   const { page, app } = await newEntryAt(1280);
   try {

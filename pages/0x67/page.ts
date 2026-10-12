@@ -1652,11 +1652,24 @@ function buildEditField(
   keyInput.placeholder = 'Field name';
   keyInput.readOnly = !removable;
 
-  // A single-line input would flatten multi-line notes into one line on save (#89).
-  const valueInput = document.createElement(key === 'Notes' && !isProtected ? 'textarea' : 'input');
+  /* A single-line input drops line breaks, so Notes and custom fields (multi-line in KeePass
+  and KeePassXC) and any value already holding one get a box that keeps them (#89, #126). */
+  const lines = value.split(/\r\n|\r|\n/).length;
+  const multiLine = key === 'Notes' || isCustomField(key) || lines > 1;
+  const valueInput = document.createElement(multiLine ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
   valueInput.value = value;
   valueInput.placeholder = 'Value';
+  if (multiLine) {
+    // Notes opens with room to write; any other box is as tall as its value.
+    valueInput.setAttribute('rows', String(Math.max(lines, key === 'Notes' ? 5 : 1)));
+  }
+  if (multiLine && isProtected) {
+    // What a password input gets on its own: no spell checker or autocorrect reads it.
+    valueInput.setAttribute('spellcheck', 'false');
+    valueInput.setAttribute('autocapitalize', 'off');
+    valueInput.setAttribute('autocorrect', 'off');
+  }
 
   // Kept apart from the row's own spacing so they sit close together (#89); copy
   // leads the value, as it does everywhere, and the rest follow it (#87).
@@ -1671,10 +1684,17 @@ function buildEditField(
   row.appendChild(actions);
 
   if (isProtected) {
-    valueInput.setAttribute('type', 'password');
+    let concealed = false;
+    const toggleConcealed = (): void => {
+      concealed = !concealed;
+      // A password input can't hold line breaks, so a multi-line box is masked by CSS (#126).
+      if (multiLine) valueInput.classList.toggle('concealed', concealed);
+      else valueInput.setAttribute('type', concealed ? 'password' : 'text');
+    };
+    toggleConcealed();
     const toggle = makeIconButton('icon-btn', 'Show / hide', 'eye', () => {
-      valueInput.setAttribute('type', valueInput.type === 'password' ? 'text' : 'password');
-      toggle.replaceChildren(icon(valueInput.type === 'password' ? 'eye' : 'eye-off'));
+      toggleConcealed();
+      toggle.replaceChildren(icon(concealed ? 'eye' : 'eye-off'));
       valueInput.focus(); // the next move is usually to edit the value (#110)
     });
     keepFieldFocus(toggle);
