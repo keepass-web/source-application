@@ -158,6 +158,11 @@ test('checkedMessage / isCheckedMessage: a newer version always comes with its b
   assert.equal(isCheckedMessage(checkedMessage('newer', { bytes, version: 'rev-2' })), true);
   assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'newer', version: 'rev-2' }), false);
   assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'newer', bytes }), false);
+  assert.equal(
+    isCheckedMessage({ type: 'kw-checked', status: 'newer', bytes, version: '' }),
+    false,
+    'a newer version always has a name to build on',
+  );
   assert.equal(isCheckedMessage({ ...newer, savedAt: 7 }), false);
   assert.equal(isCheckedMessage({ type: 'kw-checked', status: 'whatever' }), false);
   assert.equal(isCheckedMessage(null), false);

@@ -1523,6 +1523,23 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
   });
 
   await t.test(
+    'an unlock while a merge waits supersedes its check, not holding the dialog',
+    async () => {
+      await reachConflict();
+      checkAnswer = null;
+      const before = hostInbox.length;
+      click(saveDlg('[data-action="merge"]'));
+      await waitFor(() => hostInbox.slice(before).some((sent) => sent.message.type === 'kw-check'));
+      await lockNow();
+      checkAnswer = UNCHANGED;
+      await unlock(); // its own check replaces the merge's, which the host never answered
+      await waitFor(() => /database locked/.test(saveStatus()));
+      assert.equal(saveDlg('[data-role="save-later"]').hidden, false, 'released at once');
+      click(saveDlg('[data-role="save-later"]'));
+    },
+  );
+
+  await t.test(
     'a merge brings the newer version in, closes the dialog and shows what came',
     async () => {
       await reachConflict();

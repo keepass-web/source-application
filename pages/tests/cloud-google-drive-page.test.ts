@@ -424,7 +424,7 @@ test('Google Drive connector', async (t) => {
   await t.test('kw-save writes back to Drive and reports success', async () => {
     handlers.save = async () => ({ ok: true, status: 200 });
     sendMessage(
-      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8), base: 'rev-1' },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 2);
@@ -434,7 +434,7 @@ test('Google Drive connector', async (t) => {
   await t.test('a Drive write-back HTTP error is reported to the app', async () => {
     handlers.save = errStatus(403);
     sendMessage(
-      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8), base: 'rev-1' },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 3);
@@ -449,7 +449,7 @@ test('Google Drive connector', async (t) => {
   await t.test('a Drive write-back network error is reported to the app', async () => {
     handlers.save = rejects;
     sendMessage(
-      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8), base: 'rev-1' },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length === 4);
@@ -466,7 +466,13 @@ test('Google Drive connector', async (t) => {
     async () => {
       handlers.save = errStatus(401);
       sendMessage(
-        { type: 'kw-save', id: 1, filename: 'vault.kdbx', bytes: new ArrayBuffer(8) },
+        {
+          type: 'kw-save',
+          id: 1,
+          filename: 'vault.kdbx',
+          bytes: new ArrayBuffer(8),
+          base: 'rev-1',
+        },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length === 5);
@@ -550,6 +556,24 @@ test('Google Drive connector', async (t) => {
       });
     },
   );
+  await t.test(
+    'a save that names no version to build on is refused, never written blind',
+    async () => {
+      let writes = 0;
+      handlers.save = async () => {
+        writes += 1;
+        return { ok: true, status: 200 };
+      };
+      assert.deepEqual(await exchange(save(15)), {
+        type: 'kw-saved',
+        id: 15,
+        ok: false,
+        error: 'the version it builds on is unknown',
+        reason: 'conflict',
+      });
+      assert.equal(writes, 0);
+    },
+  );
 
   await t.test(
     'a save to a trashed or missing file is refused as a conflict, unwritten',
@@ -614,6 +638,13 @@ test('Google Drive connector', async (t) => {
       bytes: newer,
       version: 'rev-4',
     });
+    // An app that names no version has nothing to compare with, so what is stored is newer.
+    assert.deepEqual(await exchange(check()), {
+      type: 'kw-checked',
+      status: 'newer',
+      bytes: newer,
+      version: 'rev-4',
+    });
 
     handlers.metadata = revision('rev-4', { trashed: true });
     assert.deepEqual(await exchange(check('rev-2')), { type: 'kw-checked', status: 'gone' });
@@ -625,7 +656,6 @@ test('Google Drive connector', async (t) => {
     'a check that cannot reach Drive, or has nothing to compare, answers unknown',
     async () => {
       const unknown = { type: 'kw-checked', status: 'unknown' };
-      assert.deepEqual(await exchange(check()), unknown, 'no version to compare with');
       handlers.metadata = errStatus(403);
       assert.deepEqual(await exchange(check('rev-2')), unknown);
       handlers.metadata = revision('rev-5');
@@ -827,7 +857,13 @@ test('Google Drive connector', async (t) => {
       });
       const before = frameInbox.length;
       sendMessage(
-        { type: 'kw-save', id: 1, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        {
+          type: 'kw-save',
+          id: 1,
+          filename: 'Fresh Vault.kdbx',
+          bytes: new ArrayBuffer(8),
+          base: 'rev-1',
+        },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length > before);
@@ -852,7 +888,13 @@ test('Google Drive connector', async (t) => {
       sendMessage({ type: 'kw-ready' }, { source: frameWin });
       const beforeVersioned = frameInbox.length;
       sendMessage(
-        { type: 'kw-save', id: 2, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(8) },
+        {
+          type: 'kw-save',
+          id: 2,
+          filename: 'Fresh Vault.kdbx',
+          bytes: new ArrayBuffer(8),
+          base: 'rev-1',
+        },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length > beforeVersioned);
@@ -871,7 +913,13 @@ test('Google Drive connector', async (t) => {
       handlers.save = async () => ({ ok: true, status: 200 });
       const before = frameInbox.length;
       sendMessage(
-        { type: 'kw-save', id: 1, filename: 'Fresh Vault.kdbx', bytes: new ArrayBuffer(16) },
+        {
+          type: 'kw-save',
+          id: 1,
+          filename: 'Fresh Vault.kdbx',
+          bytes: new ArrayBuffer(16),
+          base: 'rev-1',
+        },
         { source: frameWin },
       );
       await waitFor(() => frameInbox.length > before);
@@ -902,7 +950,13 @@ test('Google Drive connector', async (t) => {
     handlers.create = errStatus(403);
     const before = frameInbox.length;
     sendMessage(
-      { type: 'kw-save', id: 1, filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      {
+        type: 'kw-save',
+        id: 1,
+        filename: 'Another Vault.kdbx',
+        bytes: new ArrayBuffer(8),
+        base: 'rev-1',
+      },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length > before);
@@ -918,7 +972,13 @@ test('Google Drive connector', async (t) => {
     handlers.create = rejects;
     const before = frameInbox.length;
     sendMessage(
-      { type: 'kw-save', id: 1, filename: 'Another Vault.kdbx', bytes: new ArrayBuffer(8) },
+      {
+        type: 'kw-save',
+        id: 1,
+        filename: 'Another Vault.kdbx',
+        bytes: new ArrayBuffer(8),
+        base: 'rev-1',
+      },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length > before);
@@ -945,7 +1005,7 @@ test('Google Drive connector', async (t) => {
   async function saveAndRead(filename: string): Promise<unknown> {
     const before = frameInbox.length;
     sendMessage(
-      { type: 'kw-save', id: 1, filename, bytes: new ArrayBuffer(8) },
+      { type: 'kw-save', id: 1, filename, bytes: new ArrayBuffer(8), base: 'rev-1' },
       { source: frameWin },
     );
     await waitFor(() => frameInbox.length > before);
@@ -1016,7 +1076,10 @@ test('Google Drive connector', async (t) => {
   }
 
   function sendSave(id: number, filename: string): void {
-    sendMessage({ type: 'kw-save', id, filename, bytes: new ArrayBuffer(8) }, { source: frameWin });
+    sendMessage(
+      { type: 'kw-save', id, filename, bytes: new ArrayBuffer(8), base: 'rev-1' },
+      { source: frameWin },
+    );
   }
 
   const sentSince = (before: number): unknown[] =>

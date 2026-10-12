@@ -174,6 +174,7 @@ export function isCheckedMessage(data: unknown): data is CheckedMessage {
     return (
       rec.bytes instanceof ArrayBuffer &&
       typeof rec.version === 'string' &&
+      rec.version !== '' &&
       isOptionalString(rec.savedAt)
     );
   }

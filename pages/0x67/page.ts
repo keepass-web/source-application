@@ -2683,6 +2683,7 @@ let pendingCheck: ((result: CheckResult) => void) | null = null;
 stored. A host that never answers counts as unknown, on the reconnect's budget
 since the host may need to renew its credential first (#74). */
 function requestCheck(): Promise<CheckResult> {
+  pendingCheck?.({ status: 'unknown' }); // a newer check supersedes one still waiting
   postToHost(app.baseVersion === null ? checkMessage() : checkMessage(app.baseVersion));
   return new Promise<CheckResult>((resolve) => {
     const settle = (result: CheckResult): void => {

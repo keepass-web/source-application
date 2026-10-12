@@ -526,27 +526,31 @@ function handleFrameMessage(event: MessageEvent): void {
   }
 }
 
-/** Never replaces a version the app didn't build on: a newer one saved
-elsewhere comes back as a conflict, for the app to merge in and save again (#74). */
+function conflictSave(id: number, error: string): SavedMessage {
+  return savedMessage(id, false, { error, reason: 'conflict' });
+}
+
+/** Writes only over the version the app built on. A save that names none, finds
+a newer one, or finds the file trashed or missing comes back as a conflict for
+the app to merge and save again, so a lost version never means a blind write (#74). */
 async function saveToDrive({ id, bytes, base }: SaveMessage, source: Window): Promise<void> {
   const file = must(currentFile);
-  if (base !== undefined) {
-    const revision = await fetchRevision(file.id);
-    // A trashed or missing file is no more a place to save than a newer one.
-    const gone =
-      revision.outcome === 'gone' || (revision.outcome === 'ok' && revision.revision.trashed);
-    if (gone || (revision.outcome === 'ok' && revision.revision.version !== base)) {
-      const conflict = savedMessage(id, false, {
-        error: gone ? 'it was removed or replaced' : 'it was saved elsewhere since',
-        reason: 'conflict',
-      });
-      source.postMessage(conflict, PEER.target);
-      return;
-    }
-    if (revision.outcome !== 'ok') {
-      source.postMessage(failedSave(id, revision.outcome, revision.error), PEER.target);
-      return;
-    }
+  if (base === undefined) {
+    source.postMessage(conflictSave(id, 'the version it builds on is unknown'), PEER.target);
+    return;
+  }
+  const revision = await fetchRevision(file.id);
+  if (revision.outcome === 'gone' || (revision.outcome === 'ok' && revision.revision.trashed)) {
+    source.postMessage(conflictSave(id, 'it was removed or replaced'), PEER.target);
+    return;
+  }
+  if (revision.outcome !== 'ok') {
+    source.postMessage(failedSave(id, revision.outcome, revision.error), PEER.target);
+    return;
+  }
+  if (revision.revision.version !== base) {
+    source.postMessage(conflictSave(id, 'it was saved elsewhere since'), PEER.target);
+    return;
   }
   const result = await driveFetch(buildDriveUpdateUrl(UPLOAD_API, file.id), {
     method: 'PATCH',
@@ -568,11 +572,12 @@ async function saveToDrive({ id, bytes, base }: SaveMessage, source: Window): Pr
 }
 
 /** Tell the app whether Drive holds a newer version than the one it builds on,
-with its bytes. The check follows the user's own unlock, often after the hourly
-token has lapsed, so it renews silently once before giving up (#74). */
+with its bytes; to an app that names none, whatever is stored is newer. The check
+follows the user's own unlock, often after the hourly token has lapsed, so it
+renews silently once before giving up (#74). */
 async function answerCheck({ base }: CheckMessage, source: Window): Promise<void> {
   const file = currentFile;
-  if (file === null || base === undefined) {
+  if (file === null) {
     source.postMessage(checkedMessage('unknown'), PEER.target);
     return;
   }
