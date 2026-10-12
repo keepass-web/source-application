@@ -678,9 +678,8 @@ test('0x67 app', async (t) => {
         q('#group-tree').querySelector<HTMLButtonElement>('.group-btn') as HTMLButtonElement;
       assert.equal(rootBtn().closest('.group-row')?.querySelector('.group-menu-btn'), null);
 
-      // Group rows are icon-prefixed ("🌐 Personal"), and the root's own
-      // label ("📁 Personal Vault") would falsely match a plain substring
-      // check against "Personal" — match on the trailing name instead.
+      // The root's own label ("Personal Vault") would falsely match a plain
+      // substring check against "Personal" — match on the trailing name instead.
       const groupBtnFor = (name: string): HTMLButtonElement =>
         Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
           b.textContent?.endsWith(name),
@@ -1641,7 +1640,6 @@ test('0x67 app', async (t) => {
   await t.test(
     'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
     () => {
-      // Group/entry labels are icon-prefixed ("📁 Recycle Bin"), so match by substring.
       const clickGroupNamed = (name: string): void => {
         const btn = Array.from(
           q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'),
@@ -2696,7 +2694,6 @@ test('a rename, a move and permanent deletes reach the saved file as other KeePa
   const click = (el: EventTarget): void => {
     el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   };
-  // Rows are icon-prefixed ("📁 Keep"), so match on the trailing name.
   const groupBtnFor = (name: string): HTMLButtonElement =>
     Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
       b.textContent?.endsWith(name),
@@ -2986,7 +2983,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
     'copy-hint',
     'it comes before the text box, as a sibling of it',
   );
-  // The entry's icon has a cell of its own, so nothing sits between 📋 and the title (#87).
+  // The entry's icon has a cell of its own, so nothing sits between copy and the title (#87).
   assert.equal(firstCell.querySelector('.entry-cell-text')?.textContent, 'GitHub');
   assert.equal(firstCell.previousElementSibling?.className, 'entry-table-icon');
   assert.equal(iconOf(firstCell.previousElementSibling as Element), '#icon-key');
@@ -3031,7 +3028,7 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.ok(!byId<HTMLElement>('toast').textContent?.includes('hunter2'), 'never the value itself');
   assert.equal(q('#detail-title'), null, 'copying never opens the card');
 
-  // The 📋 is a real button, so a keyboard reaches it; its click must not also
+  // The copy control is a real button, so a keyboard reaches it; its click must not also
   // run the cell's own handler underneath.
   clipboardText = '';
   const hintBtn = maskedCell().querySelector('.copy-hint') as HTMLButtonElement;
