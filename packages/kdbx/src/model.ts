@@ -552,6 +552,7 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   }
 
   const bin = createGroup(KX_RECYCLE_BIN_NAME);
+  setChildText(bin, 'IconID', '43'); // TrashBin, as KeePass and KeePassXC give their own bin (#121)
   appendChild(rootGroup, bin);
   // createGroup() always appends a UUID child first, so this is always present.
   const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
