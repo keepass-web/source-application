@@ -76,6 +76,7 @@ export {
   getEntryTimes,
   getText,
   isInRecycleBin,
+  isRecycleBinEnabled,
   moveToGroup,
   ProtectedValue,
   pushHistorySnapshot,

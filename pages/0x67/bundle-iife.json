@@ -45,6 +45,7 @@
     "createGroup",
     "findOrCreateRecycleBin",
     "isInRecycleBin",
+    "isRecycleBinEnabled",
     "getEntryTags",
     "setEntryTags",
     "getEntryTimes",

@@ -33,6 +33,7 @@ import {
   getChildren,
   getText,
   isInRecycleBin,
+  isRecycleBinEnabled,
   Kdbx,
   setAttribute,
   setText,
@@ -93,6 +94,7 @@ Object.assign(globalThis, {
   createGroup,
   findOrCreateRecycleBin,
   isInRecycleBin,
+  isRecycleBinEnabled,
   ...logic,
 });
 

@@ -693,7 +693,8 @@ function deleteGroupAction(group: XmlElement): void {
   const db = must(app.db);
   const rootGroup = db.getRootGroup();
 
-  if (isInRecycleBin(db.root, group)) {
+  // With the database's bin turned off, KeePass and KeePassXC delete outright (#132).
+  if (isInRecycleBin(db.root, group) || !isRecycleBinEnabled(db.root)) {
     const entryCount = collectAllEntries(group).length;
     let entryWord = 'entries';
     if (entryCount === 1) {
@@ -1363,16 +1364,17 @@ function showEntryDetail(): void {
 
   // Deleting is "Trash" (reversible, moves into the recycle bin) unless the
   // entry is already inside the bin, where it's "Restore" or a permanent,
-  // confirmed "Delete" instead.
+  // confirmed "Delete" instead; with the bin turned off, only "Delete" (#132).
   const parentGroup = findEntryParent(db.getRootGroup(), entry);
   const inBin = parentGroup !== null && isInRecycleBin(db.root, parentGroup);
+  const permanent = inBin || !isRecycleBinEnabled(db.root);
 
   const trashBtn = qs<HTMLButtonElement>('[data-action="trash"]');
   const restoreBtn = qs<HTMLButtonElement>('[data-action="restore"]');
   const deleteBtn = qs<HTMLButtonElement>('[data-action="delete"]');
-  trashBtn.hidden = inBin;
+  trashBtn.hidden = permanent;
   restoreBtn.hidden = !inBin;
-  deleteBtn.hidden = !inBin;
+  deleteBtn.hidden = !permanent;
 
   trashBtn.addEventListener('click', () => {
     const bin = findOrCreateRecycleBin(db.root);

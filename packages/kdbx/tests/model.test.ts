@@ -17,6 +17,7 @@ import {
   getEntryTimes,
   getText,
   isInRecycleBin,
+  isRecycleBinEnabled,
   moveToGroup,
   ProtectedValue,
   pushHistorySnapshot,
@@ -292,6 +293,9 @@ test('findOrCreateRecycleBin creates the bin once, under the root group, and reu
     ['43'],
     "one IconID, KeePass's TrashBin, as KeePass gives its own bin (#121)",
   );
+  // KeePass and KeePassXC leave their own bins out of search and auto-type (#132).
+  assert.equal(getText(getChild(bin, 'EnableSearching') as XmlElement), 'false');
+  assert.equal(getText(getChild(bin, 'EnableAutoType') as XmlElement), 'false');
   const uuidEl = getChild(meta, 'RecycleBinUUID') as XmlElement;
   assert.equal(getText(uuidEl), getText(getChild(bin, 'UUID') as XmlElement));
   const changedEl = getChild(meta, 'RecycleBinChanged') as XmlElement;
@@ -306,6 +310,21 @@ test('findOrCreateRecycleBin creates the bin once, under the root group, and reu
   assert.equal(again, bin);
   assert.equal(getChildren(rootGroup, 'Group').length, 1);
   assert.equal(getText(changedEl), LONG_AGO);
+});
+
+test('isRecycleBinEnabled follows Meta/RecycleBinEnabled, on unless it says False, as in KeePass (#132)', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  const enabled = getChild(meta, 'RecycleBinEnabled') as XmlElement;
+  assert.equal(isRecycleBinEnabled(document), true);
+  setText(enabled, 'False');
+  assert.equal(isRecycleBinEnabled(document), false);
+  setText(enabled, ' false ');
+  assert.equal(isRecycleBinEnabled(document), false);
+  meta.children = meta.children.filter((child) => child !== enabled);
+  assert.equal(isRecycleBinEnabled(document), true, 'a file that leaves it out has it on');
+  document.children = document.children.filter((child) => child !== meta);
+  assert.equal(isRecycleBinEnabled(document), true);
 });
 
 test('findOrCreateRecycleBin replaces a stale RecycleBinUUID that no longer matches any group', () => {

@@ -567,6 +567,9 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
 
   const bin = createGroup(KX_RECYCLE_BIN_NAME);
   setChildText(bin, 'IconID', '43'); // TrashBin, as KeePass and KeePassXC give their own bin (#121)
+  // Left out of search and auto-type, as KeePass and KeePassXC make their own bins (#132).
+  appendChild(bin, createElement('EnableAutoType', 'false'));
+  appendChild(bin, createElement('EnableSearching', 'false'));
   appendChild(rootGroup, bin);
   // createGroup() always appends a UUID child first, so this is always present.
   const binUuid = getText(getChild(bin, 'UUID') as XmlElement);
@@ -574,6 +577,13 @@ export function findOrCreateRecycleBin(document: XmlElement): XmlElement {
   setChildText(meta, 'RecycleBinUUID', binUuid);
   setChildText(meta, 'RecycleBinChanged', kx_nowIso());
   return bin;
+}
+
+// Off only when the database says so, making deletes permanent; on by default, as in KeePass (#132).
+export function isRecycleBinEnabled(document: XmlElement): boolean {
+  const meta = getChild(document, 'Meta');
+  const enabledEl = meta && getChild(meta, 'RecycleBinEnabled');
+  return !enabledEl || getText(enabledEl).trim().toLowerCase() !== 'false';
 }
 
 // True if `group` is the database's recycle bin, or nested inside it.
