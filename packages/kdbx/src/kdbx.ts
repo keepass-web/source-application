@@ -54,6 +54,7 @@ import {
   getChild,
   getChildren,
   getText,
+  markProtectedInMemory,
   setAttribute,
   setGenerator,
   setText,
@@ -393,6 +394,22 @@ export class Kdbx {
   // Serialize the database to KDBX bytes (regenerating all random material).
   async save(): Promise<Uint8Array> {
     return this.header.version.major >= 4 ? this.#save4() : this.#save3();
+  }
+
+  /** The whole database as unencrypted KeePass XML, which KeePass and KeePassXC
+  export and import, so it moves into either without loss (#137). Attachments go
+  in Meta, as KDBX 3.1 keeps them, and protected values in the clear. */
+  exportXml(): string {
+    const root = cloneElement(this.root);
+    writeMetaBinaries(root, this.binaries);
+    markProtectedInMemory(root);
+    for (const meta of getChildren(root, 'Meta')) {
+      // It vouches for an encrypted file's header, and plain XML has none.
+      meta.children = meta.children.filter(
+        (child) => !(child.type === 'element' && child.name === 'HeaderHash'),
+      );
+    }
+    return serializeXml(root);
   }
 
   async #save4(): Promise<Uint8Array> {
