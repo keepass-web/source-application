@@ -47,6 +47,7 @@ import {
   getEntryTimes,
   getText,
   isInRecycleBin,
+  isRecycleBinEnabled,
   Kdbx,
   moveToGroup,
   pushHistorySnapshot,
@@ -180,6 +181,7 @@ Object.assign(globalThis, {
   createGroup,
   findOrCreateRecycleBin,
   isInRecycleBin,
+  isRecycleBinEnabled,
   getEntryTags,
   setEntryTags,
   getEntryTimes,
@@ -1290,6 +1292,53 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'Save refuses two fields of one name, naming it and changing nothing until one is renamed (#125)',
+    () => {
+      // KeePassXC refuses to open a file holding such an entry.
+      const historyRows = () => q('#detail-history').querySelectorAll('.history-row').length;
+      const historyBefore = historyRows();
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLElement>('#edit-error').hidden, true);
+
+      q('[data-action="add-field"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      const rows = root().querySelectorAll<HTMLElement>('.edit-field');
+      const added = rows[rows.length - 1] as HTMLElement;
+      const addedKey = added.querySelector<HTMLInputElement>('.edit-key') as HTMLInputElement;
+      addedKey.value = ' Password ';
+      (added.querySelector('.edit-value') as HTMLInputElement).value = 'shadow';
+      addedKey.blur();
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const error = q<HTMLElement>('#edit-error');
+      assert.equal(error.hidden, false);
+      assert.equal(
+        error.textContent,
+        'More than one field is named "Password". Rename or remove one, then save.',
+      );
+      assert.equal(dom.window.document.activeElement, addedKey, 'the clashing name is focused');
+      assert.ok(q('#edit-title'), 'still on the edit screen');
+      assert.equal(byId<HTMLDialogElement>('dlg-save').open, false);
+
+      addedKey.value = 'Recovery code';
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
+      const labels = Array.from(root().querySelectorAll('.detail-label')).map((l) => l.textContent);
+      assert.equal(labels.filter((label) => label === 'Password').length, 1);
+      assert.ok(labels.includes('Recovery code'));
+      assert.equal(
+        historyRows(),
+        historyBefore + 1,
+        'only the save that went through kept History',
+      );
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
+
   await t.test('no control in the edit row takes the caret out of the value field', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
@@ -2357,6 +2406,57 @@ test('attachments can be added, shown, and survive save/reload on KDBX 3.1 files
   );
 });
 
+test('an empty password box opens a key-file-only database, and one keyed with an empty password too (#127)', async () => {
+  const unlockWithKeyFileOnly = async (credentials: Credentials, keyFile: Uint8Array) => {
+    const kdbx = await Kdbx.create(credentials, {
+      version: 4,
+      cipher: 'chacha20',
+      kdf: 'argon2id',
+      argon2: FAST_ARGON2,
+      aesKdfRounds: 1000n,
+    });
+    appendChild(kdbx.getRootGroup(), createEntry({ title: 'Behind a key file' }));
+    const fileInput = q<HTMLInputElement>('#file-input');
+    setFiles(fileInput, [makeFile('key-only.kdbx', await kdbx.save())]);
+    dispatch(fileInput, 'change');
+    await waitFor(() => q('#master-password') !== null);
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', keyFile)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+  };
+  const closeDatabase = () => {
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.ok(q('#drop-zone'));
+  };
+
+  // KeePass and KeePassXC both make databases keyed by a key file alone.
+  await unlockWithKeyFileOnly(new Credentials({ keyFile: KEYFILE }), KEYFILE);
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  assert.ok(q('.entry-row'), 'unlocked with the password box left empty');
+  closeDatabase();
+
+  // An empty password with a key file is a different key, and still opens.
+  await unlockWithKeyFileOnly(new Credentials({ password: '', keyFile: KEYFILE }), KEYFILE);
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  assert.ok(q('.entry-row'), 'unlocked after the key-file-alone attempt failed');
+  closeDatabase();
+
+  // A wrong key file fails both attempts and says so.
+  await unlockWithKeyFileOnly(
+    new Credentials({ keyFile: KEYFILE }),
+    KEYFILE.map((b) => b ^ 1),
+  );
+  await waitFor(() => q<HTMLElement>('#unlock-error').hidden === false);
+  assert.match(q<HTMLElement>('#unlock-error').textContent ?? '', /wrong credentials/);
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.ok(q('#drop-zone'));
+});
+
 test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {
@@ -2497,6 +2597,87 @@ test("Save keeps every field's line breaks, touched or not, and masks a protecte
   assert.equal(detailValue('SSH key'), sshKey);
 
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+});
+
+test('with the database bin turned off, deleting is permanent and confirmed, and no bin appears (#132)', async () => {
+  // KeePass and KeePassXC delete outright when a database has its bin off.
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Binless',
+  });
+  const meta = getChild(kdbx.root, 'Meta') as XmlElement;
+  setText(getChild(meta, 'RecycleBinEnabled') as XmlElement, 'False');
+  const doomedGroup = createGroup('Doomed Group');
+  appendChild(doomedGroup, createEntry({ title: 'Inner Entry' }));
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Doomed Entry' }));
+  appendChild(kdbx.getRootGroup(), doomedGroup);
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('binless.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const groupButtons = (): HTMLButtonElement[] =>
+    Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'));
+
+  // An entry offers only a confirmed, permanent Delete.
+  click(q('.entry-row'));
+  assert.equal(q<HTMLButtonElement>('[data-action="trash"]').hidden, true);
+  assert.equal(q<HTMLButtonElement>('[data-action="restore"]').hidden, true);
+  assert.equal(q<HTMLButtonElement>('[data-action="delete"]').hidden, false);
+  click(q('[data-action="delete"]'));
+  assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete entry?');
+  click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+
+  // So does a group, and the entries in it go with it.
+  click(groupButtons().find((b) => b.textContent?.endsWith('Doomed Group')) as HTMLButtonElement);
+  click(q('[data-action="delete-group"]'));
+  assert.equal(byId<HTMLElement>('confirm-delete-title').textContent, 'Delete group?');
+  click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+  assert.ok(!groupButtons().some((b) => b.textContent?.endsWith('Recycle Bin')), 'no bin was made');
+
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(q('[data-action="save-database"]'));
+    click(dq('#dlg-save [data-action="download"]'));
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    credentials,
+  );
+  assert.equal(getChild(getChild(saved.root, 'Meta') as XmlElement, 'RecycleBinUUID'), undefined);
+  assert.deepEqual(getChildren(saved.getRootGroup(), 'Entry'), []);
+  assert.deepEqual(getChildren(saved.getRootGroup(), 'Group'), []);
+  const deleted = getChild(getChild(saved.root, 'Root') as XmlElement, 'DeletedObjects');
+  assert.equal(getChildren(deleted as XmlElement, 'DeletedObject').length, 3);
+
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),

@@ -55,20 +55,14 @@ export async function keyFileComponent(bytes: Uint8Array): Promise<Uint8Array> {
   if (bytes.length === 32) {
     return bytes.slice();
   }
-  const text = kx_tryDecodeAscii(bytes);
-  if (text !== undefined && KX_HEX_64.test(text.trim())) {
-    return fromHex(text.trim());
-  }
-  return sha256(bytes);
-}
-
-function kx_tryDecodeAscii(bytes: Uint8Array): string | undefined {
-  for (const byte of bytes) {
-    if (byte > 0x7e || (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d)) {
-      return undefined;
+  // Hex only at exactly 64 characters, as KeePass and KeePassXC read it (#128).
+  if (bytes.length === 64) {
+    const text = new TextDecoder('ascii').decode(bytes);
+    if (KX_HEX_64.test(text)) {
+      return fromHex(text);
     }
   }
-  return new TextDecoder('ascii').decode(bytes);
+  return sha256(bytes);
 }
 
 /** Parse a KeePass XML key file. v2.x hex-encodes the key with a `Data

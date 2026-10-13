@@ -6,6 +6,7 @@ Imports kdbx's model.ts/xml.ts directly, not the index.ts barrel, to
 sidestep a latent bug: kdbx.ts's own chacha20 import resolves relative to
 source, not build, and breaks when actually run from build output. */
 
+import type { CredentialsInput } from '../../build/packages/kdbx/src/credentials.js';
 import {
   appendChild,
   createElement,
@@ -331,11 +332,32 @@ export function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void 
   }
 }
 
+/** The first name shared by two of the fields, or null. KeePassXC refuses to
+open a file holding an entry with two fields of one name (#125). */
+export function duplicateFieldName(fields: EditedField[]): string | null {
+  const seen = new Set<string>();
+  for (const { key } of fields) {
+    if (!key) continue; // a blank-named row is dropped on save, so it clashes with nothing
+    if (seen.has(key)) return key;
+    seen.add(key);
+  }
+  return null;
+}
+
 /** The standard entry fields every entry gets; anything else is a custom field. */
 export const STANDARD_FIELD_NAMES = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
 
 export function isCustomField(key: string): boolean {
   return !STANDARD_FIELD_NAMES.includes(key);
+}
+
+/** The credentials to try, in order, for what the unlock form holds. An empty
+password box beside a key file can mean the key file alone or an empty password
+with it, so both are tried, the key file alone first, as KeePassXC does (#127). */
+export function unlockAttempts(password: string, keyFile: Uint8Array | null): CredentialsInput[] {
+  if (!keyFile) return [{ password }];
+  if (password) return [{ password, keyFile }];
+  return [{ keyFile }, { password: '', keyFile }];
 }
 
 /** The web address a URL field can open in a new tab, or null (#86). Only http
