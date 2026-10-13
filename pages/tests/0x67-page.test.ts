@@ -1290,6 +1290,53 @@ test('0x67 app', async (t) => {
     },
   );
 
+  await t.test(
+    'Save refuses two fields of one name, naming it and changing nothing until one is renamed (#125)',
+    () => {
+      // KeePassXC refuses to open a file holding such an entry.
+      const historyRows = () => q('#detail-history').querySelectorAll('.history-row').length;
+      const historyBefore = historyRows();
+      q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(q<HTMLElement>('#edit-error').hidden, true);
+
+      q('[data-action="add-field"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+      const rows = root().querySelectorAll<HTMLElement>('.edit-field');
+      const added = rows[rows.length - 1] as HTMLElement;
+      const addedKey = added.querySelector<HTMLInputElement>('.edit-key') as HTMLInputElement;
+      addedKey.value = ' Password ';
+      (added.querySelector('.edit-value') as HTMLInputElement).value = 'shadow';
+      addedKey.blur();
+
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      const error = q<HTMLElement>('#edit-error');
+      assert.equal(error.hidden, false);
+      assert.equal(
+        error.textContent,
+        'More than one field is named "Password". Rename or remove one, then save.',
+      );
+      assert.equal(dom.window.document.activeElement, addedKey, 'the clashing name is focused');
+      assert.ok(q('#edit-title'), 'still on the edit screen');
+      assert.equal(byId<HTMLDialogElement>('dlg-save').open, false);
+
+      addedKey.value = 'Recovery code';
+      q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
+      const labels = Array.from(root().querySelectorAll('.detail-label')).map((l) => l.textContent);
+      assert.equal(labels.filter((label) => label === 'Password').length, 1);
+      assert.ok(labels.includes('Recovery code'));
+      assert.equal(
+        historyRows(),
+        historyBefore + 1,
+        'only the save that went through kept History',
+      );
+      dq('#dlg-save [data-action="close"]').dispatchEvent(
+        new dom.window.Event('click', { bubbles: true }),
+      );
+    },
+  );
+
   await t.test('no control in the edit row takes the caret out of the value field', () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     const passwordRow = Array.from(root().querySelectorAll('.edit-field')).find(
