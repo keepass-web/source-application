@@ -1608,7 +1608,28 @@ function showEntryEdit(isNew: boolean): void {
     }
   });
 
+  /* Everything Save writes, as the form shows it. An untouched form saves nothing, so
+  no History copy or newer time makes a stale entry win a merge in another client (#134). */
+  const formState = (): string =>
+    JSON.stringify([
+      Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field'), (row) => [
+        must(row.querySelector<HTMLInputElement>('.edit-key')).value,
+        must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
+        row.dataset.protected,
+      ]),
+      String(pickedIconId ?? elementIconId(entry)),
+      qs<HTMLInputElement>('#edit-tags').value,
+      expiresCheckbox.checked,
+      expiryInput.value,
+      attachments.map((held) => [held.name, 'data' in held ? -1 : held.ref]),
+    ]);
+  const untouched = formState();
+
   qs('[data-action="save"]').addEventListener('click', () => {
+    if (!isNew && formState() === untouched) {
+      showEntryDetail();
+      return;
+    }
     commitEdits(entry, fieldsEl, isNew, pickedIconId, attachments);
   });
 }

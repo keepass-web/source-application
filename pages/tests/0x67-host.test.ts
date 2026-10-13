@@ -357,6 +357,7 @@ test('0x67 embedded in a host frame', async (t) => {
     click(dq('[data-role="save-later"]')); // labeled "Close" now; still dismisses
     click(q('[data-action="edit"]'));
     await waitFor(() => q('[data-action="save"]') !== null);
+    q<HTMLInputElement>('.edit-value').value += ' (edited)'; // Save writes only a change (#134)
     click(q('[data-action="save"]'));
     await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
 
@@ -411,6 +412,7 @@ test('0x67 embedded in a host frame', async (t) => {
   async function editAndOpenSaveDialog(): Promise<void> {
     click(q('[data-action="edit"]'));
     await waitFor(() => q('[data-action="save"]') !== null);
+    q<HTMLInputElement>('.edit-value').value += ' (edited)'; // Save writes only a change (#134)
     click(q('[data-action="save"]'));
     await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
   }
@@ -1072,6 +1074,7 @@ test('0x67 embedded in a host frame: the host forwards the find keystroke', asyn
     // The previous test left the entry detail up; make an edit and leave it unsaved.
     click(q('[data-action="edit"]'));
     await waitFor(() => q('[data-action="save"]') !== null);
+    q<HTMLInputElement>('.edit-value').value += ' (edited)'; // Save writes only a change (#134)
     click(q('[data-action="save"]'));
     await waitFor(() => dq<HTMLDialogElement>('#dlg-save').open);
     click(dq('[data-role="save-later"]'));
