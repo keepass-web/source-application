@@ -2404,6 +2404,57 @@ test('attachments can be added, shown, and survive save/reload on KDBX 3.1 files
   );
 });
 
+test('an empty password box opens a key-file-only database, and one keyed with an empty password too (#127)', async () => {
+  const unlockWithKeyFileOnly = async (credentials: Credentials, keyFile: Uint8Array) => {
+    const kdbx = await Kdbx.create(credentials, {
+      version: 4,
+      cipher: 'chacha20',
+      kdf: 'argon2id',
+      argon2: FAST_ARGON2,
+      aesKdfRounds: 1000n,
+    });
+    appendChild(kdbx.getRootGroup(), createEntry({ title: 'Behind a key file' }));
+    const fileInput = q<HTMLInputElement>('#file-input');
+    setFiles(fileInput, [makeFile('key-only.kdbx', await kdbx.save())]);
+    dispatch(fileInput, 'change');
+    await waitFor(() => q('#master-password') !== null);
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', keyFile)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+  };
+  const closeDatabase = () => {
+    q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+      new dom.window.Event('click', { bubbles: true }),
+    );
+    assert.ok(q('#drop-zone'));
+  };
+
+  // KeePass and KeePassXC both make databases keyed by a key file alone.
+  await unlockWithKeyFileOnly(new Credentials({ keyFile: KEYFILE }), KEYFILE);
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  assert.ok(q('.entry-row'), 'unlocked with the password box left empty');
+  closeDatabase();
+
+  // An empty password with a key file is a different key, and still opens.
+  await unlockWithKeyFileOnly(new Credentials({ password: '', keyFile: KEYFILE }), KEYFILE);
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  assert.ok(q('.entry-row'), 'unlocked after the key-file-alone attempt failed');
+  closeDatabase();
+
+  // A wrong key file fails both attempts and says so.
+  await unlockWithKeyFileOnly(
+    new Credentials({ keyFile: KEYFILE }),
+    KEYFILE.map((b) => b ^ 1),
+  );
+  await waitFor(() => q<HTMLElement>('#unlock-error').hidden === false);
+  assert.match(q<HTMLElement>('#unlock-error').textContent ?? '', /wrong credentials/);
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.ok(q('#drop-zone'));
+});
+
 test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

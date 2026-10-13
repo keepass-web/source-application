@@ -73,6 +73,7 @@
     "applyEntryEdits",
     "duplicateFieldName",
     "isCustomField",
+    "unlockAttempts",
     "openableUrl",
     "isValidClipboardTimeout",
     "isValidCurtainTimeout",
