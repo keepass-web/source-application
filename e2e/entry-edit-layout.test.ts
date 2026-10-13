@@ -111,6 +111,41 @@ test('at phone width a field puts its label above the value', async () => {
   }
 });
 
+test('at phone width, a refused Save shows its reason beside the fields, within the screen (#125)', async () => {
+  const { page, app } = await newEntryAt(375);
+  try {
+    // A long name with nowhere to break is the hardest one to fit across a phone.
+    const name = 'RecoveryCodesForTheOldWorkAccountNobodyRemembers';
+    for (let i = 0; i < 2; i++) {
+      await app.click('[data-action="add-field"]');
+      await app.type('#edit-fields .edit-field:last-child .edit-key', name);
+    }
+    await app.click('[data-action="save"]');
+    await app.waitForSelector('#edit-error:not([hidden])');
+
+    const layout = await app.evaluate(() => {
+      const errorEl = document.querySelector('#edit-error') as HTMLElement;
+      const error = errorEl.getBoundingClientRect();
+      const fields = document.querySelector('#edit-fields')?.getBoundingClientRect();
+      return {
+        errorLeft: error.left,
+        errorRight: error.right,
+        errorHeight: error.height,
+        textOverflow: errorEl.scrollWidth - errorEl.clientWidth,
+        gapBelowFields: error.top - (fields?.bottom ?? 0),
+        pageWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.ok(layout.errorHeight > 0, 'the reason is laid out, not just unhidden');
+    assert.ok(layout.errorLeft >= 0 && layout.errorRight <= 375, 'and fits across the screen');
+    assert.ok(layout.textOverflow <= 0, `the name wraps inside it, ${layout.textOverflow}px over`);
+    assert.ok(layout.gapBelowFields >= 0 && layout.gapBelowFields < 40, 'right under the fields');
+    assert.ok(layout.pageWidth <= 375, `the page does not scroll sideways, ${layout.pageWidth}px`);
+  } finally {
+    await page.close();
+  }
+});
+
 test('at phone width, a protected value with line breaks is masked until revealed (#126)', async () => {
   // Only a real browser applies the CSS mask that stands in for a password input here.
   const page = await browser.newPage();

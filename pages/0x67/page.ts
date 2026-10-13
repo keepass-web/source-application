@@ -346,14 +346,14 @@ function showUnlock(relocking = false): void {
     errorEl.hidden = true;
 
     try {
-      const input: CredentialsInput = { password: passwordInput.value };
-      if (keyfileData) input.keyFile = keyfileData;
-      const creds = new Credentials(input);
+      const attempts = unlockAttempts(passwordInput.value, keyfileData).map(
+        (input) => new Credentials(input),
+      );
       const latest = relocking && isHosted() ? await requestCheck() : null;
       const notice =
         latest?.status === 'newer'
-          ? await openNewer(creds, latest)
-          : await openHeld(creds, latest?.status === 'gone');
+          ? await openNewer(attempts, latest)
+          : await openHeld(attempts, latest?.status === 'gone');
       app.currentGroup = must(app.db).getRootGroup();
       app.searchQuery = '';
       setDirty(relocking && app.dirty);
@@ -1736,17 +1736,28 @@ function commitEdits(
   attachments: EditAttachment[],
 ): void {
   const db = must(app.db);
+  const rows = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field'));
+  const fields = rows.map((row) => ({
+    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
+    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
+    protect: row.dataset.protected === '1',
+  }));
+  const duplicate = duplicateFieldName(fields);
+  if (duplicate !== null) {
+    const errorEl = qs('#edit-error');
+    errorEl.textContent = `More than one field is named "${duplicate}". Rename or remove one, then save.`;
+    errorEl.hidden = false;
+    // The later one is likelier the one just added or renamed.
+    const row = must(rows[fields.map((field) => field.key).lastIndexOf(duplicate)]);
+    must(row.querySelector<HTMLInputElement>('.edit-key')).focus();
+    return;
+  }
+
   // A brand-new entry has no prior state worth keeping — only snapshot when
   // editing one that already existed, matching real KeePass.
   if (!isNew) {
     pushHistorySnapshot(db.root, entry);
   }
-
-  const fields = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field')).map((row) => ({
-    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
-    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
-    protect: row.dataset.protected === '1',
-  }));
   applyEntryEdits(entry, fields);
 
   if (pickedIconId !== undefined) {
@@ -2450,8 +2461,19 @@ function mergeNotice(summary: MergeSummary, savedAt: string | undefined): Notice
   return notice;
 }
 
-async function openHeld(creds: Credentials, gone: boolean): Promise<Notice | null> {
-  app.db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
+// Open with the first of these that works, which the database then keeps; the last one's error otherwise (#127).
+async function loadWithAny(bytes: Uint8Array, attempts: Credentials[]): Promise<Kdbx> {
+  const [first, ...rest] = attempts as [Credentials, ...Credentials[]];
+  try {
+    return await Kdbx.load(bytes, first);
+  } catch (err) {
+    if (rest.length === 0) throw err;
+    return loadWithAny(bytes, rest);
+  }
+}
+
+async function openHeld(attempts: Credentials[], gone: boolean): Promise<Notice | null> {
+  app.db = await loadWithAny(new Uint8Array(must(app.file)), attempts);
   if (!gone) return null;
   return {
     title: 'This file is gone from storage',
@@ -2460,9 +2482,9 @@ async function openHeld(creds: Credentials, gone: boolean): Promise<Notice | nul
   };
 }
 
-async function opens(bytes: Uint8Array, creds: Credentials): Promise<boolean> {
+async function opens(bytes: Uint8Array, attempts: Credentials[]): Promise<boolean> {
   try {
-    await Kdbx.load(bytes, creds);
+    await loadWithAny(bytes, attempts);
     return true;
   } catch {
     return false;
@@ -2474,14 +2496,14 @@ unsaved here it replaces this copy; with unsaved edits the two are merged by
 KeePass's rules and the result left unsaved to review. Throws what the unlock
 screen should say when these credentials can't do either. */
 async function openNewer(
-  creds: Credentials,
+  attempts: Credentials[],
   newer: Extract<CheckResult, { status: 'newer' }>,
 ): Promise<Notice> {
   const bytes = new Uint8Array(newer.bytes);
   const when = savedWhen(newer.savedAt);
   if (!app.dirty) {
     try {
-      app.db = await Kdbx.load(bytes, creds);
+      app.db = await loadWithAny(bytes, attempts);
     } catch {
       throw new Error(`The version saved elsewhere${when} doesn't open with these credentials.`);
     }
@@ -2495,9 +2517,9 @@ async function openNewer(
 
   let db: Kdbx;
   try {
-    db = await Kdbx.load(new Uint8Array(must(app.file)), creds);
+    db = await loadWithAny(new Uint8Array(must(app.file)), attempts);
   } catch (err) {
-    if (await opens(bytes, creds)) {
+    if (await opens(bytes, attempts)) {
       throw new Error(
         `These credentials open the version saved elsewhere${when}, but your unsaved changes here are locked with the previous ones. Enter those to merge the two.`,
       );
