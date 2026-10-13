@@ -9,6 +9,7 @@ import {
   deleteHistoryEntry,
   deletePermanently,
   findOrCreateRecycleBin,
+  findPreviousParentGroup,
   getAttribute,
   getChild,
   getChildren,
@@ -205,7 +206,52 @@ test('moveToGroup reparents an entry or group and stamps its LocationChanged, no
   for (const element of [entry, group]) {
     assertJustNow(timeOf(element, 'LocationChanged'));
     assert.equal(timeOf(element, 'LastModificationTime'), LONG_AGO, 'a move is not an edit');
+    // The group it left, which KeePass and KeePassXC restore it to (#133).
+    assert.equal(
+      getText(getChild(element, 'PreviousParentGroup') as XmlElement),
+      getText(getChild(from, 'UUID') as XmlElement),
+    );
   }
+
+  // A second move replaces the record rather than adding another.
+  moveToGroup(entry, to, from);
+  assert.deepEqual(getChildren(entry, 'PreviousParentGroup').map(getText), [
+    getText(getChild(to, 'UUID') as XmlElement),
+  ]);
+
+  // A group with no UUID leaves nothing to record.
+  const nameless = createElement('Group');
+  moveToGroup(entry, from, nameless);
+  moveToGroup(entry, nameless, from);
+  assert.deepEqual(getChildren(entry, 'PreviousParentGroup').map(getText), [
+    getText(getChild(from, 'UUID') as XmlElement),
+  ]);
+});
+
+test('findPreviousParentGroup finds the group an item left, unless it is gone or in the bin (#133)', () => {
+  const document = createDatabaseDocument('MyDb');
+  const rootGroup = getChild(getChild(document, 'Root') as XmlElement, 'Group') as XmlElement;
+  const home = createGroup('Home');
+  const entry = createEntry({ title: 'Wanderer' });
+  appendChild(rootGroup, home);
+  appendChild(home, entry);
+  assert.equal(findPreviousParentGroup(document, entry), undefined, 'never moved');
+
+  const bin = findOrCreateRecycleBin(document);
+  moveToGroup(entry, home, bin);
+  assert.equal(findPreviousParentGroup(document, entry), home);
+
+  // Once its old group is in the bin too, there is nowhere to go back to.
+  moveToGroup(home, rootGroup, bin);
+  assert.equal(findPreviousParentGroup(document, entry), undefined);
+
+  // Nor once that group is gone altogether.
+  deletePermanently(document, home, bin);
+  assert.equal(findPreviousParentGroup(document, entry), undefined);
+
+  // A document with no root group has nothing to find.
+  const rootless = createElement('KeePassFile');
+  assert.equal(findPreviousParentGroup(rootless, entry), undefined);
 });
 
 test('deletePermanently records the entry in Root/DeletedObjects, creating that list on first use', () => {

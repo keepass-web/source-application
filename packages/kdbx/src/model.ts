@@ -332,11 +332,14 @@ export function touchLastModified(element: XmlElement): void {
   kx_setTime(element, 'LastModificationTime', kx_nowIso());
 }
 
-// Move an entry or group between groups; merges place it by the newer LocationChanged (#108).
+/** Move an entry or group between groups; merges place it by the newer LocationChanged
+(#108), and a restore puts it back in the group it left, as KeePass and KeePassXC do (#133). */
 export function moveToGroup(element: XmlElement, from: XmlElement, to: XmlElement): void {
   from.children = from.children.filter((child) => child !== element);
   appendChild(to, element);
   kx_setTime(element, 'LocationChanged', kx_nowIso());
+  const fromUuid = getChild(from, 'UUID');
+  if (fromUuid) setChildText(element, 'PreviousParentGroup', getText(fromUuid));
 }
 
 /** Remove an entry or group for good, recording it and every group and entry
@@ -590,6 +593,19 @@ export function isRecycleBinEnabled(document: XmlElement): boolean {
 export function isInRecycleBin(document: XmlElement, group: XmlElement): boolean {
   const bin = kx_findRecycleBin(document);
   return bin !== undefined && kx_containsGroup(bin, group);
+}
+
+// The group an entry or group was last moved out of, if it still exists outside the recycle bin (#133).
+export function findPreviousParentGroup(
+  document: XmlElement,
+  element: XmlElement,
+): XmlElement | undefined {
+  const uuidEl = getChild(element, 'PreviousParentGroup');
+  const rootElement = getChild(document, 'Root');
+  const rootGroup = rootElement && getChild(rootElement, 'Group');
+  if (!uuidEl || !rootGroup) return undefined;
+  const group = kx_findGroupByUuid(rootGroup, getText(uuidEl));
+  return group && !isInRecycleBin(document, group) ? group : undefined;
 }
 
 // Build a complete <KeePassFile> document with Meta and a root group, optionally via build().

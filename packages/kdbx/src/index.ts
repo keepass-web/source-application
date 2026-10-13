@@ -67,6 +67,7 @@ export {
   type EntryInput,
   type EntryTimes,
   findOrCreateRecycleBin,
+  findPreviousParentGroup,
   getAttribute,
   getChild,
   getChildren,

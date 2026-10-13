@@ -38,6 +38,7 @@ import {
   deleteHistoryEntry,
   deletePermanently,
   findOrCreateRecycleBin,
+  findPreviousParentGroup,
   getAttribute,
   getChild,
   getChildren,
@@ -180,6 +181,7 @@ Object.assign(globalThis, {
   createEntry,
   createGroup,
   findOrCreateRecycleBin,
+  findPreviousParentGroup,
   isInRecycleBin,
   isRecycleBinEnabled,
   getEntryTags,
@@ -1687,7 +1689,7 @@ test('0x67 app', async (t) => {
   );
 
   await t.test(
-    'trashing an entry moves it to a Recycle Bin group; restoring returns it to the root; deleting it there confirms and removes it permanently',
+    'trashing an entry moves it to a Recycle Bin group; restoring returns it to its group; deleting it there confirms and removes it permanently',
     () => {
       const clickGroupNamed = (name: string): void => {
         const btn = Array.from(
@@ -1721,13 +1723,15 @@ test('0x67 app', async (t) => {
       assert.equal(q('[data-action="restore"]').hasAttribute('hidden'), false);
       assert.equal(q('[data-action="delete"]').hasAttribute('hidden'), false);
 
-      // Restoring puts it back at the vault root, not its original group.
+      // Restoring puts it back in the group it was trashed from (#133).
       q('[data-action="restore"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      clickGroupNamed('Personal Vault');
+      Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn'))
+        .find((b) => b.textContent?.trim().endsWith('Personal'))
+        ?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       const restoredRow = Array.from(root().querySelectorAll('.entry-row')).find((r) =>
         r.querySelector('.entry-row-title')?.textContent?.includes('Custom Title'),
       );
-      assert.ok(restoredRow, 'restoring returns the entry to the root group');
+      assert.ok(restoredRow, 'restoring returns the entry to Personal');
 
       // Trash it again, then permanently delete it from the bin.
       restoredRow?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
@@ -2682,6 +2686,116 @@ test('with the database bin turned off, deleting is permanent and confirmed, and
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),
   );
+});
+
+test('restoring from the bin returns an entry or group to the group it came from, or the top once that is gone (#133)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Vault',
+  });
+  const work = createGroup('Work');
+  const projects = createGroup('Projects');
+  appendChild(work, createEntry({ title: 'Laptop' }));
+  appendChild(work, projects);
+  appendChild(kdbx.getRootGroup(), work);
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('restore.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const groupBtnFor = (name: string): HTMLButtonElement =>
+    Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+      b.textContent?.endsWith(name),
+    ) as HTMLButtonElement;
+  const entryTitles = (): string[] =>
+    Array.from(root().querySelectorAll('.entry-row-title'), (t) => t.textContent ?? '');
+  const parentNameOf = (name: string): string =>
+    groupBtnFor(name)
+      .closest('li')
+      ?.parentElement?.closest('li')
+      ?.querySelector('.group-btn')
+      ?.textContent?.trim() ?? '';
+
+  // An entry trashed from Work goes back to Work.
+  click(groupBtnFor('Work'));
+  click(q('.entry-row'));
+  click(q('[data-action="trash"]'));
+  click(groupBtnFor('Recycle Bin'));
+  click(q('.entry-row'));
+  click(q('[data-action="restore"]'));
+  click(groupBtnFor('Work'));
+  assert.deepEqual(
+    entryTitles().map((t) => t.trim()),
+    ['Laptop'],
+  );
+
+  // So does a group, undeleted from its menu.
+  click(groupBtnFor('Projects'));
+  click(q('[data-action="delete-group"]'));
+  click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+  assert.match(parentNameOf('Projects'), /Recycle Bin$/);
+  click(groupBtnFor('Projects'));
+  click(groupBtnFor('Projects').closest('.group-row')?.querySelector('.group-menu-btn') as Element);
+  click(
+    Array.from(
+      (groupBtnFor('Projects').closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        ':scope > .group-menu .group-menu-item',
+      ),
+    ).find((b) => b.textContent === 'Undelete') as HTMLButtonElement,
+  );
+  assert.match(parentNameOf('Projects'), /Work$/);
+
+  // Once the group they came from is in the bin itself, both go to the top.
+  click(groupBtnFor('Work'));
+  click(q('.entry-row'));
+  click(q('[data-action="trash"]'));
+  click(groupBtnFor('Projects'));
+  click(q('[data-action="delete-group"]'));
+  click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+  click(groupBtnFor('Work'));
+  click(q('[data-action="delete-group"]'));
+  click(dq('#dlg-confirm-delete [data-action="confirm-delete"]'));
+  click(groupBtnFor('Recycle Bin'));
+  click(
+    Array.from(root().querySelectorAll<HTMLElement>('.entry-row')).find((r) =>
+      r.querySelector('.entry-row-title')?.textContent?.includes('Laptop'),
+    ) as HTMLElement,
+  );
+  click(q('[data-action="restore"]'));
+  click(groupBtnFor('Vault'));
+  assert.ok(
+    entryTitles().some((t) => t.includes('Laptop')),
+    'the entry is at the top',
+  );
+  click(groupBtnFor('Projects'));
+  click(groupBtnFor('Projects').closest('.group-row')?.querySelector('.group-menu-btn') as Element);
+  click(
+    Array.from(
+      (groupBtnFor('Projects').closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        ':scope > .group-menu .group-menu-item',
+      ),
+    ).find((b) => b.textContent === 'Undelete') as HTMLButtonElement,
+  );
+  assert.match(parentNameOf('Projects'), /Vault$/, 'and so is the group');
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
 test('entry history: edits are snapshotted, and a past version can be restored or deleted', async () => {

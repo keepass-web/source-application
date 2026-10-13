@@ -340,6 +340,52 @@ for (const version of [3, 4] as const) {
   });
 }
 
+test('a KDBX 4 file carrying a previous-group record is saved as 4.1, as KeePass and KeePassXC save it (#133)', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const rootGroup = kdbx.getRootGroup();
+  const home = createGroup('Home');
+  const away = createGroup('Away');
+  const entry = createEntry({ title: 'Traveler' });
+  appendChild(rootGroup, home);
+  appendChild(rootGroup, away);
+  appendChild(home, entry);
+
+  // No record yet, so the file stays 4.0.
+  assert.deepEqual(readOuterHeader(await kdbx.save()).header.version, { major: 4, minor: 0 });
+
+  moveToGroup(entry, home, away);
+  const saved = await kdbx.save();
+  assert.deepEqual(readOuterHeader(saved).header.version, { major: 4, minor: 1 });
+  const reloaded = await Kdbx.load(saved, credentials);
+  const reloadedAway = getChildren(reloaded.getRootGroup(), 'Group')[1] as XmlElement;
+  const reloadedEntry = getChild(reloadedAway, 'Entry') as XmlElement;
+  assert.equal(
+    getText(getChild(reloadedEntry, 'PreviousParentGroup') as XmlElement),
+    getText(getChild(home, 'UUID') as XmlElement),
+  );
+});
+
+test('a KDBX 3.1 file never carries a previous-group record, which only 4.1 defines (#133)', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 3 }));
+  const rootGroup = kdbx.getRootGroup();
+  const home = createGroup('Home');
+  const entry = createEntry({ title: 'Traveler' });
+  appendChild(rootGroup, home);
+  appendChild(home, entry);
+  moveToGroup(entry, home, rootGroup);
+  pushHistorySnapshot(kdbx.root, entry); // History copies carry it too
+  moveToGroup(home, rootGroup, rootGroup);
+
+  const saved = await kdbx.save();
+  assert.deepEqual(readOuterHeader(saved).header.version, { major: 3, minor: 1 });
+  const reloaded = await Kdbx.load(saved, credentials);
+  const xml = JSON.stringify(reloaded.root);
+  assert.equal(xml.includes('PreviousParentGroup'), false);
+  assert.ok(getChild(entry, 'PreviousParentGroup'), 'the open database keeps it for this session');
+});
+
 test('a password-and-keyfile credential round-trips', async () => {
   const keyFile = new Uint8Array(32).map((_, i) => (i * 13 + 5) & 0xff);
   const make = () => new Credentials({ password: 'pw', keyFile });
