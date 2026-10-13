@@ -243,12 +243,12 @@ export function createEntry(input: EntryInput): XmlElement {
   return entry;
 }
 
-// An entry's `;`-joined tags from <Tags>; [] if absent, matching real KeePass.
+// An entry's tags from <Tags>; [] if absent, matching real KeePass.
 export function getEntryTags(entry: XmlElement): string[] {
   const tagsEl = getChild(entry, 'Tags');
   if (!tagsEl) return [];
   return getText(tagsEl)
-    .split(';')
+    .split(/[,;\t]/) // KeePassXC writes commas and KeePass semicolons (#130)
     .map((tag) => tag.trim())
     .filter((tag) => tag.length > 0);
 }
