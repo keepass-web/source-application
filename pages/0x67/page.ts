@@ -1504,7 +1504,7 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
     label.textContent = `${formatDateTime(times.modified)} — ${entryTitle(snapshot)}`;
 
     const restoreBtn = makeIconButton('icon-btn', 'Restore this version', 'restore', () => {
-      restoreHistoryEntry(db.root, entry, snapshot);
+      restoreHistoryEntry(db.root, entry, snapshot, db.binaries);
       setDirty(true);
       showEntryDetail();
     });
@@ -1782,7 +1782,7 @@ function commitEdits(
   // A brand-new entry has no prior state worth keeping — only snapshot when
   // editing one that already existed, matching real KeePass.
   if (!isNew) {
-    pushHistorySnapshot(db.root, entry);
+    pushHistorySnapshot(db.root, entry, db.binaries);
   }
   applyEntryEdits(entry, fields);
 

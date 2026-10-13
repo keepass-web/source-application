@@ -130,7 +130,7 @@ function move(document: XmlElement, uuid: string, to: XmlElement, iso: string): 
 
 // An edit as the app makes it: snapshot first, then change, then stamp the time.
 function edit(document: XmlElement, entry: XmlElement, title: string, iso: string): void {
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
   setField(entry, 'Title', title);
   setTime(entry, 'LastModificationTime', iso);
 }
@@ -465,7 +465,7 @@ test('attachments are re-pointed into this database’s pool, History included',
   const { local, other } = diverge((root) => appendChild(root, entry));
   const there = find(other, uuidOf(entry));
   addEntryAttachment(there, 'old.txt', 0);
-  pushHistorySnapshot(other, there);
+  pushHistorySnapshot(other, there, []);
   addEntryAttachment(there, 'new.txt', 1);
   setTime(there, 'LastModificationTime', T2);
   const malformed = createElement('Binary');
