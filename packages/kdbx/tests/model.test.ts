@@ -358,6 +358,15 @@ test('getEntryTags returns [] when Tags is absent, and splits/trims/drops emptie
   assert.deepEqual(getEntryTags(entry), ['Work', 'Personal', 'Urgent']);
 });
 
+test('getEntryTags reads the commas KeePassXC writes, and the tabs it also splits on (#130)', () => {
+  const entry = createEntry({ title: 'Tagged in KeePassXC' });
+  appendChild(entry, createElement('Tags', 'Finance,Personal'));
+  assert.deepEqual(getEntryTags(entry), ['Finance', 'Personal']);
+
+  setText(getChild(entry, 'Tags') as XmlElement, 'Finance, Personal;Work\tTravel');
+  assert.deepEqual(getEntryTags(entry), ['Finance', 'Personal', 'Work', 'Travel']);
+});
+
 test('setEntryTags creates, updates, and removes the Tags element as appropriate', () => {
   const entry = createEntry({ title: 'Tag me' });
 
