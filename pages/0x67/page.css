@@ -1344,6 +1344,11 @@ textarea.edit-value.concealed {
   }
 }
 
+/* It names a field, and a long unbroken name must still wrap at phone width (#125). */
+#edit-error {
+  overflow-wrap: anywhere;
+}
+
 .btn-add-field {
   align-self: flex-start;
 }
