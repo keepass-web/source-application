@@ -3,17 +3,21 @@ import { test } from 'node:test';
 import {
   addEntryAttachment,
   appendChild,
+  createDatabaseDocument,
   createElement,
   createEntry,
   createGroup,
+  findOrCreateRecycleBin,
   getChild,
   getEntryTimes,
+  moveToGroup,
   setText,
   type XmlElement,
 } from '../../packages/kdbx/src/index.ts';
 import {
   applyEntryEdits,
   collectAllEntries,
+  collectSearchableEntries,
   defaultExpiryLocalInputValue,
   duplicateFieldName,
   elementIconId,
@@ -162,7 +166,7 @@ test('fixtures are real XmlElement values', () => {
   assert.equal(group.type, 'element');
 });
 
-test('filterEntriesByQuery matches case-insensitively against any String value', () => {
+test("filterEntriesByQuery matches case-insensitively against an entry's fields", () => {
   const root = createGroup('Root');
   const github = createEntry({ title: 'GitHub', username: 'octocat' });
   const gitlab = createEntry({ title: 'GitLab', username: 'tanuki' });
@@ -179,6 +183,73 @@ test('filterEntriesByQuery matches case-insensitively against any String value',
     [github],
   );
   assert.deepEqual(filterEntriesByQuery(all, 'nonexistent'), []);
+});
+
+test('filterEntriesByQuery never matches a password or protected value, but does an unprotected custom field (#131)', () => {
+  // KeePass and KeePassXC leave passwords out of search, so typing part of one finds nothing.
+  const root = createGroup('Root');
+  const entry = createEntry({
+    title: 'Bank',
+    password: 'hunter2',
+    url: 'https://bank.example',
+    notes: 'branch on Main St',
+    fields: [
+      { key: 'Account', value: '12345678' },
+      { key: 'PIN', value: '9876', protect: true },
+    ],
+  });
+  appendChild(root, entry);
+  const all = collectAllEntries(root);
+  const matches = (query: string) => filterEntriesByQuery(all, query).length === 1;
+
+  assert.equal(matches('hunter'), false, 'the password');
+  assert.equal(matches('9876'), false, 'a protected custom field');
+  assert.equal(matches('bank.example'), true, 'the URL');
+  assert.equal(matches('main st'), true, 'the notes');
+  assert.equal(matches('345'), true, 'an unprotected custom field');
+
+  // A password left unprotected by its file is still left out.
+  const unprotected = createElement('Entry');
+  applyEntryEdits(unprotected, [{ key: 'Password', value: 'plain-secret', protect: false }]);
+  assert.deepEqual(filterEntriesByQuery([{ entry: unprotected, group: root }], 'plain'), []);
+
+  // A malformed field with no Key or no Value matches nothing, rather than throwing.
+  const malformed = createElement('Entry');
+  appendChild(malformed, appendChild(createElement('String'), createElement('Key', 'Lonely')));
+  appendChild(malformed, appendChild(createElement('String'), createElement('Value', 'orphan')));
+  assert.deepEqual(filterEntriesByQuery([{ entry: malformed, group: root }], 'orphan'), []);
+});
+
+test('collectSearchableEntries skips the recycle bin and groups with searching off, as KeePass does (#131)', () => {
+  const document = createDatabaseDocument('Db');
+  const rootGroup = getChild(getChild(document, 'Root') as XmlElement, 'Group') as XmlElement;
+  const top = createEntry({ title: 'Top' });
+  const hidden = createGroup('Hidden');
+  const hiddenChild = createGroup('Hidden child'); // inherits searching off
+  const shownAgain = createGroup('Shown again'); // turns it back on
+  const inheritsNull = createGroup('Says null'); // "null" means inherit, as KeePass writes it
+  appendChild(hidden, createElement('EnableSearching', 'false'));
+  appendChild(shownAgain, createElement('EnableSearching', 'true'));
+  appendChild(inheritsNull, createElement('EnableSearching', 'null'));
+  appendChild(rootGroup, top);
+  appendChild(rootGroup, hidden);
+  appendChild(hidden, createEntry({ title: 'In hidden' }));
+  appendChild(hidden, hiddenChild);
+  appendChild(hiddenChild, createEntry({ title: 'In hidden child' }));
+  appendChild(hidden, shownAgain);
+  appendChild(shownAgain, createEntry({ title: 'In shown again' }));
+  appendChild(rootGroup, inheritsNull);
+  appendChild(inheritsNull, createEntry({ title: 'In null' }));
+
+  // A bin this app made before it set searching off on it is still left out.
+  const trashed = createEntry({ title: 'Trashed' });
+  appendChild(rootGroup, trashed);
+  moveToGroup(trashed, rootGroup, findOrCreateRecycleBin(document));
+
+  const titles = collectSearchableEntries(document, rootGroup).map(({ entry }) =>
+    entryTitle(entry),
+  );
+  assert.deepEqual(titles, ['Top', 'In shown again', 'In null']);
 });
 
 test('filterEntriesByQuery also matches against tags', () => {

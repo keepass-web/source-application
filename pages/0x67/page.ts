@@ -742,8 +742,11 @@ function renderEntryPanel(): void {
 
   if (app.searchQuery) {
     panelTitle.textContent = `"${app.searchQuery}"`;
-    const all = collectAllEntries(must(app.db).getRootGroup());
-    rows = filterEntriesByQuery(all, app.searchQuery);
+    const db = must(app.db);
+    rows = filterEntriesByQuery(
+      collectSearchableEntries(db.root, db.getRootGroup()),
+      app.searchQuery,
+    );
   } else {
     const currentGroup = must(app.currentGroup);
     panelTitle.textContent = groupName(currentGroup);
