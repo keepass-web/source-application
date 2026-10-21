@@ -485,9 +485,32 @@ function kx_historyVersionSize(version: XmlElement, binaries: InnerBinary[]): nu
   return size;
 }
 
-/** Snapshot `entry`'s current state onto its History, then trim it as KeePassXC does:
-newest first, a version goes, with all older ones, once it passes HistoryMaxItems or
-takes the total past HistoryMaxSize (#135). Call before applying an edit, not after. */
+/** Trim an entry's History as KeePassXC does whenever it grows: newest first, a version
+goes, with all older ones, once it passes HistoryMaxItems or takes the total past
+HistoryMaxSize (#135). */
+export function trimHistory(
+  document: XmlElement,
+  entry: XmlElement,
+  binaries: InnerBinary[],
+): void {
+  const historyEl = getChild(entry, 'History');
+  if (!historyEl) return;
+  const maxItems = kx_historyLimit(document, 'HistoryMaxItems', KX_DEFAULT_HISTORY_MAX_ITEMS);
+  const maxSize = kx_historyLimit(document, 'HistoryMaxSize', KX_DEFAULT_HISTORY_MAX_SIZE);
+  const kept = new Set<XmlElement>();
+  let size = 0;
+  for (const version of getChildren(historyEl, 'Entry').reverse()) {
+    if (kept.size >= maxItems) break;
+    size += kx_historyVersionSize(version, binaries);
+    if (size > maxSize) break;
+    kept.add(version);
+  }
+  historyEl.children = historyEl.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'Entry' && !kept.has(child)),
+  );
+}
+
+// Snapshot `entry`'s current state onto its History, then trim it. Call before applying an edit, not after.
 export function pushHistorySnapshot(
   document: XmlElement,
   entry: XmlElement,
@@ -504,20 +527,7 @@ export function pushHistorySnapshot(
     appendChild(entry, historyEl);
   }
   appendChild(historyEl, snapshot);
-
-  const maxItems = kx_historyLimit(document, 'HistoryMaxItems', KX_DEFAULT_HISTORY_MAX_ITEMS);
-  const maxSize = kx_historyLimit(document, 'HistoryMaxSize', KX_DEFAULT_HISTORY_MAX_SIZE);
-  const kept = new Set<XmlElement>();
-  let size = 0;
-  for (const version of getChildren(historyEl, 'Entry').reverse()) {
-    if (kept.size >= maxItems) break;
-    size += kx_historyVersionSize(version, binaries);
-    if (size > maxSize) break;
-    kept.add(version);
-  }
-  historyEl.children = historyEl.children.filter(
-    (child) => !(child.type === 'element' && child.name === 'Entry' && !kept.has(child)),
-  );
+  trimHistory(document, entry, binaries);
 }
 
 /** Restore `entry` to a past version: snapshots current state first, then

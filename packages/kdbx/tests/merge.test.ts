@@ -156,7 +156,7 @@ test('an entry only the other copy changed comes in, keeping this version in His
   const { local, other, id } = oneEntry();
   edit(other, find(other, id), 'GitHub (work)', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   const entry = find(local, id);
   assert.equal(field(entry, 'Title'), 'GitHub (work)');
@@ -173,7 +173,7 @@ test('an entry only this copy changed stays as it is, and is no conflict', () =>
   const { local, other, id } = oneEntry();
   edit(local, find(local, id), 'GitHub (mine)', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(field(find(local, id), 'Title'), 'GitHub (mine)');
   assert.equal(getEntryHistory(find(local, id)).length, 1);
@@ -185,7 +185,7 @@ test('an entry both copies changed keeps the newer version, the older one going 
   edit(local, find(local, id), 'Edited here', T2);
   edit(other, find(other, id), 'Edited there', T3);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   const entry = find(local, id);
   assert.equal(field(entry, 'Title'), 'Edited there');
@@ -202,7 +202,7 @@ test('when this copy’s change is the newer, it stays and the other copy’s go
   edit(other, find(other, id), 'Edited there', T2);
   edit(local, find(local, id), 'Edited here', T3);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   const entry = find(local, id);
   assert.equal(field(entry, 'Title'), 'Edited here');
@@ -218,7 +218,7 @@ test('two different changes in the same second: this copy stays current and the 
   edit(local, find(local, id), 'Here', T2);
   edit(other, find(other, id), 'There', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   const entry = find(local, id);
   assert.equal(field(entry, 'Title'), 'Here');
@@ -247,7 +247,7 @@ test('copies that differ only in layout, access times, location or empty fields 
   appendChild(keyOnly, createElement('Key', 'Orphan'));
   appendChild(there, keyOnly);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.deepEqual(summary, { changed: 0, conflicts: [] });
   assert.equal(getChild(find(local, id), 'History'), undefined, 'no History invented');
@@ -267,7 +267,7 @@ test('entries and groups only the other copy has come in where it keeps them', (
   const mine = createEntry({ title: 'Only here' });
   appendChild(rootGroupOf(local), mine);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(parentOf(local, uuidOf(added)), find(local, uuidOf(work)));
   assert.equal(parentOf(local, uuidOf(nested)), find(local, uuidOf(work)));
@@ -282,7 +282,7 @@ test('another database’s root lands inside this one, as KeePass places it', ()
   const entry = createEntry({ title: 'Theirs only' });
   appendChild(rootGroupOf(other), entry);
 
-  mergeDocuments(local, other, identity);
+  mergeDocuments(local, other, identity, []);
 
   const imported = getChildren(rootGroupOf(local), 'Group')[0] as XmlElement;
   assert.equal(getText(getChild(imported, 'Name') as XmlElement), 'Theirs');
@@ -308,7 +308,7 @@ test('a group’s newer name comes in and its contents stay; an older one does n
   setText(getChild(newerHere, 'Name') as XmlElement, 'House');
   setTime(newerHere, 'LastModificationTime', T3);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   const group = find(local, uuidOf(renamed));
   assert.equal(getText(getChild(group, 'Name') as XmlElement), 'Office');
@@ -332,7 +332,7 @@ test('an object goes where the copy that moved it last put it, keeping that time
   move(other, uuidOf(stayer), rootGroupOf(other), T2);
   move(local, uuidOf(stayer), find(local, uuidOf(b)), T3); // moved here after its move there
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(parentOf(local, uuidOf(mover)), find(local, uuidOf(b)), 'moved as it was there');
   assert.equal(timeOf(find(local, uuidOf(mover)), 'LocationChanged'), T3);
@@ -363,7 +363,7 @@ test('a later move to the same group only takes the time, and a group is never m
   // A copy that left LocationChanged out moves nothing.
   removeTime(thereInner, 'LocationChanged');
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(timeOf(find(local, uuidOf(entry)), 'LocationChanged'), T2);
   assert.equal(timeOf(rootGroupOf(local), 'LocationChanged'), T2);
@@ -394,7 +394,7 @@ test('a deletion from either copy removes what was not edited after it, and the 
   recordDeletion(other, uuidOf(goneHere), T1);
   recordDeletion(other, 'no-such-object', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(objects(local).has(uuidOf(doomed)), false);
   assert.ok(objects(local).has(uuidOf(revived)), 'an edit after the deletion keeps it');
@@ -433,7 +433,7 @@ test('a deleted group goes once empty and unedited since; one still holding some
   detach(other, uuidOf(renamedLater));
   setTime(find(local, uuidOf(renamedLater)), 'LastModificationTime', T3);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(objects(local).has(uuidOf(emptied)), false);
   assert.equal(objects(local).has(uuidOf(child)), false);
@@ -453,7 +453,7 @@ test('what the other copy added and this copy already deleted does not come in, 
   setTime(added, 'LastModificationTime', T1);
   setTime(addedGroup, 'LastModificationTime', T1);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(objects(local).has(uuidOf(added)), false);
   assert.equal(objects(local).has(uuidOf(addedGroup)), false);
@@ -476,10 +476,15 @@ test('attachments are re-pointed into this database’s pool, History included',
   appendChild(there, noRef);
   const seen: number[] = [];
 
-  mergeDocuments(local, other, (ref) => {
-    seen.push(ref);
-    return ref + 10;
-  });
+  mergeDocuments(
+    local,
+    other,
+    (ref) => {
+      seen.push(ref);
+      return ref + 10;
+    },
+    [],
+  );
 
   assert.deepEqual(seen.sort(), [0, 0, 1]);
   const refs = getChildren(find(local, uuidOf(entry)), 'Binary').flatMap((b) => {
@@ -508,12 +513,31 @@ test('merged History keeps the database’s limit; a negative or unreadable limi
     edit(other, find(other, id), 'There 1', '2026-01-04T00:00:00Z');
     edit(other, find(other, id), 'There 2', '2026-01-05T00:00:00Z');
 
-    mergeDocuments(local, other, identity);
+    mergeDocuments(local, other, identity, []);
 
     const versions = getEntryHistory(find(local, id)).map((v) => field(v, 'Title'));
     assert.equal(versions.length, expected, `limit ${String(limit)}`);
     assert.equal(versions.at(-1), 'There 1', 'the newest versions are the ones kept');
   }
+});
+
+test('merged History keeps within the database’s size limit too, newest versions first (#166)', () => {
+  // Each version carries a 1000-byte attachment, so 2500 bytes holds two of the four.
+  const { local, other, id } = oneEntry();
+  const meta = getChild(local, 'Meta') as XmlElement;
+  setText(getChild(meta, 'HistoryMaxSize') as XmlElement, '2500');
+  const binaries = [{ flags: 0, data: new Uint8Array(1000) }];
+  addEntryAttachment(find(local, id), 'big.bin', 0);
+  addEntryAttachment(find(other, id), 'big.bin', 0);
+  edit(local, find(local, id), 'Here 1', '2026-01-02T00:00:00Z');
+  edit(local, find(local, id), 'Here 2', '2026-01-03T00:00:00Z');
+  edit(other, find(other, id), 'There 1', '2026-01-04T00:00:00Z');
+  edit(other, find(other, id), 'There 2', '2026-01-05T00:00:00Z');
+
+  mergeDocuments(local, other, identity, binaries);
+
+  const versions = getEntryHistory(find(local, id)).map((v) => field(v, 'Title'));
+  assert.deepEqual(versions, ['Here 2', 'There 1']);
 });
 
 test('database settings follow their own newer change times, and icons and custom data combine', () => {
@@ -564,7 +588,7 @@ test('database settings follow their own newer change times, and icons and custo
   appendChild(icons, icon);
   appendChild(otherMeta, icons);
 
-  mergeDocuments(local, other, identity);
+  mergeDocuments(local, other, identity, []);
 
   const text = (name: string): string => getText(getChild(localMeta, name) as XmlElement);
   assert.equal(text('DatabaseName'), 'Renamed there');
@@ -598,7 +622,7 @@ test('objects without a UUID can’t be matched, so the other copy’s come in a
   appendChild(anonymousGroup, createElement('Name', 'Nameless'));
   appendChild(rootGroupOf(other), anonymousGroup);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(getChildren(rootGroupOf(local), 'Entry').length, 1);
   assert.equal(getChildren(rootGroupOf(local), 'Group').length, 1);
@@ -614,7 +638,7 @@ test('an untitled conflict is reported with an empty title', () => {
   setField(find(other, uuidOf(entry)), 'UserName', 'changed');
   setTime(find(other, uuidOf(entry)), 'LastModificationTime', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.deepEqual(summary.conflicts, [''], 'the copy here stays, and it has no Title');
 });
@@ -625,7 +649,7 @@ test('documents without Meta still merge their entries', () => {
   other.children = other.children.filter((c) => !(c.type === 'element' && c.name === 'Meta'));
   edit(other, find(other, id), 'There', T2);
 
-  mergeDocuments(local, other, identity);
+  mergeDocuments(local, other, identity, []);
 
   assert.equal(field(find(local, id), 'Title'), 'There');
 });
@@ -633,8 +657,8 @@ test('documents without Meta still merge their entries', () => {
 test('a document with no root group cannot be merged', () => {
   const good = createDatabaseDocument('Vault');
   const bad = createElement('KeePassFile');
-  assert.throws(() => mergeDocuments(good, bad, identity), /no root group/);
-  assert.throws(() => mergeDocuments(bad, good, identity), /no root group/);
+  assert.throws(() => mergeDocuments(good, bad, identity, []), /no root group/);
+  assert.throws(() => mergeDocuments(bad, good, identity, []), /no root group/);
 });
 
 test('an entry changed there gains a History element here when it had none', () => {
@@ -643,7 +667,7 @@ test('an entry changed there gains a History element here when it had none', () 
   setField(there, 'Title', 'No snapshot there');
   setTime(there, 'LastModificationTime', T2);
 
-  mergeDocuments(local, other, identity);
+  mergeDocuments(local, other, identity, []);
 
   assert.deepEqual(
     getEntryHistory(find(local, id)).map((v) => field(v, 'Title')),
@@ -658,7 +682,7 @@ test('an attribute difference, such as protection, counts as a change', () => {
   setAttribute(value, 'Protected', 'True');
   setTime(there, 'LastModificationTime', T2);
 
-  const summary = mergeDocuments(local, other, identity);
+  const summary = mergeDocuments(local, other, identity, []);
 
   assert.equal(summary.changed, 1);
 });
