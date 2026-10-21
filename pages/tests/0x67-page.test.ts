@@ -3072,6 +3072,105 @@ test('icon and attachment edits apply on Save, after the History snapshot, and C
   click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
+// KeePass and KeePassXC keep an entry's attachments by name, so they show one of the pair and lose the other (#120).
+test('Save refuses two attachments of one name, attached or renamed so, until one is renamed', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Passport' });
+  addEntryAttachment(entry, 'scan.pdf', kdbx.addBinary(new TextEncoder().encode('scan')));
+  addEntryAttachment(entry, 'photo.jpg', kdbx.addBinary(new TextEncoder().encode('photo')));
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('same-names.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: Element): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const nameInputs = (): HTMLInputElement[] =>
+    Array.from(root().querySelectorAll<HTMLInputElement>('#edit-attachments .attachment-name'));
+  const rename = (index: number, name: string): void => {
+    const input = nameInputs()[index] as HTMLInputElement;
+    input.value = name;
+    dispatch(input, 'change');
+  };
+  const historyRows = () => q('#detail-history').querySelectorAll('.history-row').length;
+
+  click(q('.entry-row'));
+  const historyBefore = historyRows();
+  click(q('[data-action="edit"]'));
+  const fieldError = q<HTMLElement>('#edit-error');
+  const attachmentError = q<HTMLElement>('#edit-attachments-error');
+  assert.equal(attachmentError.hidden, true);
+
+  const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+  setFiles(attachmentInput, [makeFile('scan.pdf', new TextEncoder().encode('rescan'))]);
+  dispatch(attachmentInput, 'change');
+  await waitFor(() => nameInputs().length === 3);
+  // A field clash too, so both reasons show and the first on the screen is focused.
+  click(q('[data-action="add-field"]'));
+  const keys = root().querySelectorAll<HTMLInputElement>('.edit-key');
+  const addedKey = keys[keys.length - 1] as HTMLInputElement;
+  addedKey.value = 'Title';
+
+  click(q('[data-action="save"]'));
+  assert.equal(fieldError.hidden, false);
+  assert.equal(attachmentError.hidden, false);
+  assert.equal(
+    attachmentError.textContent,
+    'More than one attachment is named "scan.pdf". Rename or remove one, then save.',
+  );
+  assert.equal(dom.window.document.activeElement, addedKey);
+
+  addedKey.value = 'Passport number';
+  click(q('[data-action="save"]'));
+  assert.equal(fieldError.hidden, true, 'a reason since fixed goes away');
+  assert.equal(attachmentError.hidden, false);
+  assert.equal(dom.window.document.activeElement, nameInputs()[2], 'the one just attached');
+
+  rename(2, 'photo.jpg');
+  click(q('[data-action="save"]'));
+  assert.equal(
+    attachmentError.textContent,
+    'More than one attachment is named "photo.jpg". Rename or remove one, then save.',
+  );
+  assert.equal(dom.window.document.activeElement, nameInputs()[2], 'the one just renamed');
+  assert.ok(q('#edit-title'), 'still on the edit screen');
+  assert.equal(byId<HTMLDialogElement>('dlg-save').open, false);
+
+  rename(2, 'scan-2026.pdf');
+  click(q('[data-action="save"]'));
+  assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
+  assert.deepEqual(
+    Array.from(root().querySelectorAll('#detail-attachments .attachment-name')).map(
+      (el) => el.textContent,
+    ),
+    ['scan.pdf', 'photo.jpg', 'scan-2026.pdf'],
+  );
+  assert.equal(historyRows(), historyBefore + 1, 'only the save that went through kept History');
+  click(dq('#dlg-save [data-action="close"]'));
+
+  click(q('[data-action="back"]'));
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
 // A save drops attachment data nothing uses, which can move the rest while the card stays open (#119).
 test("an open card's Download still fetches its own attachment after a save moves the stored data", async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });

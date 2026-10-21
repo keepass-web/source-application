@@ -19,7 +19,7 @@ import {
   collectAllEntries,
   collectSearchableEntries,
   defaultExpiryLocalInputValue,
-  duplicateFieldName,
+  duplicateName,
   elementIconId,
   entryColumnValue,
   entryField,
@@ -447,19 +447,17 @@ test('unlockAttempts tries a key file alone before an empty password with it, an
   assert.deepEqual(unlockAttempts('', keyFile), [{ keyFile }, { password: '', keyFile }]);
 });
 
-test('duplicateFieldName finds a name two fields share, and nothing when all differ (#125)', () => {
-  const field = (key: string) => ({ key, value: '', protect: false });
-  assert.equal(duplicateFieldName([field('Title'), field('Password'), field('PIN')]), null);
+test('duplicateName finds a name given twice, and nothing when all differ (#125, #120)', () => {
+  assert.equal(duplicateName(['Title', 'Password', 'PIN']), null);
   // A custom field named after a standard one clashes with it.
-  assert.equal(
-    duplicateFieldName([field('Title'), field('Password'), field('Password')]),
-    'Password',
-  );
-  assert.equal(duplicateFieldName([field('PIN'), field('Title'), field('PIN')]), 'PIN');
+  assert.equal(duplicateName(['Title', 'Password', 'Password']), 'Password');
+  assert.equal(duplicateName(['PIN', 'Title', 'PIN']), 'PIN');
+  assert.equal(duplicateName(['scan.pdf', 'photo.jpg', 'scan.pdf']), 'scan.pdf');
   // Names are compared exactly, as KeePass and KeePassXC compare them.
-  assert.equal(duplicateFieldName([field('Password'), field('password')]), null);
-  // Blank-named rows are dropped on save, so two of them clash with nothing.
-  assert.equal(duplicateFieldName([field(''), field('Title'), field('')]), null);
+  assert.equal(duplicateName(['Password', 'password']), null);
+  assert.equal(duplicateName(['scan.pdf', 'Scan.pdf']), null);
+  // Blank-named field rows are dropped on save, so two of them clash with nothing.
+  assert.equal(duplicateName(['', 'Title', '']), null);
 });
 
 test('isCustomField is false for the five standard fields and true otherwise', () => {

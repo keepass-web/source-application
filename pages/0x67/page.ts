@@ -1755,6 +1755,21 @@ function buildEditField(
   return row;
 }
 
+/* Shows, or clears, why Save refuses two of these names being the same, and returns the
+input of the later one, likelier the one just added or renamed (#125, #120). */
+function nameClash(
+  noun: string,
+  names: string[],
+  inputs: NodeListOf<HTMLInputElement>,
+  errorEl: HTMLElement,
+): HTMLInputElement | null {
+  const duplicate = duplicateName(names);
+  errorEl.hidden = duplicate === null;
+  if (duplicate === null) return null;
+  errorEl.textContent = `More than one ${noun} is named "${duplicate}". Rename or remove one, then save.`;
+  return must(inputs[names.lastIndexOf(duplicate)]);
+}
+
 function commitEdits(
   entry: XmlElement,
   fieldsEl: HTMLElement,
@@ -1769,14 +1784,21 @@ function commitEdits(
     value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
     protect: row.dataset.protected === '1',
   }));
-  const duplicate = duplicateFieldName(fields);
-  if (duplicate !== null) {
-    const errorEl = qs('#edit-error');
-    errorEl.textContent = `More than one field is named "${duplicate}". Rename or remove one, then save.`;
-    errorEl.hidden = false;
-    // The later one is likelier the one just added or renamed.
-    const row = must(rows[fields.map((field) => field.key).lastIndexOf(duplicate)]);
-    must(row.querySelector<HTMLInputElement>('.edit-key')).focus();
+  const fieldClash = nameClash(
+    'field',
+    fields.map((field) => field.key),
+    fieldsEl.querySelectorAll<HTMLInputElement>('.edit-key'),
+    qs('#edit-error'),
+  );
+  const attachmentClash = nameClash(
+    'attachment',
+    attachments.map((held) => held.name),
+    qs('#edit-attachments').querySelectorAll<HTMLInputElement>('.attachment-name'),
+    qs('#edit-attachments-error'),
+  );
+  const clash = fieldClash ?? attachmentClash;
+  if (clash) {
+    clash.focus();
     return;
   }
 

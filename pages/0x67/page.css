@@ -1344,8 +1344,9 @@ textarea.edit-value.concealed {
   }
 }
 
-/* It names a field, and a long unbroken name must still wrap at phone width (#125). */
-#edit-error {
+/* Each names a field or attachment, and a long unbroken name must still wrap at phone width (#125, #120). */
+#edit-error,
+#edit-attachments-error {
   overflow-wrap: anywhere;
 }
 
