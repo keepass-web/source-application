@@ -25,7 +25,7 @@ The whole point of shipping as a multi-page application of un-minified HTML page
 
 See [Contributing][contributing] for how to report a bug, propose a change, and build/test/lint locally. See each package's own `README.md`/`SPEC.md` (`packages/argon2`, `packages/chacha20`, `packages/kdbx`) for the algorithms implemented and why.
 
-This project is MIT-licensed and entirely free — including the connectors that open your database from your own cloud storage provider — and open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] is how people who find it valuable can support the people building it; it is an invitation, never a paywall. See [Licensing][licensing] for how that works.
+KeePass Web is MIT-licensed and free to use, including the connectors that open your database from your own cloud storage provider. We don't provide storage; you connect to a provider you already have. Those who find it valuable are encouraged to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
 
 ## License
 
@@ -40,6 +40,8 @@ This project is MIT-licensed and entirely free — including the connectors that
 [philosophy]: https://github.com/keepass-web/.github/blob/main/profile/PHILOSOPHY.md
 [pipeline]: docs/PIPELINE.md
 [contributing]: docs/CONTRIBUTING.md
+[org]: https://github.com/keepass-web
+[repos]: https://github.com/orgs/keepass-web/repositories
 [sponsors]: https://github.com/sponsors/keepass-web
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
 [license]: LICENSE
