@@ -9,7 +9,7 @@ import type { ProtectedStreamCipher } from './protected-stream.ts';
 import type { XmlElement, XmlNode } from './xml.ts';
 
 const KX_PROTECTED_ATTRIBUTE = 'Protected';
-const KX_GENERATOR = 'keepass-web';
+const KX_GENERATOR = 'KeePass Web';
 
 // A value that is encrypted by the inner random stream when stored on disk.
 export class ProtectedValue {

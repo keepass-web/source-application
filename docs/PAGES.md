@@ -10,8 +10,6 @@ This document maps `pages/` — what each page does and how a visitor moves betw
 | `local.html` | GA | Local-file connector: reads a dropped file, detects its KDBX format, and embeds the matching app page in an iframe — or embeds it straight on a create-database screen instead, for a brand-new file. |
 | `0x67.html` | GA | The app — parses, decrypts, creates, and edits KDBX 3.1 and 4.x databases. |
 | `cloud-google-drive.html` | GA | Connector for Google Drive. |
-| `cloud-microsoft-onedrive.html` | Future | Connector for OneDrive. |
-| `cloud-dropbox-storage.html` | Future | Connector for Dropbox. |
 
 ## User flow
 
@@ -23,12 +21,8 @@ flowchart TD
     LOCAL -->|"Identified as KDBX 3.1/4.x,<br/>embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP["0x67.html<br/>Parses and decrypts"]
 
     INDEX -->|"Link to open from Google Drive"| DRIVE["cloud-google-drive.html<br/>① Google sign-in (GIS token popup)<br/>② pick a file, fetch bytes"]
-    INDEX -->|"Link to open from OneDrive"| ONEDRIVE["cloud-microsoft-onedrive.html<br/>① Microsoft sign-in<br/>② pick a file, fetch bytes"]
-    INDEX -->|"Link to open from Dropbox"| DROPBOX["cloud-dropbox-storage.html<br/>① Dropbox sign-in<br/>② pick a file, fetch bytes"]
 
     DRIVE -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
-    ONEDRIVE -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
-    DROPBOX -->|"Embed 0x67.html in an iframe,<br/>hand off bytes in memory"| APP
 ```
 
 ## How the local-file connector works
@@ -59,11 +53,10 @@ Opening a database from local disk needs nothing but the file itself: no account
 
 ## Cloud storage providers
 
-Anyone can open and save a database directly from Google Drive and other cloud storage providers (as demand drives adoption), without ever downloading it to disk. The file's bytes go straight into browser memory, get edited there, and are written straight back to the provider; on-disk storage is never part of the round trip. That's more convenient than the download-edit-reupload cycle a local file requires, and it's more secure. On a computer whose disk can't be accessed, trusted, or written to like a public library terminal, a locked-down kiosk, a borrowed laptop, there's nothing on that disk to worry about, because the vault was never on it.
+Anyone can open and save a database directly from their own cloud storage (e.g., Google Drive), without ever downloading it to disk. The file's bytes go straight into browser memory, get edited there, and are written straight back to the provider; on-disk storage is never part of the round trip. That's more convenient than the download-edit-reupload cycle a local file requires, and it's more secure. On a computer whose disk can't be accessed, trusted, or written to like a public library terminal, a locked-down kiosk, a borrowed laptop, there's nothing on that disk to worry about, because the vault was never on it.
 
-The cloud connectors are open to every visitor: there is no sponsorship gate, and opening a cloud vault requires only your own provider's sign-in and the master password — never a GitHub login. KeePass Web provides no storage of its own; it connects to a provider you already have. [GitHub Sponsors][sponsors] is how people who find the connectors valuable can support the people building them. The app invites sponsorship but never requires it.
+Opening a cloud vault requires only your own provider's sign-in and the master password. KeePass Web provides no storage of its own; it connects to a provider you already have.
 
-[sponsors]: https://github.com/sponsors/keepass-web
 [picker]: https://developers.google.com/workspace/drive/picker/guides/overview
 [gis-token]: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 [trust]: ../README.md#trust

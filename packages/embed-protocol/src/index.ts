@@ -1,5 +1,5 @@
 /** `embed-protocol` — the equivalent-origin postMessage contract between a
-keepass-web implementation and whatever host embeds it in an iframe.
+KeePass Web implementation and whatever host embeds it in an iframe.
 Centralizes shapes/guards/builders so both ends provably agree on the wire
 format: kw-ready, kw-open, kw-create, kw-save, kw-saved, kw-title, kw-find,
 kw-close-request, kw-close-ack, kw-close (#1), kw-reconnect, kw-reconnected (#85),

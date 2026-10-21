@@ -60,14 +60,16 @@ Runtime dependencies: never added. devDependencies: allowed, case by case. No de
 
 Pull requests are required on `main`; direct pushes are blocked. See [Branch protection rulesets][rulesets] for the exact requirements.
 
-## Sponsoring
+## Supporting KeePass Web
 
-This project is MIT-licensed and entirely free — every feature, including the connectors to your own cloud storage provider, is open to everyone with no sponsorship gate. We don't provide storage; you connect to a provider you already have. [GitHub Sponsors][sponsors] is how people who find it valuable can support the people building it; it is a voluntary invitation, never a paywall. See [Licensing][licensing] for how that works.
+KeePass Web is MIT-licensed and free to use. If you find it valuable, we encourage you to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
 [security]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md
 [rulesets]: RULESETS.md
+[org]: https://github.com/keepass-web
+[repos]: https://github.com/orgs/keepass-web/repositories
 [sponsors]: https://github.com/sponsors/keepass-web
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
 [agents]: ../AGENTS.md

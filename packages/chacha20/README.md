@@ -1,6 +1,6 @@
 # chacha20
 
-ChaCha20 and Salsa20 stream cipher implementation for the [keepass-web][org] project.
+ChaCha20 and Salsa20 stream cipher implementation for the [KeePass Web][org] project.
 
 This package implements the raw stream ciphers only:
 - ChaCha20 (RFC 8439 IETF variant: 256-bit key, 96-bit nonce, 32-bit counter), used by KDBX 4.
