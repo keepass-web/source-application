@@ -2971,7 +2971,7 @@ test("an open card's Download still fetches its own attachment after a save move
   // Only First's History version holds old.txt, whose data is stored ahead of Second's keep.txt.
   const first = createEntry({ title: 'First' });
   addEntryAttachment(first, 'old.txt', kdbx.addBinary(new TextEncoder().encode('old')));
-  pushHistorySnapshot(kdbx.root, first);
+  pushHistorySnapshot(kdbx.root, first, kdbx.binaries);
   removeEntryAttachment(first, 'old.txt');
   const second = createEntry({ title: 'Second' });
   addEntryAttachment(second, 'keep.txt', kdbx.addBinary(new TextEncoder().encode('keep')));

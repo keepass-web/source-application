@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addEntryAttachment,
   appendChild,
   createDatabaseDocument,
   createElement,
@@ -16,6 +17,7 @@ import {
   getEntryTags,
   getEntryTimes,
   getText,
+  type InnerBinary,
   isInRecycleBin,
   isRecycleBinEnabled,
   moveToGroup,
@@ -235,7 +237,7 @@ test('deletePermanently records a group and every group and entry under it, but 
   const rootGroup = getChild(rootElement, 'Group') as XmlElement;
   const group = createGroup('Doomed Group');
   const entry = createEntry({ title: 'Inside' });
-  pushHistorySnapshot(document, entry); // shares the entry's UUID, so it needs no record of its own
+  pushHistorySnapshot(document, entry, []); // shares the entry's UUID, so it needs no record of its own
   const subgroup = createGroup('Nested');
   const nestedEntry = createEntry({ title: 'Deeper' });
   appendChild(subgroup, nestedEntry);
@@ -413,7 +415,7 @@ test('getEntryHistory returns [] when History is absent, and the pushed snapshot
   assert.deepEqual(getEntryHistory(entry), []);
 
   const document = createDatabaseDocument('MyDb');
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
   const history = getEntryHistory(entry);
   assert.equal(history.length, 1);
   assert.equal(fieldValue(history[0] as XmlElement, 'Title'), 'Original');
@@ -422,7 +424,7 @@ test('getEntryHistory returns [] when History is absent, and the pushed snapshot
 test('pushHistorySnapshot clones the pre-edit state, not the state after the caller has since changed it', () => {
   const document = createDatabaseDocument('MyDb');
   const entry = createEntry({ title: 'Before' });
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
   const titleValueEl = getChild(
     getChildren(entry, 'String')[0] as XmlElement,
     'Value',
@@ -442,9 +444,9 @@ test('pushHistorySnapshot trims to Meta/HistoryMaxItems, dropping the oldest fir
   setText(getChild(meta, 'HistoryMaxItems') as XmlElement, '2');
 
   const entry = createEntry({ title: 'v1' });
-  pushHistorySnapshot(document, entry);
-  pushHistorySnapshot(document, entry);
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
+  pushHistorySnapshot(document, entry, []);
+  pushHistorySnapshot(document, entry, []);
 
   const history = getEntryHistory(entry);
   assert.equal(history.length, 2, 'trimmed down to HistoryMaxItems');
@@ -459,26 +461,117 @@ test('pushHistorySnapshot defaults to 10 when HistoryMaxItems is absent, and ski
 
   const entry = createEntry({ title: 'v1' });
   for (let i = 0; i < 11; i++) {
-    pushHistorySnapshot(document, entry);
+    pushHistorySnapshot(document, entry, []);
   }
   assert.equal(getEntryHistory(entry).length, 10, 'defaults to 10 when HistoryMaxItems is absent');
 
   appendChild(meta, createElement('HistoryMaxItems', 'not-a-number'));
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
   assert.equal(getEntryHistory(entry).length, 11, 'a malformed max leaves trimming disabled');
+});
+
+// --- HistoryMaxSize, counted as KeePassXC counts it (#135) ---
+
+/** An entry carrying one attachment of `bytes` bytes, and the store that holds its data. */
+function entryWithAttachment(bytes: number): { entry: XmlElement; binaries: InnerBinary[] } {
+  const entry = createEntry({ title: 'T' }); // 30 bytes of field names and values
+  addEntryAttachment(entry, 'a.bin', 0); // 5 bytes of name
+  return { entry, binaries: [{ flags: 0, data: new Uint8Array(bytes) }] };
+}
+
+test('pushHistorySnapshot keeps the newest versions that fit Meta/HistoryMaxSize, dropping the rest', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  // Each version is 30 + 5 + 1000 = 1035 bytes, so two fit and a third does not.
+  setText(getChild(meta, 'HistoryMaxSize') as XmlElement, '2500');
+  const { entry, binaries } = entryWithAttachment(1000);
+  for (let i = 0; i < 3; i++) pushHistorySnapshot(document, entry, binaries);
+  assert.equal(getEntryHistory(entry).length, 2, 'the oldest no longer fits');
+});
+
+test('pushHistorySnapshot counts a shared attachment once per version, and defaults to 6 MiB', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  meta.children = meta.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'HistoryMaxSize'),
+  );
+  // Two versions sharing one 4 MiB attachment count as 8 MiB, past the 6 MiB default.
+  const { entry, binaries } = entryWithAttachment(4 * 1024 * 1024);
+  pushHistorySnapshot(document, entry, binaries);
+  pushHistorySnapshot(document, entry, binaries);
+  assert.equal(getEntryHistory(entry).length, 1);
+
+  // A negative or malformed limit means none, as in KeePass and KeePassXC.
+  appendChild(meta, createElement('HistoryMaxSize', '-1'));
+  pushHistorySnapshot(document, entry, binaries);
+  pushHistorySnapshot(document, entry, binaries);
+  assert.equal(getEntryHistory(entry).length, 3);
+  setText(getChild(meta, 'HistoryMaxSize') as XmlElement, 'lots');
+  pushHistorySnapshot(document, entry, binaries);
+  assert.equal(getEntryHistory(entry).length, 4);
+});
+
+test('pushHistorySnapshot sizes a version in UTF-8 bytes of its fields, attachments, tags, auto-type and custom data', () => {
+  const document = createDatabaseDocument('MyDb');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  const element = (name: string, children: Array<[string, string]>): XmlElement => {
+    const el = createElement(name);
+    for (const [childName, text] of children) appendChild(el, createElement(childName, text));
+    return el;
+  };
+  const version = createElement('Entry');
+  appendChild(version, createElement('UUID', 'AAAAAAAAAAAAAAAAAAAAAA==')); // not counted
+  appendChild(
+    version,
+    element('String', [
+      ['Key', 'é'],
+      ['Value', '€'],
+    ]),
+  ); // 2 + 3 bytes
+  appendChild(version, element('String', [['Key', 'x']])); // 1, with no Value
+  addEntryAttachment(version, 'n', 9); // 1 for the name; no data behind a stale reference
+  appendChild(version, createElement('Tags', 'ab;c')); // 3
+  const association = element('Association', [
+    ['Window', 'w'],
+    ['KeystrokeSequence', 'seq'],
+  ]);
+  appendChild(version, appendChild(createElement('AutoType'), association)); // 4
+  const item = element('Item', [
+    ['Key', 'k'],
+    ['Value', 'vv'],
+  ]);
+  appendChild(version, appendChild(createElement('CustomData'), item)); // 3
+  const total = 2 + 3 + 1 + 1 + 3 + 4 + 3;
+
+  setText(getChild(meta, 'HistoryMaxSize') as XmlElement, String(total));
+  pushHistorySnapshot(document, version, []);
+  assert.equal(getEntryHistory(version).length, 1, 'exactly at the limit, it stays');
+
+  const tooBig = createElement('Entry');
+  tooBig.children = version.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'History'),
+  );
+  setText(getChild(meta, 'HistoryMaxSize') as XmlElement, String(total - 1));
+  pushHistorySnapshot(document, tooBig, []);
+  assert.equal(getEntryHistory(tooBig).length, 0, 'one byte over, it goes');
+});
+
+test('createDatabaseDocument records the 6 MiB History size limit, as KeePass does', () => {
+  const meta = getChild(createDatabaseDocument('MyDb'), 'Meta') as XmlElement;
+  assert.equal(getText(getChild(meta, 'HistoryMaxSize') as XmlElement), String(6 * 1024 * 1024));
 });
 
 test('restoreHistoryEntry snapshots the current state, then adopts the historical fields under the same UUID', () => {
   const document = createDatabaseDocument('MyDb');
   const entry = createEntry({ title: 'Original', username: 'alice' });
   const originalUuid = getText(getChild(entry, 'UUID') as XmlElement);
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
 
   const oldValueEl = getChild(getChildren(entry, 'String')[0] as XmlElement, 'Value') as XmlElement;
   setText(oldValueEl, 'Edited');
   const [snapshot] = getEntryHistory(entry);
 
-  restoreHistoryEntry(document, entry, snapshot as XmlElement);
+  restoreHistoryEntry(document, entry, snapshot as XmlElement, []);
 
   assert.equal(fieldValue(entry, 'Title'), 'Original', 'live entry adopts the historical fields');
   assert.equal(getText(getChild(entry, 'UUID') as XmlElement), originalUuid, 'UUID is unchanged');
@@ -497,12 +590,12 @@ test('restoreHistoryEntry is a new edit, and keeps the current LocationChanged r
   const entry = createEntry({ title: 'Original' });
   setTimeOf(entry, 'LastModificationTime', LONG_AGO);
   setTimeOf(entry, 'LocationChanged', LONG_AGO);
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
   const movedAt = '2020-06-01T12:00:00Z'; // moved after the snapshot was taken
   setTimeOf(entry, 'LocationChanged', movedAt);
   const [snapshot] = getEntryHistory(entry);
 
-  restoreHistoryEntry(document, entry, snapshot as XmlElement);
+  restoreHistoryEntry(document, entry, snapshot as XmlElement, []);
 
   assertJustNow(timeOf(entry, 'LastModificationTime'));
   assert.equal(timeOf(entry, 'LocationChanged'), movedAt);
@@ -518,8 +611,8 @@ test('restoreHistoryEntry is a new edit, and keeps the current LocationChanged r
   times.children = times.children.filter(
     (child) => !(child.type === 'element' && child.name === 'LocationChanged'),
   );
-  pushHistorySnapshot(document, sparse);
-  restoreHistoryEntry(document, sparse, getEntryHistory(sparse)[0] as XmlElement);
+  pushHistorySnapshot(document, sparse, []);
+  restoreHistoryEntry(document, sparse, getEntryHistory(sparse)[0] as XmlElement, []);
   assert.equal(timeEl(sparse, 'LocationChanged'), undefined);
 });
 
@@ -528,8 +621,8 @@ test('deleteHistoryEntry removes one snapshot, and does nothing without a Histor
   deleteHistoryEntry(entry, entry); // no History element yet: no-op, no throw
 
   const document = createDatabaseDocument('MyDb');
-  pushHistorySnapshot(document, entry);
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, []);
+  pushHistorySnapshot(document, entry, []);
   const [first, second] = getEntryHistory(entry);
 
   deleteHistoryEntry(entry, first as XmlElement);
