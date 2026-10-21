@@ -2,6 +2,7 @@
 rules, so the result matches what KeePass and KeePassXC make of the same two
 files (#74). See SPEC.md, "Merging". */
 
+import type { InnerBinary } from './inner-header.ts';
 import {
   appendChild,
   cloneElement,
@@ -13,6 +14,7 @@ import {
   getText,
   setAttribute,
   setChildText,
+  trimHistory,
 } from './model.ts';
 import type { XmlElement } from './xml.ts';
 
@@ -132,14 +134,13 @@ function kx_snapshot(entry: XmlElement): XmlElement {
   return copy;
 }
 
-// One version per modification time, this copy's winning a tie, oldest first, trimmed to the limit.
-function kx_mergeHistory(local: XmlElement[], other: XmlElement[], maxItems: number): XmlElement[] {
+// One version per modification time, this copy's winning a tie, oldest first.
+function kx_mergeHistory(local: XmlElement[], other: XmlElement[]): XmlElement[] {
   const byTime = new Map<number, XmlElement>();
   for (const version of [...other, ...local]) {
     byTime.set(kx_seconds(version, 'LastModificationTime'), version);
   }
-  const merged = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([, version]) => version);
-  return maxItems >= 0 ? merged.slice(Math.max(0, merged.length - maxItems)) : merged;
+  return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([, version]) => version);
 }
 
 function kx_setHistory(entry: XmlElement, versions: XmlElement[]): void {
@@ -258,11 +259,13 @@ function kx_rootGroup(document: XmlElement): XmlElement {
 
 /** Merge `other` into `local`, both whole `<KeePassFile>` documents of the same
 database. `other` is consumed: its attachment references are rewritten through
-`adoptBinary`, which maps one of its pool indexes to one in `local`'s pool. */
+`adoptBinary`, which maps one of its pool indexes to one in `local`'s pool, and
+`binaries` is that pool, which sizes combined Histories against HistoryMaxSize. */
 export function mergeDocuments(
   local: XmlElement,
   other: XmlElement,
   adoptBinary: (ref: number) => number,
+  binaries: InnerBinary[],
 ): MergeSummary {
   const localRoot = kx_rootGroup(local);
   const otherRoot = kx_rootGroup(other);
@@ -271,9 +274,6 @@ export function mergeDocuments(
   // Each of the other copy's groups by its counterpart here, so children land under the right parent.
   const counterpart = new Map<XmlElement, XmlElement>();
   const summary: MergeSummary = { changed: 0, conflicts: [] };
-  const localMeta = getChild(local, 'Meta');
-  const maxItemsEl = localMeta && getChild(localMeta, 'HistoryMaxItems');
-  const maxItems = maxItemsEl ? Number.parseInt(getText(maxItemsEl), 10) : 10;
   kx_adoptBinaries(otherRoot, adoptBinary);
 
   // An object both copies hold goes where the copy that moved it last put it.
@@ -374,7 +374,8 @@ export function mergeDocuments(
       }
       if (!seen) summary.conflicts.push(kx_title(entry));
     }
-    kx_setHistory(entry, kx_mergeHistory(localHistory, otherHistory, maxItems));
+    kx_setHistory(entry, kx_mergeHistory(localHistory, otherHistory));
+    trimHistory(local, entry, binaries); // by size as well as count, as an edit trims it (#166)
     place(placed, otherEntry, otherParent);
   };
 
@@ -428,6 +429,7 @@ export function mergeDocuments(
   }
   if (deletedObjects) deletedObjects.children = [...records.values()];
 
+  const localMeta = getChild(local, 'Meta');
   const otherMeta = getChild(other, 'Meta');
   if (localMeta && otherMeta) kx_mergeMeta(localMeta, otherMeta);
 

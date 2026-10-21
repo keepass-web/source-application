@@ -243,10 +243,15 @@ export class Kdbx {
   credentials, into this one by KeePass's synchronization rules (#74). */
   async mergeIn(data: Uint8Array): Promise<MergeSummary> {
     const other = await Kdbx.load(data, this.#credentials);
-    return mergeDocuments(this.root, other.root, (ref) => {
-      const binary = other.getBinaryData(ref);
-      return binary === undefined ? -1 : this.addBinary(binary); // a stale reference stays stale
-    });
+    return mergeDocuments(
+      this.root,
+      other.root,
+      (ref) => {
+        const binary = other.getBinaryData(ref);
+        return binary === undefined ? -1 : this.addBinary(binary); // a stale reference stays stale
+      },
+      this.binaries,
+    );
   }
 
   // Add a binary attachment, reusing an identical one if present; returns its pool index.
