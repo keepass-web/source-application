@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write      # create release and upload assets
+      discussions: write   # announce the release in Discussions
       id-token: write      # request OIDC token for attestation signing
       attestations: write  # write attestation to repo
     steps:
@@ -158,6 +159,9 @@ jobs:
             dist/cloud-google-drive.html
             dist/CNAME
 
+      # The changelog leaves out the version-bump PR that "Cutting a release"
+      # in docs/RELEASES.md opens after each tag: it lands in the next
+      # release's range but changes nothing a user would see.
       - name: Create GitHub release
         if: steps.existing-release.outputs.exists != 'true'
         env:
@@ -169,9 +173,11 @@ jobs:
           for file in dist/index.html dist/local.html dist/0x67.html dist/cloud-google-drive.html dist/CNAME; do
             notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
           done
+          notes+=$'\n'"$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body | grep -v '^\* chore: bump version to ')"
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes "${notes}" \
+            --discussion-category Announcements \
             dist/0x67.html \
             dist/local.html \
             dist/index.html \
