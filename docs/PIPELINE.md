@@ -7,7 +7,7 @@ This document maps the complete build, release, and deploy pipeline.
 | Workflow | Location | Description |
 |---|---|---|
 | CI pipeline | [`source-application/.github/workflows/ci.yml`][ci-workflow] | Lints, type-checks, tests, and builds on every push and pull request in `source-application`. |
-| Release | [`source-application/.github/workflows/release.yml`][release-workflow] | Builds, attests, and publishes a GitHub release on every version tag in `source-application`, then triggers deploy. |
+| Release | [`source-application/.github/workflows/release.yml`][release-workflow] | Builds, attests, publishes, and announces a GitHub release on every version tag in `source-application`, then triggers deploy. |
 | Deploy | [`keepass-web.app/.github/workflows/deploy.yml`][deploy-workflow] | Verifies release attestations and opens a PR in `keepass-web.app` to publish the release to `gh-pages` branch. |
 | Deploy verification | [`keepass-web.app/.github/workflows/ci.yml`][deploy-ci] | Verifies distributables on every `keepass-web.app` PR targeting `gh-pages`. |
 
@@ -43,7 +43,7 @@ sequenceDiagram
 
     Contributor->>SAREL: Push version tag vX.Y.Z
     activate SAREL
-    SAREL->>SAREL: Lint, typecheck, test, verify tag,<br/>build, attest, create release
+    SAREL->>SAREL: Lint, typecheck, test, verify tag,<br/>build, attest, create and announce release
     SAREL->>Bot: Request short-lived token<br/>scoped to keepass-web.app
     Bot-->>SAREL: Token
     SAREL->>DEPLOY: Trigger via workflow_dispatch
@@ -101,7 +101,7 @@ flowchart TD
     CI3 --> VER2["Verify tag = package.json version"]
     VER2 --> BUILD["Full build from source: compile\npackages and pages, bundle, inline;\ncopy CNAME\nOutputs: 0x67.html · local.html\nindex.html · cloud-google-drive.html\nCNAME\n(version footer: tag + commit date)"]
     BUILD --> ATTEST["Attest all five files\nactions/attest-build-provenance\nSigns to Sigstore transparency log"]
-    ATTEST --> GHREL["Create GitHub release\nUpload all five files\nPublish checksums in release notes"]
+    ATTEST --> GHREL["Create GitHub release\nUpload all five files\nPublish checksums and changelog\nin release notes\nAnnounce in Discussions"]
     GHREL --> TOKEN["Generate short-lived App token\nscoped to the deploy repo"]
     TOKEN --> TRIG["Trigger deploy workflow\nvia workflow_dispatch"]
     TRIG --> DEPLOY(["Deploy pipeline begins"])
