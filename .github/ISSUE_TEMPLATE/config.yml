@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or feature idea
+    url: https://github.com/keepass-web/source-application/discussions
+    about: Ask questions and propose features in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md
+    about: Report it privately, not in a public issue; the security policy gives the address.
