@@ -163,6 +163,25 @@ function kx_refreshHeaderHash(root: XmlElement, headerSha: Uint8Array): void {
   if (hashEl) setText(hashEl, toBase64(headerSha));
 }
 
+// True if any entry or group, History included, records the group it was last moved out of.
+function kx_hasPreviousParentGroup(element: XmlElement): boolean {
+  return element.children.some(
+    (child) =>
+      child.type === 'element' &&
+      (child.name === 'PreviousParentGroup' || kx_hasPreviousParentGroup(child)),
+  );
+}
+
+// Drop every previous-group record, which a file older than KDBX 4.1 doesn't carry (#133).
+function kx_removePreviousParentGroups(element: XmlElement): void {
+  element.children = element.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'PreviousParentGroup'),
+  );
+  for (const child of element.children) {
+    if (child.type === 'element') kx_removePreviousParentGroups(child);
+  }
+}
+
 // KeePass refuses a file whose non-empty <Meta><HeaderHash> disagrees with its header (#103).
 function kx_checkHeaderHash(root: XmlElement, headerSha: Uint8Array): void {
   const meta = getChild(root, 'Meta');
@@ -422,6 +441,10 @@ export class Kdbx {
       throw new Error('KDBX 4 database is missing KDF parameters');
     }
     header.kdfParameters.set(KdfParam.AesSeed, kx_bytes(getRandomBytes(32)));
+    // KeePass and KeePassXC write a previous-group record only into KDBX 4.1 (#133).
+    if (kx_hasPreviousParentGroup(this.root)) {
+      header.version.minor = Math.max(header.version.minor, 1);
+    }
     const rawHeader = writeOuterHeader(header);
     const headerSha = await sha256(rawHeader);
 
@@ -489,6 +512,7 @@ export class Kdbx {
     );
     const clonedRoot = cloneElement(this.root);
     writeMetaBinaries(clonedRoot, this.binaries);
+    kx_removePreviousParentGroups(clonedRoot);
     setGenerator(clonedRoot);
     kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
     applyOutboundProtection(clonedRoot, cipher);

@@ -658,10 +658,10 @@ function isTrashedGroup(group: XmlElement): boolean {
   return parent !== null && isInRecycleBin(db.root, parent);
 }
 
-/* Restores to the root group (#63); KDBX records no previous location, so this
-matches where a trashed entry is restored to. */
+// Back to the group it came from, or the root group once that is gone, as an entry's restore does (#63, #133).
 function undeleteGroup(group: XmlElement): void {
-  moveGroupTo(group, must(app.db).getRootGroup());
+  const db = must(app.db);
+  moveGroupTo(group, findPreviousParentGroup(db.root, group) ?? db.getRootGroup());
 }
 
 /** Deselect (back to root) if the current selection is `group` or nested
@@ -1393,8 +1393,9 @@ function showEntryDetail(): void {
   restoreBtn.addEventListener('click', () => {
     const rootGroup = db.getRootGroup();
     const parent = findEntryParent(rootGroup, entry);
-    if (parent && parent !== rootGroup) {
-      moveToGroup(entry, parent, rootGroup);
+    const destination = findPreviousParentGroup(db.root, entry) ?? rootGroup; // where it came from (#133)
+    if (parent && parent !== destination) {
+      moveToGroup(entry, parent, destination);
       setDirty(true);
     }
     app.currentEntry = null;

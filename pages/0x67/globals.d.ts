@@ -175,6 +175,10 @@ interface EntryInput {
 declare function createEntry(input: EntryInput): XmlElement;
 declare function createGroup(name: string): XmlElement;
 declare function findOrCreateRecycleBin(document: XmlElement): XmlElement;
+declare function findPreviousParentGroup(
+  document: XmlElement,
+  element: XmlElement,
+): XmlElement | undefined;
 declare function isInRecycleBin(document: XmlElement, group: XmlElement): boolean;
 declare function isRecycleBinEnabled(document: XmlElement): boolean;
 declare function getEntryTags(entry: XmlElement): string[];
