@@ -77,8 +77,8 @@ async function kx_tryParseXmlKeyFile(bytes: Uint8Array): Promise<Uint8Array | un
     return undefined;
   }
   const data = dataMatch[2].replace(/\s+/g, '');
-  const versionMatch = text.match(/<Version>\s*([^<]+?)\s*<\/Version>/);
-  const version = versionMatch?.[1] ?? '1.0';
+  const versionMatch = text.match(/<Version>([^<]+)<\/Version>/);
+  const version = (versionMatch?.[1] ?? '1.0').trim();
   if (!version.startsWith('2')) {
     return fromBase64(data);
   }

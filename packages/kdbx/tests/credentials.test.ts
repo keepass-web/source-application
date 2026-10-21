@@ -85,6 +85,14 @@ test('keyFileComponent: KeePass 2.x XML key file without a Hash attribute skips 
   assert.deepEqual(component, rawKey);
 });
 
+test('keyFileComponent: KeePass 2.x XML key file with whitespace around the Version is parsed', async () => {
+  const rawKey = new Uint8Array(32).map((_, i) => (i * 13 + 7) & 0xff);
+  const hex = Array.from(rawKey, (b) => b.toString(16).padStart(2, '0')).join('');
+  const xml = `<KeyFile><Meta><Version>\n\t\t2.0 \n\t</Version></Meta><Key><Data>${hex}</Data></Key></KeyFile>`;
+  const component = await keyFileComponent(utf8Encode(xml));
+  assert.deepEqual(component, rawKey);
+});
+
 test('keyFileComponent: KeePass 1.x XML key file (base64 data, no Version element) is parsed', async () => {
   const rawKey = new Uint8Array(32).map((_, i) => (i * 5 + 2) & 0xff);
   const xml = `<KeyFile><Key><Data>${toBase64(rawKey)}</Data></Key></KeyFile>`;
