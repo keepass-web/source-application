@@ -3,7 +3,7 @@ description: Something in KeePass Web isn't working as it should.
 body:
   - type: markdown
     attributes:
-      value: Issues are for bugs. Ask questions in [Q&A](https://github.com/keepass-web/source-application/discussions/categories/q-a) and propose features in [Ideas](https://github.com/keepass-web/source-application/discussions/categories/ideas). Report security vulnerabilities privately, not here; the [security policy](https://github.com/keepass-web/.github/blob/main/profile/FAQ.md) gives the address.
+      value: Issues are for bugs. Ask questions in [Q&A](https://github.com/keepass-web/source-application/discussions/categories/q-a) and propose features in [Ideas](https://github.com/keepass-web/source-application/discussions/categories/ideas). Please report security vulnerabilities privately rather than here; our [security policy](https://github.com/keepass-web/.github/blob/main/profile/FAQ.md) explains how.
   - type: textarea
     id: what-happened
     attributes:

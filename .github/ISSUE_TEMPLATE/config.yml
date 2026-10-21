@@ -8,4 +8,4 @@ contact_links:
     about: Propose it in the Ideas category of Discussions.
   - name: Security vulnerability
     url: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md
-    about: Report it privately, not in a public issue; the security policy gives the address.
+    about: Please report it privately; our security policy explains how.
