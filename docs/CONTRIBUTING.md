@@ -4,7 +4,7 @@
 
 For bugs, [open an issue][issues]. For questions, ideas, or anything not yet a concrete bug, [start a discussion][discussions] first — especially before a large change, so the approach can be agreed on before code gets written.
 
-Found a security vulnerability? Do not open a public issue. See the org's [security policy][security] for the reporting address.
+Found a security vulnerability? Please report it privately rather than in a public issue; the org's [security policy][security] explains how.
 
 ## Developing locally
 
@@ -66,7 +66,7 @@ KeePass Web is MIT-licensed and free to use. If you find it valuable, we encoura
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
-[security]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md
+[security]: https://github.com/keepass-web/.github/blob/main/SECURITY.md
 [rulesets]: RULESETS.md
 [org]: https://github.com/keepass-web
 [repos]: https://github.com/orgs/keepass-web/repositories
