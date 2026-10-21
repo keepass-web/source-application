@@ -55,11 +55,8 @@ Opening a database from local disk needs nothing but the file itself: no account
 
 Anyone can open and save a database directly from their own cloud storage (e.g., Google Drive), without ever downloading it to disk. The file's bytes go straight into browser memory, get edited there, and are written straight back to the provider; on-disk storage is never part of the round trip. That's more convenient than the download-edit-reupload cycle a local file requires, and it's more secure. On a computer whose disk can't be accessed, trusted, or written to like a public library terminal, a locked-down kiosk, a borrowed laptop, there's nothing on that disk to worry about, because the vault was never on it.
 
-The cloud connectors are free to use, like the rest of KeePass Web: opening a cloud vault requires only your own provider's sign-in and the master password, never a GitHub login. KeePass Web provides no storage of its own; it connects to a provider you already have. Those who find the connectors valuable are encouraged to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors].
+Opening a cloud vault requires only your own provider's sign-in and the master password. KeePass Web provides no storage of its own; it connects to a provider you already have.
 
-[org]: https://github.com/keepass-web
-[repos]: https://github.com/orgs/keepass-web/repositories
-[sponsors]: https://github.com/sponsors/keepass-web
 [picker]: https://developers.google.com/workspace/drive/picker/guides/overview
 [gis-token]: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 [trust]: ../README.md#trust

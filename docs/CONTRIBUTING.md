@@ -62,7 +62,7 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 
 ## Supporting KeePass Web
 
-KeePass Web is MIT-licensed and free to use, every feature included, from the app itself to the connectors for your own cloud storage provider. We don't provide storage; you connect to a provider you already have. If you find it valuable, we encourage you to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
+KeePass Web is MIT-licensed and free to use. If you find it valuable, we encourage you to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
