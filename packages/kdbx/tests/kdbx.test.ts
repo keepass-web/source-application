@@ -203,14 +203,14 @@ for (const version of [3, 4] as const) {
 
     const replaced = await Kdbx.load(await kdbx.save(), credentials);
     const replacedMeta = getChild(replaced.root, 'Meta') as XmlElement;
-    assert.equal(getText(getChild(replacedMeta, 'Generator') as XmlElement), 'keepass-web');
+    assert.equal(getText(getChild(replacedMeta, 'Generator') as XmlElement), 'KeePass Web');
 
     replacedMeta.children = replacedMeta.children.filter(
       (child) => !(child.type === 'element' && child.name === 'Generator'),
     );
     const added = await Kdbx.load(await replaced.save(), credentials);
     const addedMeta = getChild(added.root, 'Meta') as XmlElement;
-    assert.equal(getText(getChild(addedMeta, 'Generator') as XmlElement), 'keepass-web');
+    assert.equal(getText(getChild(addedMeta, 'Generator') as XmlElement), 'KeePass Web');
   });
 }
 

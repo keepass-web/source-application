@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# keepass-web build environment
+# KeePass Web build environment
 #
 # A pinned, independently-reproducible environment for verifying a release —
 # see docs/REPRODUCING.md. CI itself does not use this image; it runs directly

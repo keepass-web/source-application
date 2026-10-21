@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "ChaCha20 and Salsa20 stream cipher implementation for keepass-web.",
+  "description": "ChaCha20 and Salsa20 stream cipher implementation for KeePass Web.",
   "sideEffects": false,
   "scripts": {
     "build": "tsc --project tsconfig.build.json",

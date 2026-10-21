@@ -1,6 +1,6 @@
 # kdbx
 
-KDBX 3.1 and 4.x parser and serializer for the [keepass-web][org] project.
+KDBX 3.1 and 4.x parser and serializer for the [KeePass Web][org] project.
 
 Handles KDBX files reporting 0x67 format.
 

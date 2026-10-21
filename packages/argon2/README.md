@@ -1,6 +1,6 @@
 # argon2
 
-Argon2d and Argon2id key derivation function implementation for the [keepass-web][org] project.
+Argon2d and Argon2id key derivation function implementation for the [KeePass Web][org] project.
 
 Note: only the Argon2id and Argon2d variants are supported, because that's all that's required for KeePass. Argon2i is not implemented, consistent with RFC 9106, which requires only Argon2id.
 

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Argon2d and Argon2id key derivation function implementation for keepass-web.",
+  "description": "Argon2d and Argon2id key derivation function implementation for KeePass Web.",
   "sideEffects": false,
   "scripts": {
     "build": "tsc --project tsconfig.build.json",

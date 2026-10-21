@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Format detection for keepass-web: identifies a KDBX-family file from its first 8 bytes and names the implementation that reads it.",
+  "description": "Format detection for KeePass Web: identifies a KDBX-family file from its first 8 bytes and names the implementation that reads it.",
   "sideEffects": false,
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
