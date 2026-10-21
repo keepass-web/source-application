@@ -289,7 +289,7 @@ for (const version of [3, 4] as const) {
       fields: [{ key: 'Recovery codes', value: 'one\ntwo' }],
     });
     addEntryAttachment(entry, 'key.pem', kdbx.addBinary(utf8Encode('KEY')));
-    pushHistorySnapshot(kdbx.root, entry);
+    pushHistorySnapshot(kdbx.root, entry, kdbx.binaries);
     appendChild(kdbx.getRootGroup(), entry);
     appendChild(getChild(kdbx.root, 'Meta') as XmlElement, createElement('HeaderHash', 'c3RhbGU='));
     // Through a real file: 3.1 keeps attachments in Meta, and 4.x stores times in binary.
@@ -375,7 +375,7 @@ test('a KDBX 3.1 file never carries a previous-group record, which only 4.1 defi
   appendChild(rootGroup, home);
   appendChild(home, entry);
   moveToGroup(entry, home, rootGroup);
-  pushHistorySnapshot(kdbx.root, entry); // History copies carry it too
+  pushHistorySnapshot(kdbx.root, entry, kdbx.binaries); // History copies carry it too
   moveToGroup(home, rootGroup, rootGroup);
 
   const saved = await kdbx.save();
@@ -459,7 +459,7 @@ test('KDBX 3.1: an attachment referenced only from a History revision survives a
   const data = new TextEncoder().encode('archived attachment');
   const ref = kdbx.addBinary(data);
   addEntryAttachment(entry, 'old.txt', ref);
-  pushHistorySnapshot(kdbx.root, entry);
+  pushHistorySnapshot(kdbx.root, entry, kdbx.binaries);
   // The live entry no longer references the attachment; only its History does.
   removeEntryAttachment(entry, 'old.txt');
 
@@ -604,7 +604,7 @@ test('mergeIn opens another copy with this database’s credentials and merges i
   appendChild(local.getRootGroup(), createEntry({ title: 'Shared' }));
   const other = await Kdbx.load(await local.save(), credentials);
   const otherEntry = firstEntry(other);
-  pushHistorySnapshot(other.root, otherEntry); // edited the way the app edits
+  pushHistorySnapshot(other.root, otherEntry, other.binaries); // edited the way the app edits
   addEntryAttachment(otherEntry, 'hello.txt', other.addBinary(new TextEncoder().encode('hello')));
   addEntryAttachment(otherEntry, 'ghost.txt', 99); // points at nothing
   const title = getChildren(otherEntry, 'String')[0] as XmlElement;

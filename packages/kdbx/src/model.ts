@@ -4,6 +4,7 @@ values hold plaintext in memory and are encrypted only on save. */
 
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from './bytes.ts';
 import { getRandomBytes } from './crypto.ts';
+import type { InnerBinary } from './inner-header.ts';
 import type { ProtectedStreamCipher } from './protected-stream.ts';
 import type { XmlElement, XmlNode } from './xml.ts';
 
@@ -441,6 +442,7 @@ export function removeEntryAttachment(entry: XmlElement, name: string): void {
 }
 
 const KX_DEFAULT_HISTORY_MAX_ITEMS = 10;
+const KX_DEFAULT_HISTORY_MAX_SIZE = 6 * 1024 * 1024; // KeePass's and KeePassXC's default, in bytes
 
 // An entry's past versions from <History>, oldest first; [] if none.
 export function getEntryHistory(entry: XmlElement): XmlElement[] {
@@ -448,9 +450,49 @@ export function getEntryHistory(entry: XmlElement): XmlElement[] {
   return historyEl ? getChildren(historyEl, 'Entry') : [];
 }
 
-/** Snapshot `entry`'s current state onto its History, trimmed to
-`HistoryMaxItems` (default 10). Call before applying an edit, not after. */
-export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void {
+// A whole number from Meta, `fallback` when the file leaves it out, or Infinity when it sets no limit.
+function kx_historyLimit(document: XmlElement, name: string, fallback: number): number {
+  const meta = getChild(document, 'Meta');
+  const limitEl = meta && getChild(meta, name);
+  const limit = limitEl ? Number.parseInt(getText(limitEl), 10) : fallback;
+  return Number.isFinite(limit) && limit >= 0 ? limit : Number.POSITIVE_INFINITY;
+}
+
+/** A History version's size as KeePassXC counts it toward HistoryMaxSize (#135): the
+UTF-8 bytes of its fields, attachment names and data, tags, auto-type and custom data. */
+function kx_historyVersionSize(version: XmlElement, binaries: InnerBinary[]): number {
+  const bytes = (text: string): number => utf8Encode(text).length;
+  const childBytes = (element: XmlElement, name: string): number => {
+    const child = getChild(element, name);
+    return child ? bytes(getText(child)) : 0;
+  };
+  let size = 0;
+  for (const string of getChildren(version, 'String')) {
+    size += childBytes(string, 'Key') + childBytes(string, 'Value');
+  }
+  for (const { name, ref } of getEntryAttachments(version)) {
+    size += bytes(name) + (binaries[ref]?.data.length ?? 0);
+  }
+  for (const tag of getEntryTags(version)) size += bytes(tag);
+  const autoType = getChild(version, 'AutoType');
+  for (const association of autoType ? getChildren(autoType, 'Association') : []) {
+    size += childBytes(association, 'Window') + childBytes(association, 'KeystrokeSequence');
+  }
+  const customData = getChild(version, 'CustomData');
+  for (const item of customData ? getChildren(customData, 'Item') : []) {
+    size += childBytes(item, 'Key') + childBytes(item, 'Value');
+  }
+  return size;
+}
+
+/** Snapshot `entry`'s current state onto its History, then trim it as KeePassXC does:
+newest first, a version goes, with all older ones, once it passes HistoryMaxItems or
+takes the total past HistoryMaxSize (#135). Call before applying an edit, not after. */
+export function pushHistorySnapshot(
+  document: XmlElement,
+  entry: XmlElement,
+  binaries: InnerBinary[],
+): void {
   const snapshot = cloneElement(entry);
   snapshot.children = snapshot.children.filter(
     (child) => !(child.type === 'element' && child.name === 'History'),
@@ -463,21 +505,19 @@ export function pushHistorySnapshot(document: XmlElement, entry: XmlElement): vo
   }
   appendChild(historyEl, snapshot);
 
-  const meta = getChild(document, 'Meta');
-  const maxItemsEl = meta && getChild(meta, 'HistoryMaxItems');
-  const maxItems = maxItemsEl
-    ? Number.parseInt(getText(maxItemsEl), 10)
-    : KX_DEFAULT_HISTORY_MAX_ITEMS;
-  if (!Number.isFinite(maxItems) || maxItems < 0) return;
-
-  const entries = getChildren(historyEl, 'Entry');
-  const excess = entries.length - maxItems;
-  if (excess > 0) {
-    const dropped = new Set(entries.slice(0, excess));
-    historyEl.children = historyEl.children.filter(
-      (child) => !(child.type === 'element' && dropped.has(child)),
-    );
+  const maxItems = kx_historyLimit(document, 'HistoryMaxItems', KX_DEFAULT_HISTORY_MAX_ITEMS);
+  const maxSize = kx_historyLimit(document, 'HistoryMaxSize', KX_DEFAULT_HISTORY_MAX_SIZE);
+  const kept = new Set<XmlElement>();
+  let size = 0;
+  for (const version of getChildren(historyEl, 'Entry').reverse()) {
+    if (kept.size >= maxItems) break;
+    size += kx_historyVersionSize(version, binaries);
+    if (size > maxSize) break;
+    kept.add(version);
   }
+  historyEl.children = historyEl.children.filter(
+    (child) => !(child.type === 'element' && child.name === 'Entry' && !kept.has(child)),
+  );
 }
 
 /** Restore `entry` to a past version: snapshots current state first, then
@@ -488,11 +528,12 @@ export function restoreHistoryEntry(
   document: XmlElement,
   entry: XmlElement,
   snapshot: XmlElement,
+  binaries: InnerBinary[],
 ): void {
   const restoredFields = cloneElement(snapshot);
   const currentTimes = getChild(entry, 'Times');
   const locationChanged = currentTimes && getChild(currentTimes, 'LocationChanged');
-  pushHistorySnapshot(document, entry);
+  pushHistorySnapshot(document, entry, binaries);
 
   const uuidEl = getChild(entry, 'UUID');
   const historyEl = getChild(entry, 'History');
@@ -621,7 +662,8 @@ export function createDatabaseDocument(
   appendChild(meta, createElement('DatabaseNameChanged', kx_nowIso()));
   appendChild(meta, createElement('MasterKeyChanged', kx_nowIso()));
   appendChild(meta, createElement('RecycleBinEnabled', 'True'));
-  appendChild(meta, createElement('HistoryMaxItems', '10'));
+  appendChild(meta, createElement('HistoryMaxItems', String(KX_DEFAULT_HISTORY_MAX_ITEMS)));
+  appendChild(meta, createElement('HistoryMaxSize', String(KX_DEFAULT_HISTORY_MAX_SIZE)));
   appendChild(root, meta);
 
   const rootElement = createElement('Root');

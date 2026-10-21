@@ -1133,6 +1133,7 @@ test('0x67 app', async (t) => {
 
   await t.test('downloading the database creates and revokes an object URL', async () => {
     q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    q<HTMLInputElement>('.edit-value').value += ' (edited)'; // Save writes only a change (#134)
     q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
     assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
 
@@ -2688,6 +2689,100 @@ test('with the database bin turned off, deleting is permanent and confirmed, and
   );
 });
 
+test('Save with nothing changed leaves the entry, its History and the database untouched (#134)', async () => {
+  // A copy in History and a newer time for nothing would make this stale
+  // version win a merge in KeePass or KeePassXC over a real edit made there.
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Untouched', notes: 'line one\r\nline two' });
+  // Tags as KeePassXC writes them, which the form would rewrite with semicolons.
+  appendChild(entry, createElement('Tags', 'Finance,Personal'));
+  const times = getChild(entry, 'Times') as XmlElement;
+  setText(getChild(times, 'LastModificationTime') as XmlElement, '2001-02-03T04:05:06Z');
+  appendChild(kdbx.getRootGroup(), entry);
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('untouched.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const historyRows = (): number => q('#detail-history').querySelectorAll('.history-row').length;
+  click(q('.entry-row'));
+  const metaBefore = q<HTMLElement>('#detail-meta').textContent;
+  assert.match(metaBefore ?? '', /2001/, 'the card shows the old modification time');
+
+  click(q('[data-action="edit"]'));
+  click(q('[data-action="save"]'));
+  assert.ok(q('#detail-title'), 'back on the card');
+  assert.equal(byId<HTMLDialogElement>('dlg-save').open, false, 'nothing to save');
+  assert.equal(historyRows(), 0, 'no History copy');
+  assert.equal(q<HTMLElement>('#detail-meta').textContent, metaBefore, 'no newer time');
+
+  // A real change still goes through, with its History copy.
+  click(q('[data-action="edit"]'));
+  q<HTMLInputElement>('.edit-value').value = 'Touched';
+  click(q('[data-action="save"]'));
+  assert.equal(byId<HTMLDialogElement>('dlg-save').open, true);
+  assert.equal(historyRows(), 1);
+  click(dq('#dlg-save [data-action="close"]'));
+
+  click(q('[data-action="back"]'));
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
+test('a database stays unmarked when an entry is saved unchanged (#134)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Clean' }));
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('clean.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  click(q('.entry-row'));
+  click(q('[data-action="edit"]'));
+  click(q('[data-action="save"]'));
+  click(q('[data-action="back"]'));
+  assert.equal(q<HTMLButtonElement>('[data-action="save-database"]').disabled, true);
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
 test('restoring from the bin returns an entry or group to the group it came from, or the top once that is gone (#133)', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {
@@ -2990,7 +3085,7 @@ test("an open card's Download still fetches its own attachment after a save move
   // Only First's History version holds old.txt, whose data is stored ahead of Second's keep.txt.
   const first = createEntry({ title: 'First' });
   addEntryAttachment(first, 'old.txt', kdbx.addBinary(new TextEncoder().encode('old')));
-  pushHistorySnapshot(kdbx.root, first);
+  pushHistorySnapshot(kdbx.root, first, kdbx.binaries);
   removeEntryAttachment(first, 'old.txt');
   const second = createEntry({ title: 'Second' });
   addEntryAttachment(second, 'keep.txt', kdbx.addBinary(new TextEncoder().encode('keep')));

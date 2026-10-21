@@ -139,8 +139,14 @@ interface MergeSummary {
   conflicts: string[];
 }
 
+interface InnerBinary {
+  flags: number;
+  data: Uint8Array;
+}
+
 declare class Kdbx {
   root: XmlElement;
+  binaries: InnerBinary[];
   mergeIn(data: Uint8Array): Promise<MergeSummary>;
   header: { version: { major: number } };
   getRootGroup(): XmlElement;
@@ -205,11 +211,16 @@ declare function deletePermanently(
 ): void;
 
 declare function getEntryHistory(entry: XmlElement): XmlElement[];
-declare function pushHistorySnapshot(document: XmlElement, entry: XmlElement): void;
+declare function pushHistorySnapshot(
+  document: XmlElement,
+  entry: XmlElement,
+  binaries: InnerBinary[],
+): void;
 declare function restoreHistoryEntry(
   document: XmlElement,
   entry: XmlElement,
   snapshot: XmlElement,
+  binaries: InnerBinary[],
 ): void;
 declare function deleteHistoryEntry(entry: XmlElement, snapshot: XmlElement): void;
 
