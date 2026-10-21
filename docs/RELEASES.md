@@ -22,7 +22,7 @@ git push --follow-tags
        ├─ lint / typecheck / test
        ├─ build distributables
        ├─ attest with SLSA provenance
-       ├─ create GitHub release
+       ├─ create GitHub release, announced in Discussions
        └─ trigger Deploy workflow
             └─ keepass-web.app: Deploy workflow
                  ├─ download release assets
@@ -46,6 +46,8 @@ gh pr create --base main --head "release/${tag}" --title "chore: bump version to
 git reset --hard origin/main
 ```
 
+Keep the version-bump PR's title as shown: the Release workflow leaves PRs with that title out of the next release's changelog.
+
 ## The Release workflow
 
 `.github/workflows/release.yml` runs on every `v*` tag push:
@@ -56,7 +58,7 @@ git reset --hard origin/main
 4. Guards that the tag matches the `package.json` version
 5. Runs the full build from source — compiling `packages/*` and `pages/*/page.ts`, bundling, then inlining each page — and copies `CNAME`. Nothing under `build/` or `dist/` is committed, so this is the only place the release's distributables come from
 6. Attests each using `actions/attest-build-provenance`, writing a signed SLSA provenance record to the Sigstore transparency log
-7. Creates the GitHub release and uploads all distributables
+7. Creates the GitHub release with each distributable's checksum and the changelog of merged PRs as its notes, uploads all distributables, and posts those notes to the Announcements category in Discussions
 8. Generates a short-lived App token scoped to the deploy repo and triggers its Deploy workflow
 
 ## The Deploy workflow
