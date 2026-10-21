@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/keepass-web/source-application/discussions/categories/ideas
     about: Propose it in the Ideas category of Discussions.
   - name: Security vulnerability
-    url: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md
+    url: https://github.com/keepass-web/.github/blob/main/SECURITY.md
     about: Please report it privately; our security policy explains how.
