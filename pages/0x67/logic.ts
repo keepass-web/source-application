@@ -332,14 +332,15 @@ export function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void 
   }
 }
 
-/** The first name shared by two of the fields, or null. KeePassXC refuses to
-open a file holding an entry with two fields of one name (#125). */
-export function duplicateFieldName(fields: EditedField[]): string | null {
+/** The first name given twice, or null. KeePassXC refuses to open a file holding an
+entry with two fields of one name (#125), and KeePass and KeePassXC keep only one of
+two attachments of one name (#120). */
+export function duplicateName(names: string[]): string | null {
   const seen = new Set<string>();
-  for (const { key } of fields) {
-    if (!key) continue; // a blank-named row is dropped on save, so it clashes with nothing
-    if (seen.has(key)) return key;
-    seen.add(key);
+  for (const name of names) {
+    if (!name) continue; // a blank-named field row is dropped on save, so it clashes with nothing
+    if (seen.has(name)) return name;
+    seen.add(name);
   }
   return null;
 }

@@ -4,9 +4,12 @@
  * that a phone puts each label on its own line above the value, and that saved
  * notes still show the lines they were written in. */
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import puppeteer, { type Browser, type Frame, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type ElementHandle, type Frame, type Page } from 'puppeteer-core';
 import { openApp } from './support/app.ts';
 import { resolveChromePath } from './support/chrome.ts';
 import { type DistServer, startDistServer } from './support/dist-server.ts';
@@ -140,6 +143,48 @@ test('at phone width, a refused Save shows its reason beside the fields, within 
     assert.ok(layout.errorLeft >= 0 && layout.errorRight <= 375, 'and fits across the screen');
     assert.ok(layout.textOverflow <= 0, `the name wraps inside it, ${layout.textOverflow}px over`);
     assert.ok(layout.gapBelowFields >= 0 && layout.gapBelowFields < 40, 'right under the fields');
+    assert.ok(layout.pageWidth <= 375, `the page does not scroll sideways, ${layout.pageWidth}px`);
+  } finally {
+    await page.close();
+  }
+});
+
+test('at phone width, a refused Save shows its reason under the attachments, within the screen (#120)', async () => {
+  const { page, app } = await newEntryAt(375);
+  try {
+    // The same long, unbreakable name, attached twice from one file.
+    const dir = await mkdtemp(join(tmpdir(), 'keepass-web-e2e-'));
+    const path = join(dir, 'RecoveryCodesForTheOldWorkAccountNobodyRemembers.txt');
+    await writeFile(path, 'codes');
+    const input = (await app.$('#edit-attachment-input')) as ElementHandle<HTMLInputElement>;
+    for (let count = 1; count <= 2; count++) {
+      await input.uploadFile(path);
+      await app.waitForFunction(
+        (n) => document.querySelectorAll('#edit-attachments .attachment-row').length === n,
+        {},
+        count,
+      );
+    }
+    await app.click('[data-action="save"]');
+    await app.waitForSelector('#edit-attachments-error:not([hidden])');
+
+    const layout = await app.evaluate(() => {
+      const errorEl = document.querySelector('#edit-attachments-error') as HTMLElement;
+      const error = errorEl.getBoundingClientRect();
+      const list = document.querySelector('#edit-attachments')?.getBoundingClientRect();
+      return {
+        errorLeft: error.left,
+        errorRight: error.right,
+        errorHeight: error.height,
+        textOverflow: errorEl.scrollWidth - errorEl.clientWidth,
+        gapBelowList: error.top - (list?.bottom ?? 0),
+        pageWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.ok(layout.errorHeight > 0, 'the reason is laid out, not just unhidden');
+    assert.ok(layout.errorLeft >= 0 && layout.errorRight <= 375, 'and fits across the screen');
+    assert.ok(layout.textOverflow <= 0, `the name wraps inside it, ${layout.textOverflow}px over`);
+    assert.ok(layout.gapBelowList >= 0 && layout.gapBelowList < 40, 'right under the attachments');
     assert.ok(layout.pageWidth <= 375, `the page does not scroll sideways, ${layout.pageWidth}px`);
   } finally {
     await page.close();
