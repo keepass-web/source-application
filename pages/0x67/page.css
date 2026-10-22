@@ -943,6 +943,22 @@ never be what makes the affordance discoverable, since touch has none. */
   background: var(--surface-2);
 }
 
+/* The copied value's row is ruled along its length as well as tinted, since a tint
+alone reads as hover, and a mark at one end can be scrolled out of view (#177). */
+.entry-table tbody tr.copied {
+  background: var(--accent-dim);
+}
+
+.entry-table tr.copied > td {
+  box-shadow:
+    inset 0 1px 0 var(--accent),
+    inset 0 -1px 0 var(--accent);
+}
+
+.entry-table tr.copied > td.copied {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .entry-table-title {
   font-weight: 500;
   color: var(--text);

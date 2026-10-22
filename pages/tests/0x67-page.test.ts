@@ -3794,6 +3794,146 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.equal(byId<HTMLElement>('toast').hidden, true);
 });
 
+test('the table marks the row and cell whose value is on the clipboard, for as long as it is (#177)', async (t) => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  appendChild(
+    rootGroup,
+    createEntry({ title: 'GitHub', username: 'octocat', password: 'hunter2' }),
+  );
+  appendChild(rootGroup, createEntry({ title: 'GitLab', username: 'tanuki', password: 'fox' }));
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('marks.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  dispatch(q('[data-action="view-table"]'), 'click');
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  clipboardWritesShouldFail = false;
+  // The writes happen inside an async handler; setImmediate is not mocked,
+  // so waiting on it lets every microtask settle before the next step.
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  const titleOf = (el: Element): string | null | undefined =>
+    el.closest('tr')?.querySelector('.entry-table-title .entry-cell-text')?.textContent;
+  const cellOf = (title: string, column: string): HTMLElement =>
+    Array.from(root().querySelectorAll('.entry-table tbody tr'))
+      .find((tr) => titleOf(tr) === title)
+      ?.querySelector(`td[data-column="${column}"]`) as HTMLElement;
+  // Each mark as its row's title, followed by the column for a marked cell.
+  const marks = (): string[] =>
+    Array.from(root().querySelectorAll<HTMLElement>('.entry-table .copied')).map((el) =>
+      [titleOf(el), el.dataset.column].filter(Boolean).join(' '),
+    );
+  const pickColumn = (label: string, shown: boolean): void => {
+    const checkbox = Array.from(
+      root().querySelectorAll<HTMLInputElement>('.column-picker-item input'),
+    ).find(
+      (input) => input.closest('.column-picker-item')?.textContent?.trim() === label,
+    ) as HTMLInputElement;
+    checkbox.checked = shown;
+    dispatch(checkbox, 'change');
+  };
+
+  assert.deepEqual(marks(), [], 'nothing of ours is on the clipboard yet');
+
+  // A click marks the value's cell and row, once the browser has taken the value.
+  dispatch(cellOf('GitHub', 'username'), 'click');
+  assert.deepEqual(marks(), [], 'not before');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub username']);
+
+  // A refused copy leaves the clipboard, and so the mark, as it was.
+  const realError = console.error;
+  console.error = () => {};
+  clipboardWritesShouldFail = true;
+  try {
+    dispatch(cellOf('GitLab', 'password'), 'click');
+    await settle();
+  } finally {
+    console.error = realError;
+    clipboardWritesShouldFail = false;
+  }
+  assert.deepEqual(marks(), ['GitHub', 'GitHub username']);
+
+  // The copy control marks the same way, and only the newest copy is marked.
+  dispatch(cellOf('GitLab', 'password').querySelector('.copy-hint') as HTMLElement, 'click');
+  await settle();
+  assert.equal(clipboardText, 'fox');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+
+  // The table is rebuilt on every change, and the mark follows the entry through it.
+  const search = q<HTMLInputElement>('#search-input');
+  search.value = 'GitHub';
+  dispatch(search, 'input');
+  assert.deepEqual(marks(), [], 'its row is filtered out');
+  search.value = '';
+  dispatch(search, 'input');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password'], 'and marked again once it is back');
+
+  // Hiding the copied column leaves the value on the clipboard, so its row stays marked.
+  dispatch(q('[data-action="toggle-columns"]'), 'click');
+  pickColumn('Password', false);
+  assert.deepEqual(marks(), ['GitLab']);
+  pickColumn('Password', true);
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+
+  // A copy from the card replaces the value, so nothing in the table is marked.
+  dispatch(
+    cellOf('GitHub', 'username')
+      .closest('tr')
+      ?.querySelector('.entry-table-open button') as Element,
+    'click',
+  );
+  Array.from(root().querySelectorAll('.detail-field'))
+    .find((row) => row.querySelector('.detail-label')?.textContent === 'UserName')
+    ?.querySelector<HTMLButtonElement>('[title="Copy"]')
+    ?.click();
+  await settle();
+  assert.equal(clipboardText, 'octocat');
+  dispatch(q('[data-action="back"]'), 'click');
+  assert.ok(q('.entry-table'), 'back at the table');
+  assert.deepEqual(marks(), []);
+
+  // A timed clear the browser refuses leaves the value, and the mark, in place...
+  dispatch(cellOf('GitHub', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+  clipboardWritesShouldFail = true;
+  t.mock.timers.tick(30_000);
+  await settle();
+  clipboardWritesShouldFail = false;
+  assert.equal(clipboardText, 'hunter2');
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+
+  // ...until the clear lands.
+  dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+  await settle();
+  assert.equal(clipboardText, '');
+  assert.deepEqual(marks(), []);
+
+  dispatch(q('[data-action="view-tile"]'), 'click');
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+});
+
 test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

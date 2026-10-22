@@ -2,7 +2,9 @@
  * from a document without focus, and by the time the timer runs out the user
  * has usually gone elsewhere to paste (#88). jsdom has no focus to refuse
  * with, so this drives a real one: copy, put another tab in front past the
- * timeout, then come back.
+ * timeout, then come back. The table marks the copied value's row and cell
+ * for exactly as long as the value is there (#177), so the same walk checks
+ * that the browser draws that mark and drops it with the value.
  *
  * Headless Chrome keeps a clipboard of its own rather than the machine's, so
  * granting it access here touches nothing outside the browser. */
@@ -57,6 +59,16 @@ const readClipboard = (target: Page | Frame): Promise<string> =>
 const countdown = (): Promise<string | null | undefined> =>
   app.$eval('#toast-countdown', (el) => el.textContent);
 
+/** The marked cell's text, provided the browser draws both its ring and its row's rules. */
+const copiedMark = (): Promise<string | null | undefined> =>
+  app.evaluate(() => {
+    const cell = document.querySelector('.entry-table tr.copied td.copied');
+    const rowCell = cell?.parentElement?.firstElementChild;
+    if (!cell || !rowCell) return null;
+    const drawn = [cell, rowCell].every((el) => getComputedStyle(el).boxShadow !== 'none');
+    return drawn ? cell.querySelector('.entry-cell-text')?.textContent : 'marked, but not drawn';
+  });
+
 test('a clear refused while the user is away goes through when they return', async () => {
   await app.click('[data-action="settings"]');
   const delayInput = (await app.waitForSelector(
@@ -76,6 +88,7 @@ test('a clear refused while the user is away goes through when they return', asy
   await app.waitForFunction(() => document.getElementById('toast')?.hidden === false);
   assert.equal(await readClipboard(app), 'octocat');
   assert.match((await countdown()) ?? '', /^clears in [1-5]s$/, 'it counts down to the clear');
+  assert.equal(await copiedMark(), 'octocat', 'the copied cell and its row are marked');
 
   // Somewhere else is now in front, so this document has lost focus.
   const otherTab = await browser.newPage();
@@ -88,6 +101,7 @@ test('a clear refused while the user is away goes through when they return', asy
     { polling: POLL_MS, timeout: (DELAY_SECONDS + 20) * 1000 },
   );
   assert.equal(await readClipboard(otherTab), 'octocat', 'the browser refused the clear');
+  assert.equal(await copiedMark(), 'octocat', 'so the mark is still waiting for the user');
 
   await page.bringToFront();
   await otherTab.close();
@@ -95,4 +109,5 @@ test('a clear refused while the user is away goes through when they return', asy
     polling: POLL_MS,
   });
   assert.equal(await readClipboard(app), '', 'and allowed it once the user was back');
+  assert.equal(await copiedMark(), null, 'taking the mark with it');
 });

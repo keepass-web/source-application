@@ -226,6 +226,7 @@ function clearClipboard(): void {
     () => {
       armClearRetry(false);
       byId('toast').hidden = true;
+      markCopied(null);
     },
     () => {
       const countdown = byId('toast-countdown');
@@ -242,13 +243,14 @@ function clearClipboardNow(): void {
   clearClipboard();
 }
 
-function copyToClipboard(text: string, label = 'Value'): void {
+function copyToClipboard(text: string, label = 'Value', source: TableCell | null = null): void {
   writeClipboard(
     text,
     () => {
       clearTimeout(clipboardTimer);
       armClearRetry(false); // the new value restarts the clock
       showClipboardToast(label);
+      markCopied(source);
       clipboardDeadline = Date.now() + app.clipboardTimeout * 1000;
       tickClipboard();
     },
@@ -845,22 +847,47 @@ function openEntry(entry: XmlElement): void {
   showEntryDetail();
 }
 
+type TableCell = { entry: XmlElement; column: string };
+
+/* The row and cell whose value is on the clipboard stay marked until it clears, so
+coming back from pasting it elsewhere shows which entry to copy the next value from (#177). */
+let copiedCell: TableCell | null = null;
+// Weak, so rows holding a locked or closed database's values can be collected with it (#177).
+let tableRows = new WeakMap<XmlElement, HTMLTableRowElement>();
+
+function markCopied(cell: TableCell | null): void {
+  copiedCell = cell;
+  for (const marked of document.querySelectorAll('.entry-table .copied')) {
+    marked.classList.remove('copied');
+  }
+  if (!cell) return;
+  const row = tableRows.get(cell.entry);
+  if (!row) return; // not among the rows shown
+  row.classList.add('copied');
+  row.querySelector(`td[data-column="${cell.column}"]`)?.classList.add('copied');
+}
+
 /* A click copies (#67); opening the card is the row's own button instead. The
 browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
-function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
+function wireCellCopy(
+  cell: HTMLTableCellElement,
+  value: string,
+  label: string,
+  source: TableCell,
+): void {
   cell.addEventListener('click', (event) => {
     // Anywhere but the cell's own buttons, which run their own handlers (#76, #86).
     if ((event.target as Element).closest('.copy-hint, .open-hint')) return;
-    if (value) copyToClipboard(value, label);
+    if (value) copyToClipboard(value, label, source);
   });
 }
 
 /* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
 and focusable so copying is reachable without a pointer at all. */
-function copyHint(value: string, label: string): HTMLButtonElement {
+function copyHint(value: string, label: string, source: TableCell): HTMLButtonElement {
   return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, 'copy', () => {
-    copyToClipboard(value, label);
+    copyToClipboard(value, label, source);
   });
 }
 
@@ -876,22 +903,24 @@ function openUrlButton(className: string, href: string): HTMLButtonElement {
 value is, and a long one can never push it out of the cell (#76, #87). The text
 ellipsizes in its own box, so an open control after it stays in sight too. */
 function buildEntryCell(
+  source: TableCell,
   display: string,
   value: string,
   label: string,
   action?: HTMLButtonElement,
 ): HTMLTableCellElement {
   const td = document.createElement('td');
+  td.dataset.column = source.column;
   const inner = document.createElement('div');
   inner.className = 'entry-cell';
-  if (value) inner.appendChild(copyHint(value, label));
+  if (value) inner.appendChild(copyHint(value, label, source));
   const text = document.createElement('span');
   text.className = 'entry-cell-text';
   text.textContent = display;
   inner.appendChild(text);
   if (action) inner.appendChild(action);
   td.appendChild(inner);
-  wireCellCopy(td, value, label);
+  wireCellCopy(td, value, label, source);
   return td;
 }
 
@@ -1006,8 +1035,10 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
+  tableRows = new WeakMap();
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
+    tableRows.set(entry, tr);
 
     // The icon is the entry's, not the title's, so it keeps out of the copied text's cell (#87).
     const iconTd = document.createElement('td');
@@ -1015,7 +1046,8 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     iconTd.appendChild(icon(iconName(elementIconId(entry))));
     tr.appendChild(iconTd);
 
-    const titleTd = buildEntryCell(entryTitle(entry), entryTitle(entry), 'Title');
+    const title = entryTitle(entry);
+    const titleTd = buildEntryCell({ entry, column: 'title' }, title, title, 'Title');
     titleTd.className = 'entry-table-title';
     tr.appendChild(titleTd);
 
@@ -1023,6 +1055,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
       const value = entryColumnValue(entry, column.key);
       const href = column.key === 'url' ? openableUrl(value) : null;
       const td = buildEntryCell(
+        { entry, column: column.key },
         entryColumnDisplayValue(entry, column.key),
         value,
         column.label,
@@ -1041,6 +1074,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
+  markCopied(copiedCell); // onto the rebuilt row
 
   return table;
 }
