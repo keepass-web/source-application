@@ -709,6 +709,7 @@ function deleteGroupAction(group: XmlElement): void {
       () => {
         const parent = findGroupParent(rootGroup, group);
         if (parent) deletePermanently(db.root, group, parent);
+        forgetCopiedIfDeleted();
         resetSelectionIfAffected(rootGroup, group);
         setDirty(true);
         renderGroupTree();
@@ -866,6 +867,14 @@ function markCopied(cell: TableCell | null): void {
   if (!row) return; // not among the rows shown
   row.classList.add('copied');
   row.querySelector(`td[data-column="${cell.column}"]`)?.classList.add('copied');
+}
+
+// An entry deleted for good, here or by a merge, must not live on in the mark (#177).
+function forgetCopiedIfDeleted(): void {
+  const copied = copiedCell;
+  if (!copied) return;
+  const rootGroup = must(app.db).getRootGroup();
+  if (!collectAllEntries(rootGroup).some(({ entry }) => entry === copied.entry)) markCopied(null);
 }
 
 /* A click copies (#67); opening the card is the row's own button instead. The
@@ -1442,6 +1451,7 @@ function showEntryDetail(): void {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         deletePermanently(db.root, entry, parent);
+        forgetCopiedIfDeleted();
         setDirty(true);
       }
       app.currentEntry = null;
@@ -2063,6 +2073,7 @@ async function runMerge(session: ExpiredSession, dlg: HTMLDialogElement): Promis
     return;
   }
   app.baseVersion = latest.version;
+  forgetCopiedIfDeleted();
   setDirty(true);
   dlg.close();
   // What was on screen may have changed or gone, so the merged database is shown from the top.

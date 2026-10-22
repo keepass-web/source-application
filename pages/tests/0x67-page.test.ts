@@ -3948,11 +3948,49 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   assert.equal(clipboardText, '', 'and let it through at the next click');
 
   await unlock();
+
+  // Trashing keeps the entry, so its mark goes along into the bin.
+  const openCard = (title: string): void => {
+    dispatch(
+      cellOf(title, 'title').closest('tr')?.querySelector('.entry-table-open button') as Element,
+      'click',
+    );
+  };
+  const deleteFromCard = (title: string): void => {
+    openCard(title);
+    dispatch(q('[data-action="delete"]'), 'click');
+    dispatch(dq('#dlg-confirm-delete [data-action="confirm-delete"]'), 'click');
+  };
+  dispatch(cellOf('GitLab', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+  openCard('GitLab');
+  dispatch(q('[data-action="trash"]'), 'click');
+  assert.deepEqual(marks(), [], 'its row has left this group');
+  openCard('GitHub');
+  dispatch(q('[data-action="trash"]'), 'click');
+  dispatch(
+    Array.from(q('#group-tree').querySelectorAll('.group-btn')).find((button) =>
+      button.textContent?.endsWith('Recycle Bin'),
+    ) as Element,
+    'click',
+  );
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password'], 'and is marked again in the bin');
+
+  // Deleting another entry for good leaves the mark be; deleting its own lets the entry go.
+  deleteFromCard('GitHub');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+  deleteFromCard('GitLab');
+  assert.deepEqual(marks(), []);
+  assert.equal(clipboardText, 'fox', 'though the value waits for its own clear');
+
   dispatch(q('[data-action="view-tile"]'), 'click');
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),
   );
+  await settle();
+  assert.equal(clipboardText, '', 'closing clears it');
 });
 
 test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
