@@ -58,10 +58,11 @@ function a2_bytesToBlock(bytes: Uint8Array, out: Uint32Array): void {
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
     const i = 4 * k;
     out[k] =
-      (bytes[i] as number) |
-      ((bytes[i + 1] as number) << 8) |
-      ((bytes[i + 2] as number) << 16) |
-      ((bytes[i + 3] as number) << 24);
+      ((bytes[i] as number) |
+        ((bytes[i + 1] as number) << 8) |
+        ((bytes[i + 2] as number) << 16) |
+        ((bytes[i + 3] as number) << 24)) >>>
+      0;
   }
 }
 
@@ -130,28 +131,29 @@ function a2_blamka(v: Uint32Array, x: number, y: number): void {
   const yLo = v[y] as number;
   const productLo = Math.imul(xLo, yLo) >>> 0;
   const lo = xLo + yLo + ((productLo << 1) >>> 0);
-  v[x] = lo;
+  v[x] = lo >>> 0;
   v[x + 1] =
-    (v[x + 1] as number) +
-    (v[y + 1] as number) +
-    (a2_mulHi(xLo, yLo) << 1) +
-    (productLo >>> 31) +
-    Math.floor(lo / 0x100000000);
+    ((v[x + 1] as number) +
+      (v[y + 1] as number) +
+      ((a2_mulHi(xLo, yLo) << 1) >>> 0) +
+      (productLo >>> 31) +
+      Math.floor(lo / 0x100000000)) >>>
+    0;
 }
 
 // Word x = rotr64(word x ^ word y, n).
 function a2_xorRotr(v: Uint32Array, x: number, y: number, n: number): void {
-  const lo = (v[x] as number) ^ (v[y] as number);
-  const hi = (v[x + 1] as number) ^ (v[y + 1] as number);
+  const lo = ((v[x] as number) ^ (v[y] as number)) >>> 0;
+  const hi = ((v[x + 1] as number) ^ (v[y + 1] as number)) >>> 0;
   if (n === 32) {
     v[x] = hi;
     v[x + 1] = lo;
   } else if (n < 32) {
-    v[x] = (lo >>> n) | (hi << (32 - n));
-    v[x + 1] = (hi >>> n) | (lo << (32 - n));
+    v[x] = ((lo >>> n) | (hi << (32 - n))) >>> 0;
+    v[x + 1] = ((hi >>> n) | (lo << (32 - n))) >>> 0;
   } else {
-    v[x] = (hi >>> (n - 32)) | (lo << (64 - n));
-    v[x + 1] = (lo >>> (n - 32)) | (hi << (64 - n));
+    v[x] = ((hi >>> (n - 32)) | (lo << (64 - n))) >>> 0;
+    v[x + 1] = ((lo >>> (n - 32)) | (hi << (64 - n))) >>> 0;
   }
 }
 
@@ -192,9 +194,9 @@ function a2_fillBlock(
   withXor: boolean,
 ): void {
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-    const r = (ref[k] as number) ^ (prev[k] as number);
+    const r = ((ref[k] as number) ^ (prev[k] as number)) >>> 0;
     A2_R[k] = r;
-    A2_TMP[k] = withXor ? r ^ (next[k] as number) : r;
+    A2_TMP[k] = withXor ? (r ^ (next[k] as number)) >>> 0 : r;
   }
   for (let i = 0; i < 8; i++) {
     a2_permute(A2_R, A2_ROWS[i] as number[]);
@@ -203,7 +205,7 @@ function a2_fillBlock(
     a2_permute(A2_R, A2_COLS[i] as number[]);
   }
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-    next[k] = (A2_TMP[k] as number) ^ (A2_R[k] as number);
+    next[k] = ((A2_TMP[k] as number) ^ (A2_R[k] as number)) >>> 0;
   }
 }
 
@@ -376,7 +378,7 @@ export function argon2Core(params: CoreParams): Uint8Array {
   for (let lane = 0; lane < lanes; lane++) {
     const last = block(lane, columns - 1);
     for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-      c[k] = (c[k] as number) ^ (last[k] as number);
+      c[k] = ((c[k] as number) ^ (last[k] as number)) >>> 0;
     }
   }
 
