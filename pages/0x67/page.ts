@@ -245,14 +245,19 @@ function clearClipboardNow(): void {
   clearClipboard();
 }
 
-function copyToClipboard(text: string, label = 'Value', source: TableCell | null = null): void {
+function copyToClipboard(
+  text: string,
+  label = 'Value',
+  source: TableCell | null = null,
+  control: Element | null = null,
+): void {
   writeClipboard(
     text,
     () => {
       clearTimeout(clipboardTimer);
       armClearRetry(false); // the new value restarts the clock
       showClipboardToast(label);
-      markCopied(source);
+      markCopied(source, control);
       clipboardDeadline = Date.now() + app.clipboardTimeout * 1000;
       tickClipboard();
     },
@@ -860,17 +865,25 @@ let copiedCell: TableCell | null = null;
 neither the table nor a locked or closed database (#177). */
 let tableRows = new WeakMap<XmlElement, HTMLTableRowElement>();
 
-// The marked cell's copy control shows a check in its place, so the mark is more than a tint (#177).
+// A copy control whose value is on the clipboard shows a check in place of its icon (#177).
+function markControl(control: Element | null, copied: boolean): void {
+  if (!control) return;
+  control.classList.toggle('copied', copied);
+  control.replaceChildren(icon(copied ? 'checked' : 'copy'));
+}
+
 function markCell(td: Element | null, copied: boolean): void {
   if (!td) return;
   td.classList.toggle('copied', copied);
-  td.querySelector('.copy-hint')?.replaceChildren(icon(copied ? 'checked' : 'copy'));
+  markControl(td.querySelector('.copy-hint'), copied);
 }
 
-function markCopied(cell: TableCell | null): void {
+function markCopied(cell: TableCell | null, control: Element | null = null): void {
   copiedCell = cell;
   document.querySelector('.entry-table tr.copied')?.classList.remove('copied');
   markCell(document.querySelector('.entry-table td.copied'), false);
+  markControl(document.querySelector('button.copied'), false);
+  markControl(control, true);
   if (!cell) return;
   const row = tableRows.get(cell.entry);
   if (!row) return; // not among the rows shown
@@ -1501,7 +1514,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
 
   // Leads the value, as copy does everywhere, so it is plainly that value's (#87).
   const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
-    copyToClipboard(value, fieldLabel(key));
+    copyToClipboard(value, fieldLabel(key), null, copyBtn);
   });
 
   valueWrap.appendChild(copyBtn);
@@ -1784,7 +1797,7 @@ function buildEditField(
   const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
+    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value', null, copyBtn);
   });
   keepFieldFocus(copyBtn);
   lead.appendChild(copyBtn);

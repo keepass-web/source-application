@@ -3843,10 +3843,11 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   // Each mark as its row's title, followed by the column for a marked cell. A marked cell
   // shows a check for its copy icon and no other cell does, so either slip shows up here too.
   const marks = (): string[] => [
-    ...Array.from(root().querySelectorAll<HTMLElement>('.entry-table .copied')).map((el) =>
-      [titleOf(el), el.dataset.column, el.dataset.column && !checked(el) && 'without its check']
-        .filter(Boolean)
-        .join(' '),
+    ...Array.from(root().querySelectorAll<HTMLElement>('.entry-table :is(tr, td).copied')).map(
+      (el) =>
+        [titleOf(el), el.dataset.column, el.dataset.column && !checked(el) && 'without its check']
+          .filter(Boolean)
+          .join(' '),
     ),
     ...Array.from(root().querySelectorAll('.entry-table td:not(.copied)'))
       .filter((td) => td.querySelector('.copy-hint') && checked(td))
@@ -3905,19 +3906,42 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   pickColumn('Password', true);
   assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
 
-  // A copy from the card replaces the value, so nothing in the table is marked.
+  // A copy from the card replaces the value, so nothing in the table is marked; the
+  // card's own control shows the check instead, for the newest copy only.
   dispatch(
     cellOf('GitHub', 'username')
       .closest('tr')
       ?.querySelector('.entry-table-open button') as Element,
     'click',
   );
-  Array.from(root().querySelectorAll('.detail-field'))
-    .find((row) => row.querySelector('.detail-label')?.textContent === 'UserName')
-    ?.querySelector<HTMLButtonElement>('[title="Copy"]')
-    ?.click();
+  const cardCopy = (key: string): HTMLButtonElement =>
+    Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === key)
+      ?.querySelector<HTMLButtonElement>('[title="Copy"]') as HTMLButtonElement;
+  const cardChecks = (): string[] =>
+    ['UserName', 'Password'].filter((key) => iconOf(cardCopy(key)) === '#icon-checked');
+  assert.deepEqual(cardChecks(), []);
+  cardCopy('UserName').click();
   await settle();
   assert.equal(clipboardText, 'octocat');
+  assert.deepEqual(cardChecks(), ['UserName']);
+  cardCopy('Password').click();
+  await settle();
+  assert.deepEqual(cardChecks(), ['Password']);
+
+  // The edit screen's controls show it the same way, until the clipboard clears.
+  dispatch(q('[data-action="edit"]'), 'click');
+  const editCopy = Array.from(root().querySelectorAll('.edit-field'))
+    .find((row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'UserName')
+    ?.querySelector<HTMLButtonElement>('[title="Copy"]') as HTMLButtonElement;
+  editCopy.click();
+  await settle();
+  assert.equal(iconOf(editCopy), '#icon-checked');
+  t.mock.timers.tick(30_000);
+  await settle();
+  assert.equal(clipboardText, '');
+  assert.equal(iconOf(editCopy), '#icon-copy');
+  dispatch(q('[data-action="cancel"]'), 'click');
   dispatch(q('[data-action="back"]'), 'click');
   assert.ok(q('.entry-table'), 'back at the table');
   assert.deepEqual(marks(), []);

@@ -242,6 +242,13 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
   color: var(--accent);
 }
 
+/* A copy control's check, while its value is on the clipboard, at full strength (#177). */
+.icon-btn.copied,
+.copy-hint.copied {
+  color: var(--accent);
+  opacity: 1;
+}
+
 .back-link {
   background: none;
   border: none;
@@ -954,11 +961,6 @@ heavier weight and a check for a copy control, so the mark never rests on color 
 .entry-table td.copied {
   background: var(--copied-cell);
   font-weight: 600;
-}
-
-.entry-table td.copied .copy-hint {
-  color: var(--accent);
-  opacity: 1;
 }
 
 .entry-table-title {
