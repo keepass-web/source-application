@@ -383,5 +383,11 @@ export function argon2Core(params: CoreParams): Uint8Array {
   }
 
   // Step 8: tag = H'^T(C).
-  return a2_hPrime(tagLength, a2_blockToBytes(c));
+  const tag = a2_hPrime(tagLength, a2_blockToBytes(c));
+
+  // Key-dependent state is cleared here rather than left for the garbage collector (#145).
+  store.fill(0);
+  A2_R.fill(0);
+  A2_TMP.fill(0);
+  return tag;
 }
