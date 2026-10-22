@@ -93,13 +93,14 @@ export interface KdbxCreateOptions {
   aesKdfRounds?: bigint;
 }
 
+// KeePassXC's starting points, so a database made here is no cheaper to attack (#145).
 const KX_DEFAULT_ARGON2 = {
-  memoryBytes: 16n * 1024n * 1024n,
-  iterations: 3n,
-  parallelism: 1,
+  memoryBytes: 64n * 1024n * 1024n,
+  iterations: 10n,
+  parallelism: 4,
   version: Argon2Version.V13,
 } as const;
-const KX_DEFAULT_AES_KDF_ROUNDS = 60000n;
+const KX_DEFAULT_AES_KDF_ROUNDS = 1_000_000n;
 
 function kx_bytes(value: Uint8Array): VdValue {
   return { type: 'bytes', value };

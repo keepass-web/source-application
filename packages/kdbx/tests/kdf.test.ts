@@ -83,11 +83,23 @@ test('Argon2 rejects a parallelism above the sanity ceiling', async () => {
   );
 });
 
-test('Argon2 rejects an iteration count above the sanity ceiling', async () => {
+test('Argon2 runs more than 64 passes when the memory cost is small', async () => {
+  // KeePass and KeePassXC size passes to a target unlock time, so a database
+  // with little memory can carry hundreds of them (#145).
   const params = argon2Params([[KdfParam.Argon2Iterations, { type: 'uint64', value: 65n }]]);
+  const key = await transformWithKdfParameters(new Uint8Array(32), params);
+  assert.equal(key.length, 32);
+});
+
+test('Argon2 rejects passes above the sanity ceiling for its memory cost', async () => {
+  // 65 passes over the full 2 GiB, rejected before any allocation is attempted.
+  const params = argon2Params([
+    [KdfParam.Argon2Memory, { type: 'uint64', value: 2n * 1024n * 1024n * 1024n }],
+    [KdfParam.Argon2Iterations, { type: 'uint64', value: 65n }],
+  ]);
   await assert.rejects(
     () => transformWithKdfParameters(new Uint8Array(32), params),
-    /iterations.*exceeds the maximum/,
+    /iterations \(65\) exceeds the maximum this app will run at 2097152 KiB \(64\)/,
   );
 });
 

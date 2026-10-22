@@ -34,6 +34,33 @@ test('aesKdfTransform matches an independent single-block reference', async () =
   }
 });
 
+/** Reference AES-KDF in one CBC call over all `rounds` zero blocks: memory
+grows with rounds, but it is cheap enough to check the chunked version at
+round counts that span several of its 65,536-round chunks. */
+async function oneShotAesKdf(
+  key: Uint8Array,
+  seed: Uint8Array,
+  rounds: number,
+): Promise<Uint8Array> {
+  const transform = async (iv: Uint8Array): Promise<Uint8Array> =>
+    (await aesCbcEncrypt(seed, iv, new Uint8Array(16 * rounds))).slice(
+      16 * (rounds - 1),
+      16 * rounds,
+    );
+  return sha256(concatBytes(await transform(key.slice(0, 16)), await transform(key.slice(16, 32))));
+}
+
+test('aesKdfTransform matches a single CBC pass across chunk boundaries', async () => {
+  const key = new Uint8Array(32).map((_, i) => (i * 13 + 5) & 0xff);
+  const seed = new Uint8Array(32).map((_, i) => (i * 3 + 9) & 0xff);
+  // An exact multiple of the chunk size, and three full chunks plus a remainder.
+  for (const rounds of [131_072, 200_003]) {
+    const actual = await aesKdfTransform(key, seed, BigInt(rounds));
+    const expected = await oneShotAesKdf(key, seed, rounds);
+    assert.equal(toHex(actual), toHex(expected), `rounds=${rounds}`);
+  }
+});
+
 test('aesKdfTransform is deterministic and depends on rounds', async () => {
   const key = new Uint8Array(32).fill(1);
   const seed = new Uint8Array(32).fill(2);
@@ -62,7 +89,7 @@ test('aesKdfTransform rejects a rounds count above the sanity ceiling without at
   const key = new Uint8Array(32);
   const seed = new Uint8Array(32);
   await assert.rejects(
-    () => aesKdfTransform(key, seed, 100_000_001n),
+    () => aesKdfTransform(key, seed, 1_000_000_001n),
     /rounds.*exceed the maximum/,
   );
 });
