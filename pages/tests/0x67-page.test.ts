@@ -3811,17 +3811,20 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   appendChild(rootGroup, createEntry({ title: 'GitLab', username: 'tanuki', password: 'fox' }));
   const bytes = await kdbx.save();
 
+  const unlock = async (): Promise<void> => {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  };
   const fileInput = q<HTMLInputElement>('#file-input');
   setFiles(fileInput, [makeFile('marks.kdbx', bytes)]);
   dispatch(fileInput, 'change');
   await waitFor(() => q('#master-password') !== null);
-  q<HTMLInputElement>('#master-password').value = PASSWORD;
-  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
-  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
-  dispatch(keyfileInput, 'change');
-  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
-  dispatch(q('#unlock-form'), 'submit');
-  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  await unlock();
   dispatch(q('[data-action="view-table"]'), 'click');
 
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
@@ -3927,6 +3930,24 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   assert.equal(clipboardText, '');
   assert.deepEqual(marks(), []);
 
+  // A lock drops the mark at once rather than with a clear the browser may refuse,
+  // so the mark never keeps a locked database's entry alive.
+  dispatch(cellOf('GitHub', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+  clipboardWritesShouldFail = true;
+  dispatch(q('[data-action="lock"]'), 'click');
+  assert.ok(q('.entry-table'), 'the table is still up while the lock re-encrypts');
+  assert.deepEqual(marks(), [], 'yet nothing in it is marked');
+  t.mock.timers.reset(); // waitFor runs on real timers
+  await waitFor(() => q('#master-password') !== null);
+  clipboardWritesShouldFail = false;
+  assert.equal(clipboardText, 'hunter2', 'the browser refused the clear');
+  dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+  await settle();
+  assert.equal(clipboardText, '', 'and let it through at the next click');
+
+  await unlock();
   dispatch(q('[data-action="view-tile"]'), 'click');
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(

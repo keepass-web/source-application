@@ -240,6 +240,7 @@ function clearClipboard(): void {
 function clearClipboardNow(): void {
   if (byId('toast').hidden) return; // nothing of ours is on the clipboard
   clearTimeout(clipboardTimer);
+  markCopied(null); // its entry must not outlast the database while a refused clear waits (#177)
   clearClipboard();
 }
 
