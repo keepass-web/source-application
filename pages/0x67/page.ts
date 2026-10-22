@@ -257,7 +257,8 @@ function copyToClipboard(
       clearTimeout(clipboardTimer);
       armClearRetry(false); // the new value restarts the clock
       showClipboardToast(label);
-      markCopied(source, control);
+      // A copy landing after its entry has gone, as through a lock, marks nothing (#177).
+      markCopied(source && inOpenDatabase(source.entry) ? source : null, control);
       clipboardDeadline = Date.now() + app.clipboardTimeout * 1000;
       tickClipboard();
     },
@@ -715,7 +716,7 @@ function deleteGroupAction(group: XmlElement): void {
       () => {
         const parent = findGroupParent(rootGroup, group);
         if (parent) deletePermanently(db.root, group, parent);
-        forgetCopiedIfDeleted();
+        forgetCopiedIfGone();
         resetSelectionIfAffected(rootGroup, group);
         setDirty(true);
         renderGroupTree();
@@ -891,12 +892,14 @@ function markCopied(cell: TableCell | null, control: Element | null = null): voi
   markCell(row.querySelector(`td[data-column="${cell.column}"]`), true);
 }
 
-// An entry deleted for good, here or by a merge, must not live on in the mark (#177).
-function forgetCopiedIfDeleted(): void {
-  const copied = copiedCell;
-  if (!copied) return;
-  const rootGroup = must(app.db).getRootGroup();
-  if (!collectAllEntries(rootGroup).some(({ entry }) => entry === copied.entry)) markCopied(null);
+function inOpenDatabase(entry: XmlElement): boolean {
+  if (app.db === null) return false;
+  return collectAllEntries(app.db.getRootGroup()).some((found) => found.entry === entry);
+}
+
+// An entry deleted for good, merged away, locked or closed must not live on in the mark (#177).
+function forgetCopiedIfGone(): void {
+  if (copiedCell && !inOpenDatabase(copiedCell.entry)) markCopied(null);
 }
 
 /* A click copies (#67); opening the card is the row's own button instead. The
@@ -1201,6 +1204,7 @@ async function lockDatabase(): Promise<void> {
     const bytes = await must(app.db).save();
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    forgetCopiedIfGone(); // one a copy marked while the lock re-encrypted
     showUnlock(true);
     curtain().close(); // only now, so the re-encrypting page never shows through (#84)
   } finally {
@@ -1472,7 +1476,7 @@ function showEntryDetail(): void {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         deletePermanently(db.root, entry, parent);
-        forgetCopiedIfDeleted();
+        forgetCopiedIfGone();
         setDirty(true);
       }
       app.currentEntry = null;
@@ -2094,7 +2098,7 @@ async function runMerge(session: ExpiredSession, dlg: HTMLDialogElement): Promis
     return;
   }
   app.baseVersion = latest.version;
-  forgetCopiedIfDeleted();
+  forgetCopiedIfGone();
   setDirty(true);
   dlg.close();
   // What was on screen may have changed or gone, so the merged database is shown from the top.

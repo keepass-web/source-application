@@ -3982,6 +3982,36 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
 
   await unlock();
 
+  /* A copy still in flight when the lock starts leaves no mark on the locked entry, whether
+  it lands while the lock re-encrypts (settled at once, before the save can finish) or after
+  the lock is done. Nothing on screen differs either way, so this only walks those paths. */
+  const held: HeldWrite[] = [];
+  heldWrites = held;
+  try {
+    dispatch(cellOf('GitHub', 'username'), 'click');
+    await settle();
+    dispatch(q('[data-action="lock"]'), 'click');
+    held[0]?.settle(true);
+    await waitFor(() => q('#master-password') !== null);
+    assert.equal(clipboardText, 'octocat');
+    await unlock();
+    assert.deepEqual(marks(), []);
+
+    dispatch(cellOf('GitLab', 'password'), 'click');
+    await settle();
+    dispatch(q('[data-action="lock"]'), 'click');
+    await waitFor(() => q('#master-password') !== null);
+    held[1]?.settle(true);
+    await settle();
+    held[2]?.settle(true); // the lock's own clear, which waited its turn behind the copy
+    await settle();
+  } finally {
+    heldWrites = null;
+  }
+  assert.equal(clipboardText, '');
+  await unlock();
+  assert.deepEqual(marks(), []);
+
   // Trashing keeps the entry, so its mark goes along into the bin.
   const openCard = (title: string): void => {
     dispatch(

@@ -960,6 +960,7 @@ heavier weight and a check for a copy control, so the mark never rests on color 
 
 .entry-table td.copied {
   background: var(--copied-cell);
+  color: var(--text);
   font-weight: 600;
 }
 
