@@ -3838,11 +3838,20 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
     Array.from(root().querySelectorAll('.entry-table tbody tr'))
       .find((tr) => titleOf(tr) === title)
       ?.querySelector(`td[data-column="${column}"]`) as HTMLElement;
-  // Each mark as its row's title, followed by the column for a marked cell.
-  const marks = (): string[] =>
-    Array.from(root().querySelectorAll<HTMLElement>('.entry-table .copied')).map((el) =>
-      [titleOf(el), el.dataset.column].filter(Boolean).join(' '),
-    );
+  const checked = (td: Element): boolean =>
+    iconOf(td.querySelector('.copy-hint') as Element) === '#icon-checked';
+  // Each mark as its row's title, followed by the column for a marked cell. A marked cell
+  // shows a check for its copy icon and no other cell does, so either slip shows up here too.
+  const marks = (): string[] => [
+    ...Array.from(root().querySelectorAll<HTMLElement>('.entry-table .copied')).map((el) =>
+      [titleOf(el), el.dataset.column, el.dataset.column && !checked(el) && 'without its check']
+        .filter(Boolean)
+        .join(' '),
+    ),
+    ...Array.from(root().querySelectorAll('.entry-table td:not(.copied)'))
+      .filter((td) => td.querySelector('.copy-hint') && checked(td))
+      .map((td) => `${titleOf(td)} checked but not marked`),
+  ];
   const pickColumn = (label: string, shown: boolean): void => {
     const checkbox = Array.from(
       root().querySelectorAll<HTMLInputElement>('.column-picker-item input'),

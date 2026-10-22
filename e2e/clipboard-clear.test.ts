@@ -59,13 +59,24 @@ const readClipboard = (target: Page | Frame): Promise<string> =>
 const countdown = (): Promise<string | null | undefined> =>
   app.$eval('#toast-countdown', (el) => el.textContent);
 
-/** The marked cell's text, provided the browser draws both its ring and its row's rules. */
+/** The marked cell's text, provided the browser paints its tint, its row's, and its check. */
 const copiedMark = (): Promise<string | null | undefined> =>
   app.evaluate(() => {
     const cell = document.querySelector('.entry-table tr.copied td.copied');
-    const rowCell = cell?.parentElement?.firstElementChild;
-    if (!cell || !rowCell) return null;
-    const drawn = [cell, rowCell].every((el) => getComputedStyle(el).boxShadow !== 'none');
+    const row = cell?.parentElement;
+    if (!cell || !row) return null;
+    // What a color resolves to on this page, in the form a computed background takes.
+    const resolved = (color: string): string => {
+      const probe = document.body.appendChild(document.createElement('div'));
+      probe.style.background = color;
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    };
+    const drawn =
+      getComputedStyle(row).backgroundColor === resolved('var(--copied-row)') &&
+      getComputedStyle(cell).backgroundColor === resolved('var(--copied-cell)') &&
+      cell.querySelector('.copy-hint use')?.getAttribute('href') === '#icon-checked';
     return drawn ? cell.querySelector('.entry-cell-text')?.textContent : 'marked, but not drawn';
   });
 

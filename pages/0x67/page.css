@@ -29,6 +29,8 @@
   --muted: #5a6a62;
   --accent: #0e7c5a;
   --accent-dim: #eaf1ee;
+  --copied-row: #d8eae5;
+  --copied-cell: #b2d5ca;
   --danger: #9a2b2b;
   --danger-dim: #f2dada;
   --danger-border: #e6c2c2;
@@ -943,20 +945,20 @@ never be what makes the affordance discoverable, since touch has none. */
   background: var(--surface-2);
 }
 
-/* The copied value's row is ruled along its length as well as tinted, since a tint
-alone reads as hover, and a mark at one end can be scrolled out of view (#177). */
+/* The copied value's row is tinted well past hover and its cell deeper still, with a
+heavier weight and a check for a copy control, so the mark never rests on color alone (#177). */
 .entry-table tbody tr.copied {
-  background: var(--accent-dim);
+  background: var(--copied-row);
 }
 
-.entry-table tr.copied > td {
-  box-shadow:
-    inset 0 1px 0 var(--accent),
-    inset 0 -1px 0 var(--accent);
+.entry-table td.copied {
+  background: var(--copied-cell);
+  font-weight: 600;
 }
 
-.entry-table tr.copied > td.copied {
-  box-shadow: inset 0 0 0 2px var(--accent);
+.entry-table td.copied .copy-hint {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .entry-table-title {

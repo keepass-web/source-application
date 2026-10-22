@@ -860,16 +860,22 @@ let copiedCell: TableCell | null = null;
 neither the table nor a locked or closed database (#177). */
 let tableRows = new WeakMap<XmlElement, HTMLTableRowElement>();
 
+// The marked cell's copy control shows a check in its place, so the mark is more than a tint (#177).
+function markCell(td: Element | null, copied: boolean): void {
+  if (!td) return;
+  td.classList.toggle('copied', copied);
+  td.querySelector('.copy-hint')?.replaceChildren(icon(copied ? 'checked' : 'copy'));
+}
+
 function markCopied(cell: TableCell | null): void {
   copiedCell = cell;
-  for (const marked of document.querySelectorAll('.entry-table .copied')) {
-    marked.classList.remove('copied');
-  }
+  document.querySelector('.entry-table tr.copied')?.classList.remove('copied');
+  markCell(document.querySelector('.entry-table td.copied'), false);
   if (!cell) return;
   const row = tableRows.get(cell.entry);
   if (!row) return; // not among the rows shown
   row.classList.add('copied');
-  row.querySelector(`td[data-column="${cell.column}"]`)?.classList.add('copied');
+  markCell(row.querySelector(`td[data-column="${cell.column}"]`), true);
 }
 
 // An entry deleted for good, here or by a merge, must not live on in the mark (#177).
