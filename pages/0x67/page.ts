@@ -99,6 +99,7 @@ function cloneTemplate(id: string): DocumentFragment {
 function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
+  tableRows = new WeakMap();
   root.appendChild(fragment);
 }
 
@@ -739,6 +740,7 @@ function renderEntryPanel(): void {
   const panelTitle = qs('#panel-title');
   const listEl = qs('#entry-list');
   listEl.innerHTML = '';
+  tableRows = new WeakMap();
   listEl.classList.toggle('entry-list--tile', app.entryView === 'tile');
   listEl.classList.toggle('entry-list--table', app.entryView === 'table');
 
@@ -854,7 +856,8 @@ type TableCell = { entry: XmlElement; column: string };
 /* The row and cell whose value is on the clipboard stay marked until it clears, so
 coming back from pasting it elsewhere shows which entry to copy the next value from (#177). */
 let copiedCell: TableCell | null = null;
-// Weak, so rows holding a locked or closed database's values can be collected with it (#177).
+/* Replaced whenever the table goes, and weak, so rows holding its values outlive
+neither the table nor a locked or closed database (#177). */
 let tableRows = new WeakMap<XmlElement, HTMLTableRowElement>();
 
 function markCopied(cell: TableCell | null): void {
@@ -1045,7 +1048,6 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
-  tableRows = new WeakMap();
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
     tableRows.set(entry, tr);
