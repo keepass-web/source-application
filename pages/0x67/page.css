@@ -29,6 +29,8 @@
   --muted: #5a6a62;
   --accent: #0e7c5a;
   --accent-dim: #eaf1ee;
+  --copied-row: #d8eae5;
+  --copied-cell: #b2d5ca;
   --danger: #9a2b2b;
   --danger-dim: #f2dada;
   --danger-border: #e6c2c2;
@@ -238,6 +240,13 @@ when resolving a <use> into it (#121). */
 through to notice unsaved edits, unlike every other dirty-aware prompt. */
 .icon-btn.unsaved {
   color: var(--accent);
+}
+
+/* A copy control's check, while its value is on the clipboard, at full strength (#177). */
+.icon-btn.copied,
+.copy-hint.copied {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .back-link {
@@ -941,6 +950,18 @@ never be what makes the affordance discoverable, since touch has none. */
 
 .entry-table tbody tr:hover {
   background: var(--surface-2);
+}
+
+/* The copied value's row is tinted well past hover and its cell deeper still, with a
+heavier weight and a check for a copy control, so the mark never rests on color alone (#177). */
+.entry-table tbody tr.copied {
+  background: var(--copied-row);
+}
+
+.entry-table td.copied {
+  background: var(--copied-cell);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .entry-table-title {

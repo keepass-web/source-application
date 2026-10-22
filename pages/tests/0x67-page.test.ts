@@ -3794,6 +3794,268 @@ test('entry list table view: columns, masked password, click to copy, button to 
   assert.equal(byId<HTMLElement>('toast').hidden, true);
 });
 
+test('the table marks the row and cell whose value is on the clipboard, for as long as it is (#177)', async (t) => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  appendChild(
+    rootGroup,
+    createEntry({ title: 'GitHub', username: 'octocat', password: 'hunter2' }),
+  );
+  appendChild(rootGroup, createEntry({ title: 'GitLab', username: 'tanuki', password: 'fox' }));
+  const bytes = await kdbx.save();
+
+  const unlock = async (): Promise<void> => {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  };
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('marks.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  await unlock();
+  dispatch(q('[data-action="view-table"]'), 'click');
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  clipboardWritesShouldFail = false;
+  // The writes happen inside an async handler; setImmediate is not mocked,
+  // so waiting on it lets every microtask settle before the next step.
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  const titleOf = (el: Element): string | null | undefined =>
+    el.closest('tr')?.querySelector('.entry-table-title .entry-cell-text')?.textContent;
+  const cellOf = (title: string, column: string): HTMLElement =>
+    Array.from(root().querySelectorAll('.entry-table tbody tr'))
+      .find((tr) => titleOf(tr) === title)
+      ?.querySelector(`td[data-column="${column}"]`) as HTMLElement;
+  const checked = (td: Element): boolean =>
+    iconOf(td.querySelector('.copy-hint') as Element) === '#icon-checked';
+  // Each mark as its row's title, followed by the column for a marked cell. A marked cell
+  // shows a check for its copy icon and no other cell does, so either slip shows up here too.
+  const marks = (): string[] => [
+    ...Array.from(root().querySelectorAll<HTMLElement>('.entry-table :is(tr, td).copied')).map(
+      (el) =>
+        [titleOf(el), el.dataset.column, el.dataset.column && !checked(el) && 'without its check']
+          .filter(Boolean)
+          .join(' '),
+    ),
+    ...Array.from(root().querySelectorAll('.entry-table td:not(.copied)'))
+      .filter((td) => td.querySelector('.copy-hint') && checked(td))
+      .map((td) => `${titleOf(td)} checked but not marked`),
+  ];
+  const pickColumn = (label: string, shown: boolean): void => {
+    const checkbox = Array.from(
+      root().querySelectorAll<HTMLInputElement>('.column-picker-item input'),
+    ).find(
+      (input) => input.closest('.column-picker-item')?.textContent?.trim() === label,
+    ) as HTMLInputElement;
+    checkbox.checked = shown;
+    dispatch(checkbox, 'change');
+  };
+
+  assert.deepEqual(marks(), [], 'nothing of ours is on the clipboard yet');
+
+  // A click marks the value's cell and row, once the browser has taken the value.
+  dispatch(cellOf('GitHub', 'username'), 'click');
+  assert.deepEqual(marks(), [], 'not before');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub username']);
+
+  // A refused copy leaves the clipboard, and so the mark, as it was.
+  const realError = console.error;
+  console.error = () => {};
+  clipboardWritesShouldFail = true;
+  try {
+    dispatch(cellOf('GitLab', 'password'), 'click');
+    await settle();
+  } finally {
+    console.error = realError;
+    clipboardWritesShouldFail = false;
+  }
+  assert.deepEqual(marks(), ['GitHub', 'GitHub username']);
+
+  // The copy control marks the same way, and only the newest copy is marked.
+  dispatch(cellOf('GitLab', 'password').querySelector('.copy-hint') as HTMLElement, 'click');
+  await settle();
+  assert.equal(clipboardText, 'fox');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+
+  // The table is rebuilt on every change, and the mark follows the entry through it.
+  const search = q<HTMLInputElement>('#search-input');
+  search.value = 'GitHub';
+  dispatch(search, 'input');
+  assert.deepEqual(marks(), [], 'its row is filtered out');
+  search.value = '';
+  dispatch(search, 'input');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password'], 'and marked again once it is back');
+
+  // Hiding the copied column leaves the value on the clipboard, so its row stays marked.
+  dispatch(q('[data-action="toggle-columns"]'), 'click');
+  pickColumn('Password', false);
+  assert.deepEqual(marks(), ['GitLab']);
+  pickColumn('Password', true);
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+
+  // A copy from the card replaces the value, so nothing in the table is marked; the
+  // card's own control shows the check instead, for the newest copy only.
+  dispatch(
+    cellOf('GitHub', 'username')
+      .closest('tr')
+      ?.querySelector('.entry-table-open button') as Element,
+    'click',
+  );
+  const cardCopy = (key: string): HTMLButtonElement =>
+    Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === key)
+      ?.querySelector<HTMLButtonElement>('[title="Copy"]') as HTMLButtonElement;
+  const cardChecks = (): string[] =>
+    ['UserName', 'Password'].filter((key) => iconOf(cardCopy(key)) === '#icon-checked');
+  assert.deepEqual(cardChecks(), []);
+  cardCopy('UserName').click();
+  await settle();
+  assert.equal(clipboardText, 'octocat');
+  assert.deepEqual(cardChecks(), ['UserName']);
+  cardCopy('Password').click();
+  await settle();
+  assert.deepEqual(cardChecks(), ['Password']);
+
+  // The edit screen's controls show it the same way, until the clipboard clears.
+  dispatch(q('[data-action="edit"]'), 'click');
+  const editCopy = Array.from(root().querySelectorAll('.edit-field'))
+    .find((row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === 'UserName')
+    ?.querySelector<HTMLButtonElement>('[title="Copy"]') as HTMLButtonElement;
+  editCopy.click();
+  await settle();
+  assert.equal(iconOf(editCopy), '#icon-checked');
+  t.mock.timers.tick(30_000);
+  await settle();
+  assert.equal(clipboardText, '');
+  assert.equal(iconOf(editCopy), '#icon-copy');
+  dispatch(q('[data-action="cancel"]'), 'click');
+  dispatch(q('[data-action="back"]'), 'click');
+  assert.ok(q('.entry-table'), 'back at the table');
+  assert.deepEqual(marks(), []);
+
+  // A timed clear the browser refuses leaves the value, and the mark, in place...
+  dispatch(cellOf('GitHub', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+  clipboardWritesShouldFail = true;
+  t.mock.timers.tick(30_000);
+  await settle();
+  clipboardWritesShouldFail = false;
+  assert.equal(clipboardText, 'hunter2');
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+
+  // ...until the clear lands.
+  dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+  await settle();
+  assert.equal(clipboardText, '');
+  assert.deepEqual(marks(), []);
+
+  // A lock drops the mark at once rather than with a clear the browser may refuse,
+  // so the mark never keeps a locked database's entry alive.
+  dispatch(cellOf('GitHub', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitHub', 'GitHub password']);
+  clipboardWritesShouldFail = true;
+  dispatch(q('[data-action="lock"]'), 'click');
+  assert.ok(q('.entry-table'), 'the table is still up while the lock re-encrypts');
+  assert.deepEqual(marks(), [], 'yet nothing in it is marked');
+  t.mock.timers.reset(); // waitFor runs on real timers
+  await waitFor(() => q('#master-password') !== null);
+  clipboardWritesShouldFail = false;
+  assert.equal(clipboardText, 'hunter2', 'the browser refused the clear');
+  dom.window.dispatchEvent(new dom.window.Event('pointerdown'));
+  await settle();
+  assert.equal(clipboardText, '', 'and let it through at the next click');
+
+  await unlock();
+
+  /* A copy still in flight when the lock starts leaves no mark on the locked entry, whether
+  it lands while the lock re-encrypts (settled at once, before the save can finish) or after
+  the lock is done. Nothing on screen differs either way, so this only walks those paths. */
+  const held: HeldWrite[] = [];
+  heldWrites = held;
+  try {
+    dispatch(cellOf('GitHub', 'username'), 'click');
+    await settle();
+    dispatch(q('[data-action="lock"]'), 'click');
+    held[0]?.settle(true);
+    await waitFor(() => q('#master-password') !== null);
+    assert.equal(clipboardText, 'octocat');
+    await unlock();
+    assert.deepEqual(marks(), []);
+
+    dispatch(cellOf('GitLab', 'password'), 'click');
+    await settle();
+    dispatch(q('[data-action="lock"]'), 'click');
+    await waitFor(() => q('#master-password') !== null);
+    held[1]?.settle(true);
+    await settle();
+    held[2]?.settle(true); // the lock's own clear, which waited its turn behind the copy
+    await settle();
+  } finally {
+    heldWrites = null;
+  }
+  assert.equal(clipboardText, '');
+  await unlock();
+  assert.deepEqual(marks(), []);
+
+  // Trashing keeps the entry, so its mark goes along into the bin.
+  const openCard = (title: string): void => {
+    dispatch(
+      cellOf(title, 'title').closest('tr')?.querySelector('.entry-table-open button') as Element,
+      'click',
+    );
+  };
+  const deleteFromCard = (title: string): void => {
+    openCard(title);
+    dispatch(q('[data-action="delete"]'), 'click');
+    dispatch(dq('#dlg-confirm-delete [data-action="confirm-delete"]'), 'click');
+  };
+  dispatch(cellOf('GitLab', 'password'), 'click');
+  await settle();
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+  openCard('GitLab');
+  dispatch(q('[data-action="trash"]'), 'click');
+  assert.deepEqual(marks(), [], 'its row has left this group');
+  openCard('GitHub');
+  dispatch(q('[data-action="trash"]'), 'click');
+  dispatch(
+    Array.from(q('#group-tree').querySelectorAll('.group-btn')).find((button) =>
+      button.textContent?.endsWith('Recycle Bin'),
+    ) as Element,
+    'click',
+  );
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password'], 'and is marked again in the bin');
+
+  // Deleting another entry for good leaves the mark be; deleting its own lets the entry go.
+  deleteFromCard('GitHub');
+  assert.deepEqual(marks(), ['GitLab', 'GitLab password']);
+  deleteFromCard('GitLab');
+  assert.deepEqual(marks(), []);
+  assert.equal(clipboardText, 'fox', 'though the value waits for its own clear');
+
+  dispatch(q('[data-action="view-tile"]'), 'click');
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  await settle();
+  assert.equal(clipboardText, '', 'closing clears it');
+});
+
 test('entry list: the sidebar drawer and panel overflow menu (mobile layout) open and close', async () => {
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
   const kdbx = await Kdbx.create(credentials, {

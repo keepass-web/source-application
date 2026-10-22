@@ -99,6 +99,7 @@ function cloneTemplate(id: string): DocumentFragment {
 function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
+  tableRows = new WeakMap();
   root.appendChild(fragment);
 }
 
@@ -226,6 +227,7 @@ function clearClipboard(): void {
     () => {
       armClearRetry(false);
       byId('toast').hidden = true;
+      markCopied(null);
     },
     () => {
       const countdown = byId('toast-countdown');
@@ -239,16 +241,24 @@ function clearClipboard(): void {
 function clearClipboardNow(): void {
   if (byId('toast').hidden) return; // nothing of ours is on the clipboard
   clearTimeout(clipboardTimer);
+  markCopied(null); // its entry must not outlast the database while a refused clear waits (#177)
   clearClipboard();
 }
 
-function copyToClipboard(text: string, label = 'Value'): void {
+function copyToClipboard(
+  text: string,
+  label = 'Value',
+  source: TableCell | null = null,
+  control: Element | null = null,
+): void {
   writeClipboard(
     text,
     () => {
       clearTimeout(clipboardTimer);
       armClearRetry(false); // the new value restarts the clock
       showClipboardToast(label);
+      // A copy landing after its entry has gone, as through a lock, marks nothing (#177).
+      markCopied(source && inOpenDatabase(source.entry) ? source : null, control);
       clipboardDeadline = Date.now() + app.clipboardTimeout * 1000;
       tickClipboard();
     },
@@ -706,6 +716,7 @@ function deleteGroupAction(group: XmlElement): void {
       () => {
         const parent = findGroupParent(rootGroup, group);
         if (parent) deletePermanently(db.root, group, parent);
+        forgetCopiedIfGone();
         resetSelectionIfAffected(rootGroup, group);
         setDirty(true);
         renderGroupTree();
@@ -735,6 +746,7 @@ function renderEntryPanel(): void {
   const panelTitle = qs('#panel-title');
   const listEl = qs('#entry-list');
   listEl.innerHTML = '';
+  tableRows = new WeakMap();
   listEl.classList.toggle('entry-list--tile', app.entryView === 'tile');
   listEl.classList.toggle('entry-list--table', app.entryView === 'table');
 
@@ -845,22 +857,72 @@ function openEntry(entry: XmlElement): void {
   showEntryDetail();
 }
 
+type TableCell = { entry: XmlElement; column: string };
+
+/* The row and cell whose value is on the clipboard stay marked until it clears, so
+coming back from pasting it elsewhere shows which entry to copy the next value from (#177). */
+let copiedCell: TableCell | null = null;
+/* Replaced whenever the table goes, and weak, so rows holding its values outlive
+neither the table nor a locked or closed database (#177). */
+let tableRows = new WeakMap<XmlElement, HTMLTableRowElement>();
+
+// A copy control whose value is on the clipboard shows a check in place of its icon (#177).
+function markControl(control: Element | null, copied: boolean): void {
+  if (!control) return;
+  control.classList.toggle('copied', copied);
+  control.replaceChildren(icon(copied ? 'checked' : 'copy'));
+}
+
+function markCell(td: Element | null, copied: boolean): void {
+  if (!td) return;
+  td.classList.toggle('copied', copied);
+  markControl(td.querySelector('.copy-hint'), copied);
+}
+
+function markCopied(cell: TableCell | null, control: Element | null = null): void {
+  copiedCell = cell;
+  document.querySelector('.entry-table tr.copied')?.classList.remove('copied');
+  markCell(document.querySelector('.entry-table td.copied'), false);
+  markControl(document.querySelector('button.copied'), false);
+  markControl(control, true);
+  if (!cell) return;
+  const row = tableRows.get(cell.entry);
+  if (!row) return; // not among the rows shown
+  row.classList.add('copied');
+  markCell(row.querySelector(`td[data-column="${cell.column}"]`), true);
+}
+
+function inOpenDatabase(entry: XmlElement): boolean {
+  if (app.db === null) return false;
+  return collectAllEntries(app.db.getRootGroup()).some((found) => found.entry === entry);
+}
+
+// An entry deleted for good, merged away, locked or closed must not live on in the mark (#177).
+function forgetCopiedIfGone(): void {
+  if (copiedCell && !inOpenDatabase(copiedCell.entry)) markCopied(null);
+}
+
 /* A click copies (#67); opening the card is the row's own button instead. The
 browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
-function wireCellCopy(cell: HTMLTableCellElement, value: string, label: string): void {
+function wireCellCopy(
+  cell: HTMLTableCellElement,
+  value: string,
+  label: string,
+  source: TableCell,
+): void {
   cell.addEventListener('click', (event) => {
     // Anywhere but the cell's own buttons, which run their own handlers (#76, #86).
     if ((event.target as Element).closest('.copy-hint, .open-hint')) return;
-    if (value) copyToClipboard(value, label);
+    if (value) copyToClipboard(value, label, source);
   });
 }
 
 /* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
 and focusable so copying is reachable without a pointer at all. */
-function copyHint(value: string, label: string): HTMLButtonElement {
+function copyHint(value: string, label: string, source: TableCell): HTMLButtonElement {
   return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, 'copy', () => {
-    copyToClipboard(value, label);
+    copyToClipboard(value, label, source);
   });
 }
 
@@ -876,22 +938,24 @@ function openUrlButton(className: string, href: string): HTMLButtonElement {
 value is, and a long one can never push it out of the cell (#76, #87). The text
 ellipsizes in its own box, so an open control after it stays in sight too. */
 function buildEntryCell(
+  source: TableCell,
   display: string,
   value: string,
   label: string,
   action?: HTMLButtonElement,
 ): HTMLTableCellElement {
   const td = document.createElement('td');
+  td.dataset.column = source.column;
   const inner = document.createElement('div');
   inner.className = 'entry-cell';
-  if (value) inner.appendChild(copyHint(value, label));
+  if (value) inner.appendChild(copyHint(value, label, source));
   const text = document.createElement('span');
   text.className = 'entry-cell-text';
   text.textContent = display;
   inner.appendChild(text);
   if (action) inner.appendChild(action);
   td.appendChild(inner);
-  wireCellCopy(td, value, label);
+  wireCellCopy(td, value, label, source);
   return td;
 }
 
@@ -1008,6 +1072,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
   const tbody = document.createElement('tbody');
   for (const { entry } of rows) {
     const tr = document.createElement('tr');
+    tableRows.set(entry, tr);
 
     // The icon is the entry's, not the title's, so it keeps out of the copied text's cell (#87).
     const iconTd = document.createElement('td');
@@ -1015,7 +1080,8 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     iconTd.appendChild(icon(iconName(elementIconId(entry))));
     tr.appendChild(iconTd);
 
-    const titleTd = buildEntryCell(entryTitle(entry), entryTitle(entry), 'Title');
+    const title = entryTitle(entry);
+    const titleTd = buildEntryCell({ entry, column: 'title' }, title, title, 'Title');
     titleTd.className = 'entry-table-title';
     tr.appendChild(titleTd);
 
@@ -1023,6 +1089,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
       const value = entryColumnValue(entry, column.key);
       const href = column.key === 'url' ? openableUrl(value) : null;
       const td = buildEntryCell(
+        { entry, column: column.key },
         entryColumnDisplayValue(entry, column.key),
         value,
         column.label,
@@ -1041,6 +1108,7 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
+  markCopied(copiedCell); // onto the rebuilt row
 
   return table;
 }
@@ -1136,6 +1204,7 @@ async function lockDatabase(): Promise<void> {
     const bytes = await must(app.db).save();
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    forgetCopiedIfGone(); // one a copy marked while the lock re-encrypted
     showUnlock(true);
     curtain().close(); // only now, so the re-encrypting page never shows through (#84)
   } finally {
@@ -1407,6 +1476,7 @@ function showEntryDetail(): void {
       const parent = findEntryParent(db.getRootGroup(), entry);
       if (parent) {
         deletePermanently(db.root, entry, parent);
+        forgetCopiedIfGone();
         setDirty(true);
       }
       app.currentEntry = null;
@@ -1448,7 +1518,7 @@ function buildDetailField(key: string, value: string, isProtected: boolean): HTM
 
   // Leads the value, as copy does everywhere, so it is plainly that value's (#87).
   const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
-    copyToClipboard(value, fieldLabel(key));
+    copyToClipboard(value, fieldLabel(key), null, copyBtn);
   });
 
   valueWrap.appendChild(copyBtn);
@@ -1731,7 +1801,7 @@ function buildEditField(
   const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
     // Copies whatever is currently typed, not the value the field opened
     // with — the user may have already edited it.
-    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value');
+    copyToClipboard(valueInput.value, fieldLabel(keyInput.value) || 'Value', null, copyBtn);
   });
   keepFieldFocus(copyBtn);
   lead.appendChild(copyBtn);
@@ -2028,6 +2098,7 @@ async function runMerge(session: ExpiredSession, dlg: HTMLDialogElement): Promis
     return;
   }
   app.baseVersion = latest.version;
+  forgetCopiedIfGone();
   setDirty(true);
   dlg.close();
   // What was on screen may have changed or gone, so the merged database is shown from the top.
