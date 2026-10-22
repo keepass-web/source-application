@@ -14,7 +14,9 @@ const KX_BYTES_PER_KIB = 1024n;
 allows up to ~4TiB memory / 2^32-1 iterations; unchecked, a crafted file
 could force a huge allocation before any password is even checked. */
 const KX_MAX_ARGON2_MEMORY_KIB = 2 * 1024 * 1024; // 2 GiB
-const KX_MAX_ARGON2_ITERATIONS = 64;
+/** Run time grows with memory × passes, so passes are bounded through that product:
+64 over the full 2 GiB, proportionally more over less (#145). */
+const KX_MAX_ARGON2_KIB_PASSES = 64 * KX_MAX_ARGON2_MEMORY_KIB;
 const KX_MAX_ARGON2_PARALLELISM = 64;
 
 // Transform a 32-byte composite key with AES-KDF (KDBX 3.1 and the AES-KDF KDF).
@@ -74,14 +76,14 @@ function kx_runArgon2(
       `Argon2 parallelism (${parallelism}) exceeds the maximum this app will run (${KX_MAX_ARGON2_PARALLELISM})`,
     );
   }
-  if (iterations > KX_MAX_ARGON2_ITERATIONS) {
-    throw new Error(
-      `Argon2 iterations (${iterations}) exceeds the maximum this app will run (${KX_MAX_ARGON2_ITERATIONS})`,
-    );
-  }
   if (memory > KX_MAX_ARGON2_MEMORY_KIB) {
     throw new Error(
       `Argon2 memory (${memory} KiB) exceeds the maximum this app will run (${KX_MAX_ARGON2_MEMORY_KIB} KiB)`,
+    );
+  }
+  if (memory * iterations > KX_MAX_ARGON2_KIB_PASSES) {
+    throw new Error(
+      `Argon2 iterations (${iterations}) exceeds the maximum this app will run at ${memory} KiB (${Math.floor(KX_MAX_ARGON2_KIB_PASSES / memory)})`,
     );
   }
 
