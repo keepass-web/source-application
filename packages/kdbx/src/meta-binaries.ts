@@ -24,7 +24,8 @@ export interface ParsedMetaBinaries {
   idToIndex: Map<number, number>;
 }
 
-// Read Meta/Binaries into the pool, gunzipping if Compressed="True"; doesn't modify root.
+/** Read Meta/Binaries into the pool, gunzipping if Compressed="True"; doesn't modify root.
+A compressed copy is zeroed once inflated, and if reading fails, so is the pool so far (#145). */
 export async function readMetaBinaries(root: XmlElement): Promise<ParsedMetaBinaries> {
   const binaries: InnerBinary[] = [];
   const idToIndex = new Map<number, number>();
@@ -35,17 +36,27 @@ export async function readMetaBinaries(root: XmlElement): Promise<ParsedMetaBina
     return { binaries, idToIndex };
   }
 
-  for (const binaryEl of getChildren(binariesEl, 'Binary')) {
-    const idText = getAttribute(binaryEl, 'ID');
-    if (idText === undefined) {
-      continue;
+  try {
+    for (const binaryEl of getChildren(binariesEl, 'Binary')) {
+      const idText = getAttribute(binaryEl, 'ID');
+      if (idText === undefined) {
+        continue;
+      }
+      let data = fromBase64(getText(binaryEl));
+      if (getAttribute(binaryEl, 'Compressed') === 'True') {
+        const compressed = data;
+        try {
+          data = await gunzip(compressed);
+        } finally {
+          compressed.fill(0);
+        }
+      }
+      idToIndex.set(Number.parseInt(idText, 10), binaries.length);
+      binaries.push({ flags: 0, data });
     }
-    let data = fromBase64(getText(binaryEl));
-    if (getAttribute(binaryEl, 'Compressed') === 'True') {
-      data = await gunzip(data);
-    }
-    idToIndex.set(Number.parseInt(idText, 10), binaries.length);
-    binaries.push({ flags: 0, data });
+  } catch (err) {
+    for (const binary of binaries) binary.data.fill(0);
+    throw err;
   }
 
   return { binaries, idToIndex };

@@ -210,3 +210,18 @@ test('writeMetaBinaries then readMetaBinaries round-trips', async () => {
   const { binaries: reread } = await readMetaBinaries(doc);
   assert.deepEqual(reread, binaries);
 });
+
+test('readMetaBinaries: a binary that will not decode is rejected (#145)', async () => {
+  // The first binary is read into the pool before the second fails to decode,
+  // so the error path that zeroes the pool so far runs.
+  const binariesEl = createElement('Binaries');
+  const plain = createElement('Binary', toBase64(new Uint8Array([1, 2, 3])));
+  setAttribute(plain, 'ID', '0');
+  appendChild(binariesEl, plain);
+  const broken = createElement('Binary', '!!!!');
+  setAttribute(broken, 'ID', '1');
+  appendChild(binariesEl, broken);
+  const meta = createElement('Meta');
+  appendChild(meta, binariesEl);
+  await assert.rejects(() => readMetaBinaries(documentWith(meta, undefined)));
+});

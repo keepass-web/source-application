@@ -415,6 +415,52 @@ test('addBinary dedupes identical content and returns a stable pool index', asyn
   assert.equal(kdbx.getBinaryData(999), undefined);
 });
 
+test('addBinary keeps its own copy of the attachment (#145)', async () => {
+  const kdbx = await Kdbx.create(Credentials.fromPassword('pw'), options({ version: 4 }));
+  const data = new Uint8Array([1, 2, 3]);
+  const ref = kdbx.addBinary(data);
+  data.fill(9); // the caller reuses or zeroes its own buffer
+  assert.deepEqual(kdbx.getBinaryData(ref), new Uint8Array([1, 2, 3]));
+});
+
+test("wipe zeroes a database's attachments and credentials (#145)", async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const pooled = kdbx.getBinaryData(kdbx.addBinary(new Uint8Array([5, 6, 7]))) as Uint8Array;
+  assert.ok(kdbx.usesCredentials(credentials));
+  assert.equal(kdbx.usesCredentials(Credentials.fromPassword('pw')), false);
+
+  kdbx.wipe();
+
+  assert.deepEqual(pooled, new Uint8Array(3), 'the attachment bytes are zeroed');
+  assert.equal(kdbx.binaries.length, 0);
+  assert.deepEqual(
+    await credentials.getCompositeKey(),
+    await new Credentials({ password: new Uint8Array(2) }).getCompositeKey(),
+    'the password copy is zeroed',
+  );
+});
+
+test('setCredentials wipes the credentials it replaces, unless handed the same ones (#145)', async () => {
+  const old = Credentials.fromPassword('old');
+  const kdbx = await Kdbx.create(old, options({ version: 4 }));
+  const oldKey = await old.getCompositeKey();
+
+  kdbx.setCredentials(old);
+  assert.deepEqual(
+    await old.getCompositeKey(),
+    oldKey,
+    'the same credentials are kept as they were',
+  );
+
+  kdbx.setCredentials(Credentials.fromPassword('new'));
+  assert.deepEqual(
+    await old.getCompositeKey(),
+    await new Credentials({ password: new Uint8Array(3) }).getCompositeKey(),
+    'the replaced credentials are zeroed',
+  );
+});
+
 test('an attachment added, saved, and reloaded round-trips its name and bytes', async () => {
   const credentials = Credentials.fromPassword('pw');
   const kdbx = await Kdbx.create(credentials, options({ version: 4 }));

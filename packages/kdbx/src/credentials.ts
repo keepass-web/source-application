@@ -12,7 +12,8 @@ export interface CredentialsInput {
   keyFile?: Uint8Array;
 }
 
-// A set of credentials from which a composite key can be derived.
+/** A set of credentials from which a composite key can be derived. It keeps its own copies of
+the password and key file, so wipe() zeroes those without touching the caller's (#145). */
 export class Credentials {
   readonly #password: Uint8Array | undefined;
   readonly #keyFile: Uint8Array | undefined;
@@ -22,8 +23,8 @@ export class Credentials {
       throw new Error('credentials require a password and/or a key file');
     }
     this.#password =
-      typeof input.password === 'string' ? utf8Encode(input.password) : input.password;
-    this.#keyFile = input.keyFile;
+      typeof input.password === 'string' ? utf8Encode(input.password) : input.password?.slice();
+    this.#keyFile = input.keyFile?.slice();
   }
 
   // Convenience constructor for a password-only credential.
@@ -34,13 +35,26 @@ export class Credentials {
   // Compute the 32-byte composite key for these credentials.
   async getCompositeKey(): Promise<Uint8Array> {
     const components: Uint8Array[] = [];
-    if (this.#password !== undefined) {
-      components.push(await sha256(this.#password));
+    let joined: Uint8Array = new Uint8Array(0);
+    try {
+      if (this.#password !== undefined) {
+        components.push(await sha256(this.#password));
+      }
+      if (this.#keyFile !== undefined) {
+        components.push(await keyFileComponent(this.#keyFile));
+      }
+      joined = concatBytes(...components);
+      return await sha256(joined);
+    } finally {
+      for (const component of components) component.fill(0);
+      joined.fill(0);
     }
-    if (this.#keyFile !== undefined) {
-      components.push(await keyFileComponent(this.#keyFile));
-    }
-    return sha256(concatBytes(...components));
+  }
+
+  // Zero the password and key file once these credentials are no longer needed.
+  wipe(): void {
+    this.#password?.fill(0);
+    this.#keyFile?.fill(0);
   }
 }
 
@@ -88,8 +102,11 @@ async function kx_tryParseXmlKeyFile(bytes: Uint8Array): Promise<Uint8Array | un
   const hashMatch = (dataMatch[1] as string).match(/\bHash="([0-9a-fA-F]+)"/);
   if (hashMatch?.[1] !== undefined) {
     const expectedHash = hashMatch[1].toLowerCase();
-    const actualHash = toHex((await sha256(key)).slice(0, 4));
+    const digest = await sha256(key);
+    const actualHash = toHex(digest.subarray(0, 4));
+    digest.fill(0);
     if (actualHash !== expectedHash) {
+      key.fill(0);
       throw new Error('key file is corrupt (checksum mismatch)');
     }
   }

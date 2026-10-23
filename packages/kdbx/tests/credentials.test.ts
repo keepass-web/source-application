@@ -108,3 +108,39 @@ test('keyFileComponent: an XML-ish key file missing <Data> falls through to the 
   const component = await keyFileComponent(utf8Encode(xml));
   assert.equal(component.length, 32); // SHA-256 fallback
 });
+
+test('credentials keep their own copies, and wipe() zeroes only those (#145)', async () => {
+  const password = utf8Encode('correct horse'); // 13 bytes
+  const keyFile = new Uint8Array(32).fill(7);
+  const credentials = new Credentials({ password, keyFile });
+  const before = toHex(await credentials.getCompositeKey());
+
+  password.fill(1); // the caller reuses its own buffers
+  keyFile.fill(2);
+  assert.equal(toHex(await credentials.getCompositeKey()), before, 'copied at construction');
+
+  credentials.wipe();
+  const zeros = new Credentials({ password: new Uint8Array(13), keyFile: new Uint8Array(32) });
+  assert.equal(
+    toHex(await credentials.getCompositeKey()),
+    toHex(await zeros.getCompositeKey()),
+    'its copies are all zeros now',
+  );
+  assert.deepEqual(password, new Uint8Array(13).fill(1), "the caller's buffers are untouched");
+  assert.deepEqual(keyFile, new Uint8Array(32).fill(2));
+});
+
+test('wipe() covers a password alone and a key file alone (#145)', async () => {
+  const passwordOnly = Credentials.fromPassword('pw');
+  passwordOnly.wipe();
+  assert.equal(
+    toHex(await passwordOnly.getCompositeKey()),
+    toHex(await new Credentials({ password: new Uint8Array(2) }).getCompositeKey()),
+  );
+  const keyFileOnly = new Credentials({ keyFile: new Uint8Array(32).fill(4) });
+  keyFileOnly.wipe();
+  assert.equal(
+    toHex(await keyFileOnly.getCompositeKey()),
+    toHex(await new Credentials({ keyFile: new Uint8Array(32) }).getCompositeKey()),
+  );
+});

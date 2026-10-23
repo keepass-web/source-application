@@ -153,16 +153,21 @@ async function kx_runTransformStream(
   void writer.close();
   const reader = stream.readable.getReader();
   const chunks: Uint8Array[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        chunks.push(value);
+      }
     }
-    if (value) {
-      chunks.push(value);
-    }
+    return concatBytes(...chunks);
+  } finally {
+    // The chunks are (de)compressed database content (#145).
+    for (const chunk of chunks) chunk.fill(0);
   }
-  return concatBytes(...chunks);
 }
 
 /** GZip-compress `data` (RFC 1952), matching KDBX compression algorithm 1. */

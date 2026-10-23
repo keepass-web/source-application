@@ -55,3 +55,21 @@ test('unrecognized inner header field IDs are skipped', () => {
   assert.equal(inner.innerRandomStreamId, InnerStreamCipher.ChaCha20);
   assert.deepEqual(xml, new Uint8Array(0));
 });
+
+test('a malformed inner header is rejected after reading part of it (#145)', () => {
+  // The stream key and an attachment are read before a field claims more bytes
+  // than remain, so reading fails on the error path that zeroes what it read.
+  const writer = new ByteWriter();
+  writer.writeU8(InnerHeaderFieldId.InnerRandomStreamKey);
+  writer.writeI32(4);
+  writer.writeBytes(new Uint8Array([1, 2, 3, 4]));
+  writer.writeU8(InnerHeaderFieldId.Binary);
+  writer.writeI32(3);
+  writer.writeBytes(new Uint8Array([0, 9, 9]));
+  writer.writeU8(InnerHeaderFieldId.Binary);
+  writer.writeI32(100); // runs past the end
+  const payload = writer.toBytes();
+  const copy = payload.slice();
+  assert.throws(() => readInnerHeader(payload));
+  assert.deepEqual(payload, copy, "the caller's payload is left as it was");
+});

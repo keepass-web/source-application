@@ -265,6 +265,7 @@ export class ByteWriter {
     }
     const next = new Uint8Array(capacity);
     next.set(this.#buffer.subarray(0, this.#length));
+    this.#buffer.fill(0); // what it held may be sensitive, so it isn't left behind (#145)
     this.#buffer = next;
   }
 
@@ -320,5 +321,11 @@ export class ByteWriter {
   /** Return the written bytes as a right-sized copy. */
   toBytes(): Uint8Array {
     return this.#buffer.slice(0, this.#length);
+  }
+
+  // Zero everything written, once a caller holding sensitive bytes has taken its copy (#145).
+  wipe(): void {
+    this.#buffer.fill(0);
+    this.#length = 0;
   }
 }
