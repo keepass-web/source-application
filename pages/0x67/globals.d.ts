@@ -128,6 +128,7 @@ interface CredentialsInput {
 
 declare class Credentials {
   constructor(input: CredentialsInput);
+  wipe(): void;
 }
 
 interface KdbxCreateOptions {
@@ -155,6 +156,8 @@ declare class Kdbx {
   addBinary(data: Uint8Array): number;
   getBinaryData(ref: number): Uint8Array | undefined;
   setCredentials(credentials: Credentials): void;
+  usesCredentials(credentials: Credentials): boolean;
+  wipe(): void;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
   static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }
