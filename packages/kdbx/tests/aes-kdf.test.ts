@@ -93,3 +93,14 @@ test('aesKdfTransform rejects a rounds count above the sanity ceiling without at
     /rounds.*exceed the maximum/,
   );
 });
+
+test("aesKdfTransform leaves the caller's key and seed as they were (#145)", async () => {
+  // It zeroes its own intermediate blocks; the key it was handed stays the caller's to manage.
+  const key = new Uint8Array(32).map((_, i) => (i * 5 + 1) & 0xff);
+  const seed = new Uint8Array(32).map((_, i) => (i * 9 + 4) & 0xff);
+  const keyBefore = toHex(key);
+  const seedBefore = toHex(seed);
+  await aesKdfTransform(key, seed, 70_000n);
+  assert.equal(toHex(key), keyBefore);
+  assert.equal(toHex(seed), seedBefore);
+});

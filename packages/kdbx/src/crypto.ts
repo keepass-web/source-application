@@ -109,26 +109,39 @@ export async function aesKdfTransform(
 
   const zeros = new Uint8Array(16 * Math.min(n, KX_AES_KDF_CHUNK_ROUNDS));
 
-  const transformHalf = async (half: Uint8Array): Promise<Uint8Array> => {
+  // AES^n of half into out; each chunk of intermediate blocks is zeroed once the next has its IV.
+  const transformHalf = async (half: Uint8Array, out: Uint8Array): Promise<void> => {
     let block = half;
-    for (let left = n; left > 0; left -= KX_AES_KDF_CHUNK_ROUNDS) {
-      const count = Math.min(left, KX_AES_KDF_CHUNK_ROUNDS);
-      // AES^count of the IV is the count-th block (CBC appends a PKCS#7 block after it).
-      const ciphertext = new Uint8Array(
-        await subtle.encrypt(
-          { name: 'AES-CBC', iv: kx_buf(block) },
-          cryptoKey,
-          kx_buf(zeros.subarray(0, 16 * count)),
-        ),
-      );
-      block = ciphertext.slice(16 * (count - 1), 16 * count);
+    let ciphertext = new Uint8Array(0);
+    try {
+      for (let left = n; left > 0; left -= KX_AES_KDF_CHUNK_ROUNDS) {
+        const count = Math.min(left, KX_AES_KDF_CHUNK_ROUNDS);
+        // AES^count of the IV is the count-th block (CBC appends a PKCS#7 block after it).
+        const next = new Uint8Array(
+          await subtle.encrypt(
+            { name: 'AES-CBC', iv: kx_buf(block) },
+            cryptoKey,
+            kx_buf(zeros.subarray(0, 16 * count)),
+          ),
+        );
+        ciphertext.fill(0);
+        ciphertext = next;
+        block = ciphertext.subarray(16 * (count - 1), 16 * count);
+      }
+      out.set(block);
+    } finally {
+      ciphertext.fill(0);
     }
-    return block;
   };
 
-  const left = await transformHalf(key.slice(0, 16));
-  const right = await transformHalf(key.slice(16, 32));
-  return sha256(concatBytes(left, right));
+  const transformed = new Uint8Array(32);
+  try {
+    await transformHalf(key.subarray(0, 16), transformed.subarray(0, 16));
+    await transformHalf(key.subarray(16, 32), transformed.subarray(16, 32));
+    return await sha256(transformed);
+  } finally {
+    transformed.fill(0);
+  }
 }
 
 async function kx_runTransformStream(
