@@ -70,8 +70,7 @@ function a2_bytesToBlock(bytes: Uint8Array, out: Uint32Array, at: number): void 
   }
 }
 
-function a2_blockToBytes(block: Uint32Array): Uint8Array {
-  const out = new Uint8Array(1024);
+function a2_blockToBytes(block: Uint32Array, out: Uint8Array): void {
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
     const half = block[k] as number;
     out[4 * k] = half;
@@ -79,26 +78,37 @@ function a2_blockToBytes(block: Uint32Array): Uint8Array {
     out[4 * k + 2] = half >>> 16;
     out[4 * k + 3] = half >>> 24;
   }
-  return out;
 }
 
-// Variable-length hash H' (RFC 9106 §3.3), built on BLAKE2b.
-function a2_hPrime(outLength: number, input: Uint8Array): Uint8Array {
-  if (outLength <= 64) {
-    return blake2b(outLength, a2_concatBytes(a2_le32(outLength), input));
+/** Variable-length hash H' (RFC 9106 §3.3) of input into out, built on BLAKE2b. The caller
+owns out; every intermediate digest here is zeroed on every path (#145). */
+function a2_hPrime(out: Uint8Array, input: Uint8Array): void {
+  const prefixed = a2_concatBytes(a2_le32(out.length), input);
+  let v: Uint8Array = new Uint8Array(0);
+  try {
+    if (out.length <= 64) {
+      v = blake2b(out.length, prefixed);
+      out.set(v);
+      return;
+    }
+    const blocks = Math.ceil(out.length / 32) - 2;
+    v = blake2b(64, prefixed);
+    out.set(v.subarray(0, 32), 0);
+    let pos = 32;
+    for (let i = 2; i <= blocks; i++) {
+      const next = blake2b(64, v);
+      v.fill(0);
+      v = next;
+      out.set(v.subarray(0, 32), pos);
+      pos += 32;
+    }
+    const last = blake2b(out.length - 32 * blocks, v);
+    out.set(last, pos);
+    last.fill(0);
+  } finally {
+    prefixed.fill(0);
+    v.fill(0);
   }
-  const out = new Uint8Array(outLength);
-  const blocks = Math.ceil(outLength / 32) - 2;
-  let v = blake2b(64, a2_concatBytes(a2_le32(outLength), input));
-  out.set(v.subarray(0, 32), 0);
-  let pos = 32;
-  for (let i = 2; i <= blocks; i++) {
-    v = blake2b(64, v);
-    out.set(v.subarray(0, 32), pos);
-    pos += 32;
-  }
-  out.set(blake2b(outLength - 32 * blocks, v), pos);
-  return out;
 }
 
 // High 32 bits of x * y: the double product is within 2^11 of exact, so rounding recovers them.
@@ -318,56 +328,91 @@ function a2_indexAlpha(
   return (startPosition + relative) % laneLength;
 }
 
-// Run the full Argon2 operation and return the tag.
+/** Run the full Argon2 operation and return the tag. Everything derived from the password is
+zeroed before returning or throwing, and the tag too when it isn't returned (#145). */
 export function argon2Core(params: CoreParams): Uint8Array {
+  const tag = new Uint8Array(params.tagLength);
+  let h0Input: Uint8Array = new Uint8Array(0);
+  let h0: Uint8Array = new Uint8Array(0);
+  const laneSeed = new Uint8Array(72); // H_0 ‖ column ‖ lane
+  const blockBytes = new Uint8Array(1024);
+  let store = new Uint32Array(0);
+  const c = new Uint32Array(A2_HALVES_PER_BLOCK);
+  try {
+    h0Input = a2_h0Input(params);
+    h0 = blake2b(64, h0Input);
+    // Step 2: the memory matrix B[lanes][columns], allocated here so the finally below wipes it.
+    const lanes = params.parallelism;
+    store = new Uint32Array(
+      4 * lanes * Math.floor(params.memory / (4 * lanes)) * A2_HALVES_PER_BLOCK,
+    );
+    a2_fill(params, store, h0, laneSeed, blockBytes);
+    a2_finalBlock(params, store, c);
+    a2_blockToBytes(c, blockBytes);
+    a2_hPrime(tag, blockBytes); // Step 8: tag = H'^T(C).
+  } catch (err) {
+    tag.fill(0);
+    throw err;
+  } finally {
+    h0Input.fill(0);
+    h0.fill(0);
+    laneSeed.fill(0);
+    blockBytes.fill(0);
+    store.fill(0);
+    c.fill(0);
+    A2_R.fill(0);
+    A2_TMP.fill(0);
+  }
+  return tag;
+}
+
+// Step 1: the input hashed into H_0.
+function a2_h0Input(params: CoreParams): Uint8Array {
   const { password, salt, secret, associatedData } = params;
+  return a2_concatBytes(
+    a2_le32(params.parallelism),
+    a2_le32(params.tagLength),
+    a2_le32(params.memory),
+    a2_le32(params.iterations),
+    a2_le32(params.version),
+    a2_le32(params.type),
+    a2_le32(password.length),
+    password,
+    a2_le32(salt.length),
+    salt,
+    a2_le32(secret.length),
+    secret,
+    a2_le32(associatedData.length),
+    associatedData,
+  );
+}
+
+// Steps 3-6: fill the memory matrix in store; laneSeed and blockBytes are scratch.
+function a2_fill(
+  params: CoreParams,
+  store: Uint32Array,
+  h0: Uint8Array,
+  laneSeed: Uint8Array,
+  blockBytes: Uint8Array,
+): void {
   const lanes = params.parallelism;
-  const memory = params.memory;
   const passes = params.iterations;
-  const tagLength = params.tagLength;
   const version = params.version;
   const type = params.type;
-
-  // Step 1: H_0.
-  const h0 = blake2b(
-    64,
-    a2_concatBytes(
-      a2_le32(lanes),
-      a2_le32(tagLength),
-      a2_le32(memory),
-      a2_le32(passes),
-      a2_le32(version),
-      a2_le32(type),
-      a2_le32(password.length),
-      password,
-      a2_le32(salt.length),
-      salt,
-      a2_le32(secret.length),
-      secret,
-      a2_le32(associatedData.length),
-      associatedData,
-    ),
-  );
-
-  // Step 2: allocate memory matrix B[lanes][columns].
-  const memoryBlocks = 4 * lanes * Math.floor(memory / (4 * lanes));
+  const memoryBlocks = store.length / A2_HALVES_PER_BLOCK;
   const columns = memoryBlocks / lanes;
   const segmentLength = columns / A2_SYNC_POINTS;
-  const store = new Uint32Array(memoryBlocks * A2_HALVES_PER_BLOCK);
   const at = (lane: number, col: number): number => (lane * columns + col) * A2_HALVES_PER_BLOCK;
 
   // Steps 3-4: first two columns of each lane.
+  laneSeed.set(h0);
   for (let lane = 0; lane < lanes; lane++) {
-    a2_bytesToBlock(
-      a2_hPrime(1024, a2_concatBytes(h0, a2_le32(0), a2_le32(lane))),
-      store,
-      at(lane, 0),
-    );
-    a2_bytesToBlock(
-      a2_hPrime(1024, a2_concatBytes(h0, a2_le32(1), a2_le32(lane))),
-      store,
-      at(lane, 1),
-    );
+    laneSeed.set(a2_le32(lane), 68);
+    for (let col = 0; col < 2; col++) {
+      laneSeed.set(a2_le32(col), 64);
+      a2_hPrime(blockBytes, laneSeed);
+      a2_bytesToBlock(blockBytes, store, at(lane, col));
+    }
   }
 
   const fillSegment = (pass: number, slice: number, lane: number): void => {
@@ -446,22 +491,16 @@ export function argon2Core(params: CoreParams): Uint8Array {
       }
     }
   }
+}
 
-  // Step 7: final block C is the XOR of the last column across lanes.
-  const c = new Uint32Array(A2_HALVES_PER_BLOCK);
+// Step 7: final block C, the XOR of the last column across lanes, into c.
+function a2_finalBlock(params: CoreParams, store: Uint32Array, c: Uint32Array): void {
+  const lanes = params.parallelism;
+  const laneHalves = store.length / lanes;
   for (let lane = 0; lane < lanes; lane++) {
-    const last = at(lane, columns - 1);
+    const last = (lane + 1) * laneHalves - A2_HALVES_PER_BLOCK;
     for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
       c[k] = ((c[k] as number) ^ (store[last + k] as number)) >>> 0;
     }
   }
-
-  // Step 8: tag = H'^T(C).
-  const tag = a2_hPrime(tagLength, a2_blockToBytes(c));
-
-  // Key-dependent state is cleared here rather than left for the garbage collector (#145).
-  store.fill(0);
-  A2_R.fill(0);
-  A2_TMP.fill(0);
-  return tag;
 }

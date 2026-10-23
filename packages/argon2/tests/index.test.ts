@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { ARGON2_ID, ARGON2_VERSION_13, argon2Core } from '../src/argon2.ts';
 import { blake2b } from '../src/blake2b.ts';
 import { argon2, argon2d, argon2id } from '../src/index.ts';
 
@@ -151,4 +152,45 @@ test('covers the first-slice reference-area branch of index_alpha', () => {
       tagLength: 32,
     }),
   );
+});
+
+test("a run leaves the caller's inputs as they were (#145)", () => {
+  // Argon2 zeroes its own copies of everything password-derived; it must never
+  // zero what the caller handed it.
+  const inputs = {
+    password: filled(32, 0x01),
+    salt: filled(16, 0x02),
+    secret: filled(8, 0x03),
+    associatedData: filled(12, 0x04),
+  };
+  argon2id({ ...inputs, parallelism: 4, memory: 32, iterations: 3, tagLength: 32 });
+  assert.deepEqual(inputs.password, filled(32, 0x01));
+  assert.deepEqual(inputs.salt, filled(16, 0x02));
+  assert.deepEqual(inputs.secret, filled(8, 0x03));
+  assert.deepEqual(inputs.associatedData, filled(12, 0x04));
+});
+
+test("a run that fails at its last step still rethrows, leaving the caller's password alone (#145)", () => {
+  // A zero-length tag passes straight to BLAKE2b, which refuses it only at the
+  // final step, after H_0 and the memory matrix already hold password-derived
+  // data. The public entry point validates tagLength first, so only the core
+  // reaches this error path, where everything computed is zeroed before rethrowing.
+  const password = filled(8, 0x01);
+  assert.throws(
+    () =>
+      argon2Core({
+        password,
+        salt: filled(16, 0x02),
+        secret: new Uint8Array(0),
+        associatedData: new Uint8Array(0),
+        parallelism: 1,
+        memory: 8,
+        iterations: 1,
+        tagLength: 0,
+        version: ARGON2_VERSION_13,
+        type: ARGON2_ID,
+      }),
+    RangeError,
+  );
+  assert.deepEqual(password, filled(8, 0x01));
 });

@@ -37,7 +37,7 @@ function b2_rotr64(x: bigint, n: bigint): bigint {
 
 // The BLAKE2b mixing function G (RFC 7693, Section 3.1).
 function b2_mix(
-  v: bigint[],
+  v: BigUint64Array,
   a: number,
   b: number,
   c: number,
@@ -64,8 +64,8 @@ function b2_mix(
 }
 
 // The BLAKE2b compression function F (RFC 7693, Section 3.2).
-function b2_compress(h: bigint[], m: bigint[], counter: bigint, last: boolean): void {
-  const v = new Array<bigint>(16);
+function b2_compress(h: BigUint64Array, m: BigUint64Array, counter: bigint, last: boolean): void {
+  const v = new BigUint64Array(16);
   for (let i = 0; i < 8; i++) {
     v[i] = h[i] as bigint;
     v[i + 8] = B2_IV[i] as bigint;
@@ -90,6 +90,7 @@ function b2_compress(h: bigint[], m: bigint[], counter: bigint, last: boolean): 
   for (let i = 0; i < 8; i++) {
     h[i] = (h[i] as bigint) ^ (v[i] as bigint) ^ (v[i + 8] as bigint);
   }
+  v.fill(0n);
 }
 
 /** Unkeyed BLAKE2b digest of `input`.
@@ -100,47 +101,53 @@ export function blake2b(outLength: number, input: Uint8Array): Uint8Array {
     throw new RangeError(`BLAKE2b output length must be an integer in 1..64, got ${outLength}`);
   }
 
-  // Parameter block: digest length, key length (0), fanout (1), depth (1).
-  const h = B2_IV.slice();
-  h[0] = (h[0] as bigint) ^ 0x01010000n ^ BigInt(outLength);
+  // Typed arrays, not bigint[], so the state and message words are really overwritten when zeroed.
+  const h = BigUint64Array.from(B2_IV);
+  const block = new BigUint64Array(16);
+  try {
+    // Parameter block: digest length, key length (0), fanout (1), depth (1).
+    h[0] = (h[0] as bigint) ^ 0x01010000n ^ BigInt(outLength);
 
-  // Process all full 128-byte blocks except the final one.
-  const block = new Array<bigint>(16);
-  let counter = 0n;
-  let offset = 0;
+    // Process all full 128-byte blocks except the final one.
+    let counter = 0n;
+    let offset = 0;
 
-  const loadBlock = (start: number): void => {
-    for (let i = 0; i < 16; i++) {
-      const at = start + i * 8;
-      let word = 0n;
-      // Manual little-endian load so we can tolerate a short final block.
-      for (let b = 0; b < 8; b++) {
-        const idx = at + b;
-        const byte = idx < input.length ? (input[idx] as number) : 0;
-        word |= BigInt(byte) << BigInt(8 * b);
+    const loadBlock = (start: number): void => {
+      for (let i = 0; i < 16; i++) {
+        const at = start + i * 8;
+        let word = 0n;
+        // Manual little-endian load so we can tolerate a short final block.
+        for (let b = 0; b < 8; b++) {
+          const idx = at + b;
+          const byte = idx < input.length ? (input[idx] as number) : 0;
+          word |= BigInt(byte) << BigInt(8 * b);
+        }
+        block[i] = word;
       }
-      block[i] = word;
+    };
+
+    while (input.length - offset > 128) {
+      loadBlock(offset);
+      counter += 128n;
+      b2_compress(h, block, counter, false);
+      offset += 128;
     }
-  };
 
-  while (input.length - offset > 128) {
+    // Final block (also covers the empty-input case, where one zero block runs).
+    const remaining = input.length - offset;
+    counter += BigInt(remaining);
     loadBlock(offset);
-    counter += 128n;
-    b2_compress(h, block, counter, false);
-    offset += 128;
-  }
+    b2_compress(h, block, counter, true);
 
-  // Final block (also covers the empty-input case, where one zero block runs).
-  const remaining = input.length - offset;
-  counter += BigInt(remaining);
-  loadBlock(offset);
-  b2_compress(h, block, counter, true);
-
-  // Serialize the first `outLength` bytes of the state, little-endian.
-  const out = new Uint8Array(outLength);
-  for (let i = 0; i < outLength; i++) {
-    const word = h[Math.floor(i / 8)] as bigint;
-    out[i] = Number((word >> BigInt(8 * (i % 8))) & 0xffn);
+    // Serialize the first `outLength` bytes of the state, little-endian.
+    const out = new Uint8Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const word = h[Math.floor(i / 8)] as bigint;
+      out[i] = Number((word >> BigInt(8 * (i % 8))) & 0xffn);
+    }
+    return out;
+  } finally {
+    h.fill(0n);
+    block.fill(0n);
   }
-  return out;
 }
