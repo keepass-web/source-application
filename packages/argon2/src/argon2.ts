@@ -15,6 +15,10 @@ export const ARGON2_VERSION_13 = 0x13;
 const A2_SYNC_POINTS = 4; // number of vertical slices (SL)
 const A2_HALVES_PER_BLOCK = 256; // 1024 bytes / 4
 const A2_ADDRESSES_PER_BLOCK = 128;
+// Where the zero, input and address blocks sit in a segment's addressing scratch.
+const A2_ZERO = 0;
+const A2_INPUT = A2_HALVES_PER_BLOCK;
+const A2_ADDRESS = 2 * A2_HALVES_PER_BLOCK;
 
 export interface CoreParams {
   password: Uint8Array;
@@ -54,10 +58,10 @@ function a2_concatBytes(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function a2_bytesToBlock(bytes: Uint8Array, out: Uint32Array): void {
+function a2_bytesToBlock(bytes: Uint8Array, out: Uint32Array, at: number): void {
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
     const i = 4 * k;
-    out[k] =
+    out[at + k] =
       ((bytes[i] as number) |
         ((bytes[i + 1] as number) << 8) |
         ((bytes[i + 2] as number) << 16) |
@@ -97,115 +101,185 @@ function a2_hPrime(outLength: number, input: Uint8Array): Uint8Array {
   return out;
 }
 
-/** P's index patterns over the 1024-byte block as an 8x8 register matrix
-(RFC 9106 §3.5), as offsets of each word's low half. */
-const A2_ROWS: number[][] = [];
-const A2_COLS: number[][] = [];
-for (let r = 0; r < 8; r++) {
-  const row: number[] = [];
-  const col: number[] = [];
-  for (let k = 0; k < 16; k++) {
-    row.push(2 * (16 * r + k));
-  }
-  for (let k = 0; k < 8; k++) {
-    col.push(2 * (2 * r + 16 * k));
-    col.push(2 * (2 * r + 16 * k + 1));
-  }
-  A2_ROWS.push(row);
-  A2_COLS.push(col);
-}
-
-// High 32 bits of x * y; 16-bit limbs keep every partial product exact in a double.
+// High 32 bits of x * y: the double product is within 2^11 of exact, so rounding recovers them.
 function a2_mulHi(x: number, y: number): number {
-  const xLo = x & 0xffff;
-  const xHi = x >>> 16;
-  const yLo = y & 0xffff;
-  const yHi = y >>> 16;
-  const cross = xHi * yLo + xLo * yHi + ((xLo * yLo) >>> 16);
-  return xHi * yHi + Math.floor(cross / 0x10000);
-}
-
-// Word x += word y + 2 * lo32(x) * lo32(y), mod 2^64 (BlaMka, RFC 9106 §3.6).
-function a2_blamka(v: Uint32Array, x: number, y: number): void {
-  const xLo = v[x] as number;
-  const yLo = v[y] as number;
-  const productLo = Math.imul(xLo, yLo) >>> 0;
-  const lo = xLo + yLo + ((productLo << 1) >>> 0);
-  v[x] = lo >>> 0;
-  v[x + 1] =
-    ((v[x + 1] as number) +
-      (v[y + 1] as number) +
-      ((a2_mulHi(xLo, yLo) << 1) >>> 0) +
-      (productLo >>> 31) +
-      Math.floor(lo / 0x100000000)) >>>
-    0;
-}
-
-// Word x = rotr64(word x ^ word y, n).
-function a2_xorRotr(v: Uint32Array, x: number, y: number, n: number): void {
-  const lo = ((v[x] as number) ^ (v[y] as number)) >>> 0;
-  const hi = ((v[x + 1] as number) ^ (v[y + 1] as number)) >>> 0;
-  if (n === 32) {
-    v[x] = hi;
-    v[x + 1] = lo;
-  } else if (n < 32) {
-    v[x] = ((lo >>> n) | (hi << (32 - n))) >>> 0;
-    v[x + 1] = ((hi >>> n) | (lo << (32 - n))) >>> 0;
-  } else {
-    v[x] = ((hi >>> (n - 32)) | (lo << (64 - n))) >>> 0;
-    v[x + 1] = ((lo >>> (n - 32)) | (hi << (64 - n))) >>> 0;
-  }
-}
-
-// GB, the modified BLAKE2b mixing function with multiplications (Section 3.6).
-function a2_gb(v: Uint32Array, a: number, b: number, c: number, d: number): void {
-  a2_blamka(v, a, b);
-  a2_xorRotr(v, d, a, 32);
-  a2_blamka(v, c, d);
-  a2_xorRotr(v, b, c, 24);
-  a2_blamka(v, a, b);
-  a2_xorRotr(v, d, a, 16);
-  a2_blamka(v, c, d);
-  a2_xorRotr(v, b, c, 63);
-}
-
-// Permutation P applied to the 16 words named by `q` (RFC 9106, Section 3.6).
-function a2_permute(v: Uint32Array, q: number[]): void {
-  const i = (k: number): number => q[k] as number;
-  a2_gb(v, i(0), i(4), i(8), i(12));
-  a2_gb(v, i(1), i(5), i(9), i(13));
-  a2_gb(v, i(2), i(6), i(10), i(14));
-  a2_gb(v, i(3), i(7), i(11), i(15));
-  a2_gb(v, i(0), i(5), i(10), i(15));
-  a2_gb(v, i(1), i(6), i(11), i(12));
-  a2_gb(v, i(2), i(7), i(8), i(13));
-  a2_gb(v, i(3), i(4), i(9), i(14));
+  return Math.round((x * y - (Math.imul(x, y) >>> 0)) / 0x100000000);
 }
 
 // Scratch for every G call; Argon2 runs synchronously, so no two calls share them at once.
 const A2_R = new Uint32Array(A2_HALVES_PER_BLOCK);
 const A2_TMP = new Uint32Array(A2_HALVES_PER_BLOCK);
 
-// G (RFC 9106 §3.5): next = (with_xor?next:0) XOR R XOR P_columns(P_rows(R)), where R=ref XOR prev.
+/** GB, the modified BLAKE2b mixing function with multiplications (RFC 9106 §3.6), on the words of
+A2_R at a, b, c, d. Each word's halves stay in locals, read and written once; each x + y +
+2 * lo32(x) * lo32(y) step takes the product's high half as a2_mulHi does, reusing its low half p. */
+function a2_gb(a: number, b: number, c: number, d: number): void {
+  const v = A2_R;
+  let al = v[a] as number;
+  let ah = v[a + 1] as number;
+  let bl = v[b] as number;
+  let bh = v[b + 1] as number;
+  let cl = v[c] as number;
+  let ch = v[c + 1] as number;
+  let dl = v[d] as number;
+  let dh = v[d + 1] as number;
+  let p: number;
+  let s: number;
+  let xl: number;
+  let xh: number;
+
+  p = Math.imul(al, bl) >>> 0; // a = a + b + 2 * lo32(a) * lo32(b)
+  s = al + bl + ((p << 1) >>> 0);
+  ah =
+    (ah +
+      bh +
+      (((Math.round((al * bl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  al = s >>> 0;
+  xl = (dl ^ al) >>> 0; // d = rotr64(d ^ a, 32)
+  dl = (dh ^ ah) >>> 0;
+  dh = xl;
+
+  p = Math.imul(cl, dl) >>> 0; // c = c + d + 2 * lo32(c) * lo32(d)
+  s = cl + dl + ((p << 1) >>> 0);
+  ch =
+    (ch +
+      dh +
+      (((Math.round((cl * dl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  cl = s >>> 0;
+  xl = (bl ^ cl) >>> 0; // b = rotr64(b ^ c, 24)
+  xh = (bh ^ ch) >>> 0;
+  bl = ((xl >>> 24) | (xh << 8)) >>> 0;
+  bh = ((xh >>> 24) | (xl << 8)) >>> 0;
+
+  p = Math.imul(al, bl) >>> 0; // a = a + b + 2 * lo32(a) * lo32(b)
+  s = al + bl + ((p << 1) >>> 0);
+  ah =
+    (ah +
+      bh +
+      (((Math.round((al * bl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  al = s >>> 0;
+  xl = (dl ^ al) >>> 0; // d = rotr64(d ^ a, 16)
+  xh = (dh ^ ah) >>> 0;
+  dl = ((xl >>> 16) | (xh << 16)) >>> 0;
+  dh = ((xh >>> 16) | (xl << 16)) >>> 0;
+
+  p = Math.imul(cl, dl) >>> 0; // c = c + d + 2 * lo32(c) * lo32(d)
+  s = cl + dl + ((p << 1) >>> 0);
+  ch =
+    (ch +
+      dh +
+      (((Math.round((cl * dl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  cl = s >>> 0;
+  xl = (bl ^ cl) >>> 0; // b = rotr64(b ^ c, 63)
+  xh = (bh ^ ch) >>> 0;
+  bl = ((xh >>> 31) | (xl << 1)) >>> 0;
+  bh = ((xl >>> 31) | (xh << 1)) >>> 0;
+
+  v[a] = al;
+  v[a + 1] = ah;
+  v[b] = bl;
+  v[b + 1] = bh;
+  v[c] = cl;
+  v[c + 1] = ch;
+  v[d] = dl;
+  v[d + 1] = dh;
+}
+
+// Permutation P on the 16 words of A2_R whose low halves sit at w0..w15 (RFC 9106, Section 3.6).
+function a2_permute(
+  w0: number,
+  w1: number,
+  w2: number,
+  w3: number,
+  w4: number,
+  w5: number,
+  w6: number,
+  w7: number,
+  w8: number,
+  w9: number,
+  w10: number,
+  w11: number,
+  w12: number,
+  w13: number,
+  w14: number,
+  w15: number,
+): void {
+  a2_gb(w0, w4, w8, w12);
+  a2_gb(w1, w5, w9, w13);
+  a2_gb(w2, w6, w10, w14);
+  a2_gb(w3, w7, w11, w15);
+  a2_gb(w0, w5, w10, w15);
+  a2_gb(w1, w6, w11, w12);
+  a2_gb(w2, w7, w8, w13);
+  a2_gb(w3, w4, w9, w14);
+}
+
+/** G (RFC 9106 §3.5) on the blocks of m starting at prev, ref and next: next = (with_xor?next:0)
+XOR R XOR P_columns(P_rows(R)), where R=ref XOR prev. The block is an 8x8 matrix of 16-byte
+registers; a row is 16 consecutive words, a column 8 word pairs one row apart. */
 function a2_fillBlock(
-  prev: Uint32Array,
-  ref: Uint32Array,
-  next: Uint32Array,
+  m: Uint32Array,
+  prev: number,
+  ref: number,
+  next: number,
   withXor: boolean,
 ): void {
+  const keep = withXor ? 0xffffffff : 0; // how much of next's old content XORs in
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-    const r = ((ref[k] as number) ^ (prev[k] as number)) >>> 0;
+    const r = ((m[ref + k] as number) ^ (m[prev + k] as number)) >>> 0;
     A2_R[k] = r;
-    A2_TMP[k] = withXor ? (r ^ (next[k] as number)) >>> 0 : r;
+    A2_TMP[k] = (r ^ ((m[next + k] as number) & keep)) >>> 0;
   }
-  for (let i = 0; i < 8; i++) {
-    a2_permute(A2_R, A2_ROWS[i] as number[]);
+  for (let b = 0; b < A2_HALVES_PER_BLOCK; b += 32) {
+    a2_permute(
+      b,
+      b + 2,
+      b + 4,
+      b + 6,
+      b + 8,
+      b + 10,
+      b + 12,
+      b + 14,
+      b + 16,
+      b + 18,
+      b + 20,
+      b + 22,
+      b + 24,
+      b + 26,
+      b + 28,
+      b + 30,
+    );
   }
-  for (let i = 0; i < 8; i++) {
-    a2_permute(A2_R, A2_COLS[i] as number[]);
+  for (let c = 0; c < 32; c += 4) {
+    a2_permute(
+      c,
+      c + 2,
+      c + 32,
+      c + 34,
+      c + 64,
+      c + 66,
+      c + 96,
+      c + 98,
+      c + 128,
+      c + 130,
+      c + 160,
+      c + 162,
+      c + 192,
+      c + 194,
+      c + 224,
+      c + 226,
+    );
   }
   for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-    next[k] = ((A2_TMP[k] as number) ^ (A2_R[k] as number)) >>> 0;
+    m[next + k] = ((A2_TMP[k] as number) ^ (A2_R[k] as number)) >>> 0;
   }
 }
 
@@ -280,40 +354,40 @@ export function argon2Core(params: CoreParams): Uint8Array {
   const columns = memoryBlocks / lanes;
   const segmentLength = columns / A2_SYNC_POINTS;
   const store = new Uint32Array(memoryBlocks * A2_HALVES_PER_BLOCK);
-
-  const block = (lane: number, col: number): Uint32Array => {
-    const start = (lane * columns + col) * A2_HALVES_PER_BLOCK;
-    return store.subarray(start, start + A2_HALVES_PER_BLOCK);
-  };
+  const at = (lane: number, col: number): number => (lane * columns + col) * A2_HALVES_PER_BLOCK;
 
   // Steps 3-4: first two columns of each lane.
   for (let lane = 0; lane < lanes; lane++) {
-    a2_bytesToBlock(a2_hPrime(1024, a2_concatBytes(h0, a2_le32(0), a2_le32(lane))), block(lane, 0));
-    a2_bytesToBlock(a2_hPrime(1024, a2_concatBytes(h0, a2_le32(1), a2_le32(lane))), block(lane, 1));
+    a2_bytesToBlock(
+      a2_hPrime(1024, a2_concatBytes(h0, a2_le32(0), a2_le32(lane))),
+      store,
+      at(lane, 0),
+    );
+    a2_bytesToBlock(
+      a2_hPrime(1024, a2_concatBytes(h0, a2_le32(1), a2_le32(lane))),
+      store,
+      at(lane, 1),
+    );
   }
-
-  const zeroBlock = new Uint32Array(A2_HALVES_PER_BLOCK);
 
   const fillSegment = (pass: number, slice: number, lane: number): void => {
     const dataIndependent = type === ARGON2_ID && pass === 0 && slice < A2_SYNC_POINTS / 2;
 
-    let addressBlock = zeroBlock;
-    let inputBlock = zeroBlock;
+    // The zero, input and address blocks of data-independent addressing (RFC 9106 §3.4.1.2).
+    const addressing = new Uint32Array(dataIndependent ? 3 * A2_HALVES_PER_BLOCK : 0);
     const nextAddresses = (): void => {
-      inputBlock[12] = (inputBlock[12] as number) + 1; // word 6, the counter
-      a2_fillBlock(zeroBlock, inputBlock, addressBlock, false);
-      a2_fillBlock(zeroBlock, addressBlock, addressBlock, false);
+      addressing[A2_INPUT + 12] = (addressing[A2_INPUT + 12] as number) + 1; // word 6, the counter
+      a2_fillBlock(addressing, A2_ZERO, A2_INPUT, A2_ADDRESS, false);
+      a2_fillBlock(addressing, A2_ZERO, A2_ADDRESS, A2_ADDRESS, false);
     };
 
     if (dataIndependent) {
-      addressBlock = new Uint32Array(A2_HALVES_PER_BLOCK);
-      inputBlock = new Uint32Array(A2_HALVES_PER_BLOCK);
-      inputBlock[0] = pass;
-      inputBlock[2] = lane;
-      inputBlock[4] = slice;
-      inputBlock[6] = memoryBlocks;
-      inputBlock[8] = passes;
-      inputBlock[10] = type;
+      addressing[A2_INPUT] = pass;
+      addressing[A2_INPUT + 2] = lane;
+      addressing[A2_INPUT + 4] = slice;
+      addressing[A2_INPUT + 6] = memoryBlocks;
+      addressing[A2_INPUT + 8] = passes;
+      addressing[A2_INPUT + 10] = type;
     }
 
     let startIndex = 0;
@@ -330,19 +404,19 @@ export function argon2Core(params: CoreParams): Uint8Array {
 
       // J1 and J2 (RFC 9106 §3.4.1) are the low and high halves of a 64-bit word.
       let source: Uint32Array;
-      let at: number;
+      let word: number;
       if (dataIndependent) {
         if (index % A2_ADDRESSES_PER_BLOCK === 0) {
           nextAddresses();
         }
-        source = addressBlock;
-        at = 2 * (index % A2_ADDRESSES_PER_BLOCK);
+        source = addressing;
+        word = A2_ADDRESS + 2 * (index % A2_ADDRESSES_PER_BLOCK);
       } else {
-        source = block(lane, prevCol);
-        at = 0;
+        source = store;
+        word = at(lane, prevCol);
       }
-      const j1 = source[at] as number;
-      const j2 = source[at + 1] as number;
+      const j1 = source[word] as number;
+      const j2 = source[word + 1] as number;
 
       let refLane = j2 % lanes;
       if (pass === 0 && slice === 0) {
@@ -360,7 +434,7 @@ export function argon2Core(params: CoreParams): Uint8Array {
       );
 
       const withXor = version !== ARGON2_VERSION_10 && pass > 0;
-      a2_fillBlock(block(lane, prevCol), block(refLane, refIndex), block(lane, col), withXor);
+      a2_fillBlock(store, at(lane, prevCol), at(refLane, refIndex), at(lane, col), withXor);
     }
   };
 
@@ -376,9 +450,9 @@ export function argon2Core(params: CoreParams): Uint8Array {
   // Step 7: final block C is the XOR of the last column across lanes.
   const c = new Uint32Array(A2_HALVES_PER_BLOCK);
   for (let lane = 0; lane < lanes; lane++) {
-    const last = block(lane, columns - 1);
+    const last = at(lane, columns - 1);
     for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
-      c[k] = ((c[k] as number) ^ (last[k] as number)) >>> 0;
+      c[k] = ((c[k] as number) ^ (store[last + k] as number)) >>> 0;
     }
   }
 
