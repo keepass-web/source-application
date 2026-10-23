@@ -244,6 +244,7 @@ class CC_KeystreamCipher {
     let i = 0;
     for (const byte of data) {
       if (this.#position === CC_BLOCK_BYTES) {
+        this.#buffer.fill(0); // a spent keystream block is zeroed, not left behind (#145)
         this.#buffer = this.#block(this.#counter);
         this.#counter += 1;
         this.#position = 0;
@@ -259,6 +260,12 @@ class CC_KeystreamCipher {
     }
     return out;
   }
+
+  // Zero the buffered keystream; the next call starts a fresh block.
+  wipe(): void {
+    this.#buffer.fill(0);
+    this.#position = CC_BLOCK_BYTES;
+  }
 }
 
 /**
@@ -269,19 +276,24 @@ class CC_KeystreamCipher {
  * inner random stream and for chunked payload (de)cryption.
  */
 export class ChaCha20 {
+  #key: Uint8Array;
+  #nonce: Uint8Array;
   #cipher: CC_KeystreamCipher;
 
   /**
-   * @param key 32-byte key.
-   * @param nonce 12-byte nonce.
+   * @param key 32-byte key, copied.
+   * @param nonce 12-byte nonce, copied.
    * @param counter Initial 32-bit block counter (default 0).
    */
   constructor(key: Uint8Array, nonce: Uint8Array, counter = 0) {
     cc_assertLength(key, CC_KEY_BYTES, 'key');
     cc_assertLength(nonce, CC_CHACHA_NONCE_BYTES, 'nonce');
-    const k = key.slice();
-    const n = nonce.slice();
-    this.#cipher = new CC_KeystreamCipher((c) => chacha20Block(k, n, c), counter >>> 0);
+    this.#key = key.slice();
+    this.#nonce = nonce.slice();
+    this.#cipher = new CC_KeystreamCipher(
+      (c) => chacha20Block(this.#key, this.#nonce, c),
+      counter >>> 0,
+    );
   }
 
   encrypt(data: Uint8Array): Uint8Array {
@@ -290,6 +302,13 @@ export class ChaCha20 {
 
   decrypt(data: Uint8Array): Uint8Array {
     return this.#cipher.process(data);
+  }
+
+  // Zero the key copy and buffered keystream once the cipher is done with (#145).
+  wipe(): void {
+    this.#key.fill(0);
+    this.#nonce.fill(0);
+    this.#cipher.wipe();
   }
 }
 
@@ -300,19 +319,21 @@ export class ChaCha20 {
  * XORed against one running Salsa20 keystream in document order.
  */
 export class Salsa20 {
+  #key: Uint8Array;
+  #nonce: Uint8Array;
   #cipher: CC_KeystreamCipher;
 
   /**
-   * @param key 32-byte key.
-   * @param nonce 8-byte nonce.
+   * @param key 32-byte key, copied.
+   * @param nonce 8-byte nonce, copied.
    * @param counter Initial 64-bit block counter (default 0).
    */
   constructor(key: Uint8Array, nonce: Uint8Array, counter = 0) {
     cc_assertLength(key, CC_KEY_BYTES, 'key');
     cc_assertLength(nonce, CC_SALSA_NONCE_BYTES, 'nonce');
-    const k = key.slice();
-    const n = nonce.slice();
-    this.#cipher = new CC_KeystreamCipher((c) => salsa20Block(k, n, c), counter);
+    this.#key = key.slice();
+    this.#nonce = nonce.slice();
+    this.#cipher = new CC_KeystreamCipher((c) => salsa20Block(this.#key, this.#nonce, c), counter);
   }
 
   encrypt(data: Uint8Array): Uint8Array {
@@ -321,6 +342,13 @@ export class Salsa20 {
 
   decrypt(data: Uint8Array): Uint8Array {
     return this.#cipher.process(data);
+  }
+
+  // Zero the key copy and buffered keystream once the cipher is done with (#145).
+  wipe(): void {
+    this.#key.fill(0);
+    this.#nonce.fill(0);
+    this.#cipher.wipe();
   }
 }
 
@@ -334,7 +362,12 @@ export function chacha20(
   data: Uint8Array,
   counter = 0,
 ): Uint8Array {
-  return new ChaCha20(key, nonce, counter).encrypt(data);
+  const cipher = new ChaCha20(key, nonce, counter);
+  try {
+    return cipher.encrypt(data);
+  } finally {
+    cipher.wipe();
+  }
 }
 
 /**
@@ -347,5 +380,10 @@ export function salsa20(
   data: Uint8Array,
   counter = 0,
 ): Uint8Array {
-  return new Salsa20(key, nonce, counter).encrypt(data);
+  const cipher = new Salsa20(key, nonce, counter);
+  try {
+    return cipher.encrypt(data);
+  } finally {
+    cipher.wipe();
+  }
 }

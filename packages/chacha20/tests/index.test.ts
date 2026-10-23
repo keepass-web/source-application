@@ -196,3 +196,47 @@ test('rejects keys and nonces of the wrong length', () => {
   assert.throws(() => new ChaCha20(ZERO_KEY, new Uint8Array(8)), RangeError);
   assert.throws(() => new Salsa20(ZERO_KEY, new Uint8Array(12)), RangeError);
 });
+
+test("wipe zeroes a cipher's own key and nonce, never the caller's (#145)", () => {
+  // After wipe, the cipher's copies are all zeros, so its next block is the
+  // zero-key, zero-nonce keystream at the same counter.
+  const key = new Uint8Array(32).map((_, i) => i + 1);
+  const chachaNonce = new Uint8Array(12).map((_, i) => i + 7);
+  const salsaNonce = new Uint8Array(8).map((_, i) => i + 9);
+
+  const chacha = new ChaCha20(key, chachaNonce);
+  chacha.wipe();
+  assert.deepEqual(
+    chacha.encrypt(new Uint8Array(64)),
+    chacha20Block(new Uint8Array(32), new Uint8Array(12), 0),
+  );
+
+  const salsa = new Salsa20(key, salsaNonce);
+  salsa.wipe();
+  assert.deepEqual(
+    salsa.encrypt(new Uint8Array(64)),
+    salsa20Block(new Uint8Array(32), new Uint8Array(8), 0),
+  );
+
+  assert.deepEqual(
+    key,
+    new Uint8Array(32).map((_, i) => i + 1),
+  );
+  assert.deepEqual(
+    chachaNonce,
+    new Uint8Array(12).map((_, i) => i + 7),
+  );
+  assert.deepEqual(
+    salsaNonce,
+    new Uint8Array(8).map((_, i) => i + 9),
+  );
+});
+
+test("the one-shot helpers leave the caller's key and data as they were (#145)", () => {
+  const key = new Uint8Array(32).fill(3);
+  const data = new Uint8Array(100).fill(5);
+  chacha20(key, new Uint8Array(12), data);
+  salsa20(key, new Uint8Array(8), data);
+  assert.deepEqual(key, new Uint8Array(32).fill(3));
+  assert.deepEqual(data, new Uint8Array(100).fill(5));
+});
