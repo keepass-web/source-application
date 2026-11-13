@@ -277,6 +277,25 @@ interface EditedField {
 declare function applyEntryEdits(entry: XmlElement, fields: EditedField[]): void;
 declare function duplicateName(names: string[]): string | null;
 declare function isCustomField(key: string): boolean;
+declare function entryUuid(entry: XmlElement): string;
+
+interface LockedForm {
+  fields: EditedField[];
+  iconId: number | null;
+  tags: string;
+  expires: boolean;
+  expiry: string;
+  attachments: Array<EntryAttachment | { name: string; data: Uint8Array }>;
+}
+
+interface LockedEdit {
+  uuid: string;
+  isNew: boolean;
+  form: LockedForm | null;
+}
+
+declare function holdLockedEdit(document: XmlElement, edit: LockedEdit): void;
+declare function takeLockedEdit(document: XmlElement): LockedEdit | null;
 declare function unlockAttempts(password: string, keyFile: Uint8Array | null): CredentialsInput[];
 declare function openableUrl(raw: string): string | null;
 declare function isValidClipboardTimeout(seconds: number): boolean;

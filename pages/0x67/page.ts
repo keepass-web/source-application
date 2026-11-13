@@ -100,6 +100,7 @@ function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
   tableRows = new WeakMap();
+  editInProgress = null;
   root.appendChild(fragment);
 }
 
@@ -367,7 +368,9 @@ function showUnlock(relocking = false): void {
       app.currentGroup = must(app.db).getRootGroup();
       app.searchQuery = '';
       setDirty(relocking && app.dirty);
-      showEntryList();
+      const edit = relocking && editLocked ? takeLockedEdit(must(app.db).root) : null;
+      if (edit) resumeEdit(edit);
+      else showEntryList();
       armIdleWatch();
       if (notice) showNotice(notice);
     } catch (err) {
@@ -1148,6 +1151,7 @@ away (#64). */
 let lastActivity = 0;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let locking = false; // re-encrypting, with the page about to give way to the unlock screen (#84)
+let editLocked = false; // the last lock carried an open edit screen inside the database (#185)
 
 function curtain(): HTMLDialogElement {
   return byId<HTMLDialogElement>('dlg-curtain');
@@ -1193,15 +1197,21 @@ function handleVisibilityChange(): void {
 }
 
 /** Re-encrypts the current in-memory state (including anything not yet
-saved) rather than reloading the original file, so locking never loses an
-edit on its own — only choosing to discard at the prompt above does that. */
+saved, and an open edit screen (#185)) rather than reloading the original file,
+so locking never loses an edit on its own — only choosing to discard at the
+prompt above does that. */
 async function lockDatabase(): Promise<void> {
   if (locking) return;
   locking = true;
   clearTimeout(idleTimer);
   clearClipboardNow(); // a copied secret must not outlast the lock (#88)
   try {
-    const bytes = await must(app.db).save();
+    const db = must(app.db);
+    const edit = editInProgress?.();
+    if (edit) holdLockedEdit(db.root, edit);
+    // The open database never keeps it, even when the save fails (#185).
+    const bytes = await db.save().finally(() => takeLockedEdit(db.root));
+    editLocked = edit !== undefined;
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
     forgetCopiedIfGone(); // one a copy marked while the lock re-encrypted
@@ -1600,7 +1610,9 @@ function renderDetailHistory(db: Kdbx, entry: XmlElement, container: HTMLElement
 // A picked file stays bytes until Save adds it to the database (#109).
 type EditAttachment = EntryAttachment | { name: string; data: Uint8Array };
 
-function showEntryEdit(isNew: boolean): void {
+let editInProgress: (() => LockedEdit) | null = null; // reads the open edit screen for a lock (#185)
+
+function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
   document.body.classList.remove('app-mode');
   setRoot(cloneTemplate('tpl-entry-edit'));
 
@@ -1651,7 +1663,6 @@ function showEntryEdit(isNew: boolean): void {
     const isProtected = getAttribute(valueEl, 'Protected') === 'True';
     fieldsEl.appendChild(buildEditField(key, value, isProtected, isCustomField(key)));
   }
-  if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
 
   qs('[data-action="add-field"]').addEventListener('click', () => {
     fieldsEl.appendChild(buildEditField('', '', false, true));
@@ -1695,6 +1706,47 @@ function showEntryEdit(isNew: boolean): void {
       attachments.map((held) => [held.name, 'data' in held ? -1 : held.ref]),
     ]);
   const untouched = formState();
+
+  // A form a lock carried goes over the entry as stored, so Save still sees what changed (#185).
+  if (held) {
+    fieldsEl.replaceChildren(
+      ...held.fields.map((field) =>
+        buildEditField(field.key, field.value, field.protect, isCustomField(field.key)),
+      ),
+    );
+    if (held.iconId !== null) {
+      pickedIconId = held.iconId;
+      iconBtn.replaceChildren(icon(iconName(String(held.iconId))));
+    }
+    qs<HTMLInputElement>('#edit-tags').value = held.tags;
+    expiresCheckbox.checked = held.expires;
+    expiryInput.disabled = !held.expires;
+    expiryInput.value = held.expiry;
+    attachments.splice(0, attachments.length, ...held.attachments);
+    renderEditAttachments(attachments, attachmentsList);
+  }
+  if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
+
+  editInProgress = () => ({
+    uuid: entryUuid(entry),
+    isNew,
+    form:
+      formState() === untouched
+        ? null
+        : {
+            fields: editedFields(fieldsEl),
+            iconId: pickedIconId ?? null,
+            tags: qs<HTMLInputElement>('#edit-tags').value,
+            expires: expiresCheckbox.checked,
+            expiry: expiryInput.value,
+            // A save renumbers stored attachments, so they travel as bytes; a stale one has none.
+            attachments: attachments.map((attachment) => {
+              const data =
+                'data' in attachment ? attachment.data : must(app.db).getBinaryData(attachment.ref);
+              return data ? { name: attachment.name, data } : attachment;
+            }),
+          },
+  });
 
   qs('[data-action="save"]').addEventListener('click', () => {
     if (!isNew && formState() === untouched) {
@@ -1840,6 +1892,33 @@ function nameClash(
   return must(inputs[names.lastIndexOf(duplicate)]);
 }
 
+function editedFields(fieldsEl: HTMLElement): EditedField[] {
+  return Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field'), (row) => ({
+    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
+    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
+    protect: row.dataset.protected === '1',
+  }));
+}
+
+// Reopens the edit screen a lock carried; a new entry takes it if a merge removed the old (#185).
+function resumeEdit(edit: LockedEdit): void {
+  publishTitle();
+  const rootGroup = must(app.db).getRootGroup();
+  const found = collectAllEntries(rootGroup).find(({ entry }) => entryUuid(entry) === edit.uuid);
+  if (found) {
+    app.currentGroup = found.group;
+    app.currentEntry = found.entry;
+    showEntryEdit(edit.isNew, edit.form);
+  } else if (edit.form) {
+    app.currentEntry = createEntry({});
+    appendChild(rootGroup, app.currentEntry);
+    setDirty(true);
+    showEntryEdit(true, edit.form);
+  } else {
+    showEntryList();
+  }
+}
+
 function commitEdits(
   entry: XmlElement,
   fieldsEl: HTMLElement,
@@ -1848,12 +1927,7 @@ function commitEdits(
   attachments: EditAttachment[],
 ): void {
   const db = must(app.db);
-  const rows = Array.from(fieldsEl.querySelectorAll<HTMLElement>('.edit-field'));
-  const fields = rows.map((row) => ({
-    key: must(row.querySelector<HTMLInputElement>('.edit-key')).value.trim(),
-    value: must(row.querySelector<HTMLInputElement | HTMLTextAreaElement>('.edit-value')).value,
-    protect: row.dataset.protected === '1',
-  }));
+  const fields = editedFields(fieldsEl);
   const fieldClash = nameClash(
     'field',
     fields.map((field) => field.key),
@@ -2612,7 +2686,8 @@ async function opens(bytes: Uint8Array, attempts: Credentials[]): Promise<boolea
 }
 
 /** Open the version saved elsewhere while this tab was locked. With nothing
-unsaved here it replaces this copy; with unsaved edits the two are merged by
+unsaved here it replaces this copy (merging in, to keep an open edit screen the
+lock carried (#185)); with unsaved edits the two are merged by
 KeePass's rules and the result left unsaved to review. Throws what the unlock
 screen should say when these credentials can't do either. */
 async function openNewer(
@@ -2621,7 +2696,11 @@ async function openNewer(
 ): Promise<Notice> {
   const bytes = new Uint8Array(newer.bytes);
   const when = savedWhen(newer.savedAt);
-  if (!app.dirty) {
+  const opened: Notice = {
+    title: 'Opened the newer version',
+    message: `This database was saved elsewhere${when}, so that version is open now.`,
+  };
+  if (!app.dirty && !editLocked) {
     try {
       app.db = await loadWithAny(bytes, attempts);
     } catch {
@@ -2629,10 +2708,7 @@ async function openNewer(
     }
     app.file = newer.bytes;
     app.baseVersion = newer.version;
-    return {
-      title: 'Opened the newer version',
-      message: `This database was saved elsewhere${when}, so that version is open now.`,
-    };
+    return opened;
   }
 
   let db: Kdbx;
@@ -2650,7 +2726,7 @@ async function openNewer(
   try {
     const summary = await db.mergeIn(bytes);
     app.baseVersion = newer.version;
-    return mergeNotice(summary, newer.savedAt);
+    return app.dirty ? mergeNotice(summary, newer.savedAt) : opened;
   } catch {
     return {
       title: 'Could not merge',

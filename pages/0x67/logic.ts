@@ -6,10 +6,12 @@ Imports kdbx's model.ts/xml.ts directly, not the index.ts barrel, to
 sidestep a latent bug: kdbx.ts's own chacha20 import resolves relative to
 source, not build, and breaks when actually run from build output. */
 
+import { fromBase64, toBase64 } from '../../build/packages/kdbx/src/bytes.js';
 import type { CredentialsInput } from '../../build/packages/kdbx/src/credentials.js';
 import {
   appendChild,
   createElement,
+  type EntryAttachment,
   getAttribute,
   getChild,
   getChildren,
@@ -350,6 +352,84 @@ export const STANDARD_FIELD_NAMES = ['Title', 'UserName', 'Password', 'URL', 'No
 
 export function isCustomField(key: string): boolean {
   return !STANDARD_FIELD_NAMES.includes(key);
+}
+
+function childText(element: XmlElement, name: string): string {
+  const child = getChild(element, name);
+  return child ? getText(child) : '';
+}
+
+// An entry's UUID, or '' for one a malformed file left without.
+export function entryUuid(entry: XmlElement): string {
+  return childText(entry, 'UUID');
+}
+
+// The edit screen a lock closed over; form is null when nothing on it had changed (#185).
+export interface LockedEdit {
+  uuid: string;
+  isNew: boolean;
+  form: LockedForm | null;
+}
+
+export interface LockedForm {
+  fields: EditedField[];
+  iconId: number | null;
+  tags: string;
+  expires: boolean;
+  expiry: string;
+  attachments: Array<EntryAttachment | { name: string; data: Uint8Array }>;
+}
+
+type StoredAttachment = EntryAttachment | { name: string; data: string };
+type StoredEdit = Omit<LockedEdit, 'form'> & {
+  form: (Omit<LockedForm, 'attachments'> & { attachments: StoredAttachment[] }) | null;
+};
+
+/* Meta's CustomData is where KDBX keeps an app's own data. A lock puts the edit there just
+before it encrypts, and unlocking takes it straight back out, so no saved file holds it (#185). */
+const LOCKED_EDIT_KEY = 'KeePassWeb_LockedEdit';
+
+export function holdLockedEdit(document: XmlElement, edit: LockedEdit): void {
+  const meta = getChild(document, 'Meta');
+  if (!meta) return; // nowhere to carry it, and the lock goes ahead regardless
+  let customData = getChild(meta, 'CustomData');
+  if (!customData) {
+    customData = createElement('CustomData');
+    appendChild(meta, customData);
+  }
+  const stored: StoredEdit = {
+    ...edit,
+    form: edit.form && {
+      ...edit.form,
+      attachments: edit.form.attachments.map((held) =>
+        'data' in held ? { name: held.name, data: toBase64(held.data) } : held,
+      ),
+    },
+  };
+  const item = createElement('Item');
+  appendChild(item, createElement('Key', LOCKED_EDIT_KEY));
+  appendChild(item, createElement('Value', JSON.stringify(stored)));
+  appendChild(customData, item);
+}
+
+export function takeLockedEdit(document: XmlElement): LockedEdit | null {
+  const meta = getChild(document, 'Meta');
+  const customData = meta && getChild(meta, 'CustomData');
+  const item =
+    customData &&
+    getChildren(customData, 'Item').find((each) => childText(each, 'Key') === LOCKED_EDIT_KEY);
+  if (!customData || !item) return null;
+  customData.children = customData.children.filter((child) => child !== item);
+  const stored = JSON.parse(childText(item, 'Value')) as StoredEdit;
+  return {
+    ...stored,
+    form: stored.form && {
+      ...stored.form,
+      attachments: stored.form.attachments.map((held) =>
+        'data' in held ? { name: held.name, data: fromBase64(held.data) } : held,
+      ),
+    },
+  };
 }
 
 /** The credentials to try, in order, for what the unlock form holds. An empty
