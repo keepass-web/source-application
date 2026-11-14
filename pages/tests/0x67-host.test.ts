@@ -1686,6 +1686,10 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
   await t.test(
     'an untouched edit screen whose entry was removed elsewhere leaves the list (#185)',
     async () => {
+      // Something unsaved besides the form, so the newer version is merged in, not opened in place.
+      await editUnsaved();
+      click(q('[data-action="back"]'));
+      click(q('[data-action="view-tile"]'));
       editEntry('Meanwhile');
       checkAnswer = newer(await savedOver(removedThere('Meanwhile')), 'rev-17', LATER);
       await lockNow();
