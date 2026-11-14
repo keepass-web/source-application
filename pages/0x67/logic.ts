@@ -412,24 +412,31 @@ export function holdLockedEdit(document: XmlElement, edit: LockedEdit): void {
   appendChild(customData, item);
 }
 
+// Removes every locked edit this database holds and returns the first, or null if none reads back.
 export function takeLockedEdit(document: XmlElement): LockedEdit | null {
   const meta = getChild(document, 'Meta');
   const customData = meta && getChild(meta, 'CustomData');
-  const item =
-    customData &&
-    getChildren(customData, 'Item').find((each) => childText(each, 'Key') === LOCKED_EDIT_KEY);
-  if (!customData || !item) return null;
-  customData.children = customData.children.filter((child) => child !== item);
-  const stored = JSON.parse(childText(item, 'Value')) as StoredEdit;
-  return {
-    ...stored,
-    form: stored.form && {
-      ...stored.form,
-      attachments: stored.form.attachments.map((held) =>
-        'data' in held ? { name: held.name, data: fromBase64(held.data) } : held,
-      ),
-    },
-  };
+  if (!customData) return null;
+  const items = getChildren(customData, 'Item').filter(
+    (item) => childText(item, 'Key') === LOCKED_EDIT_KEY,
+  );
+  customData.children = customData.children.filter((child) => !items.includes(child as XmlElement));
+  const [item] = items;
+  if (!item) return null;
+  try {
+    const stored = JSON.parse(childText(item, 'Value')) as StoredEdit;
+    return {
+      ...stored,
+      form: stored.form && {
+        ...stored.form,
+        attachments: stored.form.attachments.map((held) =>
+          'data' in held ? { name: held.name, data: fromBase64(held.data) } : held,
+        ),
+      },
+    };
+  } catch {
+    return null; // a damaged one is dropped, never in the way of an unlock
+  }
 }
 
 /** The credentials to try, in order, for what the unlock form holds. An empty

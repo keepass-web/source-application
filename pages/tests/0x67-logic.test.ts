@@ -752,6 +752,23 @@ test("a locked edit leaves other apps' CustomData items where they are", () => {
   assert.ok(first === other && second === keyless && rest.length === 0, 'the others untouched');
 });
 
+test('taking a locked edit removes every copy, and a damaged one reads back as none', () => {
+  const document = createDatabaseDocument('Vault');
+  holdLockedEdit(document, { uuid: 'first', isNew: false, form: null });
+  holdLockedEdit(document, { uuid: 'second', isNew: false, form: null });
+  const meta = getChild(document, 'Meta') as XmlElement;
+  const customData = getChild(meta, 'CustomData') as XmlElement;
+  assert.deepEqual(takeLockedEdit(document), { uuid: 'first', isNew: false, form: null });
+  assert.equal(getChildren(customData, 'Item').length, 0, 'the second went with it');
+
+  const damaged = createElement('Item');
+  appendChild(damaged, createElement('Key', 'KeePassWeb_LockedEdit'));
+  appendChild(damaged, createElement('Value', '{"form": {"attachments": 7}}'));
+  appendChild(customData, damaged);
+  assert.equal(takeLockedEdit(document), null, 'unreadable, so nothing comes back');
+  assert.equal(getChildren(customData, 'Item').length, 0, 'and it is gone all the same');
+});
+
 test('a database with no Meta has nowhere to carry a locked edit, and holds none', () => {
   const document = createElement('KeePassFile');
   holdLockedEdit(document, { uuid: 'abc', isNew: false, form: null });

@@ -2434,6 +2434,77 @@ test('a lock over the edit screen carries it, and unlocking brings it back as le
   click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
 });
 
+test('an edit held in a file opened fresh is dropped, not brought back or saved again (#185)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Held elsewhere' });
+  appendChild(kdbx.getRootGroup(), entry);
+  // Only a bug could put one in a file, but one that got there must not live on.
+  logic.holdLockedEdit(kdbx.root, {
+    uuid: logic.entryUuid(entry),
+    isNew: false,
+    form: {
+      fields: [{ key: 'Title', value: 'typed somewhere', protect: false }],
+      iconId: null,
+      tags: '',
+      expires: false,
+      expiry: '',
+      attachments: [],
+    },
+  });
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('held-elsewhere.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => q('#search-input') !== null);
+  assert.equal(q('.screen-edit'), null, 'the list, not an edit screen');
+
+  // Something to save, so the file can be written back.
+  click(q('[data-action="add-entry"]'));
+  click(q('[data-action="cancel"]'));
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(q('[data-action="save-database"]'));
+    click(dq('#dlg-save [data-action="download"]'));
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    credentials,
+  );
+  assert.equal(logic.takeLockedEdit(saved.root), null, 'gone from the saved file');
+  assert.equal(
+    logic.entryTitle(getChildren(saved.getRootGroup(), 'Entry')[0] as XmlElement),
+    'Held elsewhere',
+  );
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
 // ============================================================
 // Edge cases: closing genuinely reachable defensive branches
 // ============================================================

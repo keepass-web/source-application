@@ -368,7 +368,9 @@ function showUnlock(relocking = false): void {
       app.currentGroup = must(app.db).getRootGroup();
       app.searchQuery = '';
       setDirty(relocking && app.dirty);
-      const edit = relocking && editLocked ? takeLockedEdit(must(app.db).root) : null;
+      // Each open strips any held edit, so none is saved; only this tab's own returns (#185).
+      const held = takeLockedEdit(must(app.db).root);
+      const edit = relocking && editLocked ? held : null;
       if (edit) resumeEdit(edit);
       else showEntryList();
       armIdleWatch();
