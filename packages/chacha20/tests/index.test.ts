@@ -197,26 +197,35 @@ test('rejects keys and nonces of the wrong length', () => {
   assert.throws(() => new Salsa20(ZERO_KEY, new Uint8Array(12)), RangeError);
 });
 
-test("wipe zeroes a cipher's own key and nonce, never the caller's (#145)", () => {
-  // After wipe, the cipher's copies are all zeros, so its next block is the
-  // zero-key, zero-nonce keystream at the same counter.
+test("wipe zeroes a cipher's own key, nonce and keystream, never the caller's, then refuses to run (#145)", (t) => {
   const key = new Uint8Array(32).map((_, i) => i + 1);
   const chachaNonce = new Uint8Array(12).map((_, i) => i + 7);
   const salsaNonce = new Uint8Array(8).map((_, i) => i + 9);
-
   const chacha = new ChaCha20(key, chachaNonce);
+  const salsa = new Salsa20(key, salsaNonce);
+
+  // The copies are private, so the zeroing is seen as the fill(0) calls wipe() makes.
+  const fills = t.mock.method(Uint8Array.prototype, 'fill');
   chacha.wipe();
+  salsa.wipe();
+  const zeroed = fills.mock.calls
+    .filter((call) => call.arguments[0] === 0)
+    .map((call) => call.this as Uint8Array);
+  fills.mock.restore();
   assert.deepEqual(
-    chacha.encrypt(new Uint8Array(64)),
-    chacha20Block(new Uint8Array(32), new Uint8Array(12), 0),
+    zeroed.map((bytes) => bytes.length),
+    [32, 12, 64, 32, 8, 64],
+    'each key, nonce and buffered keystream block',
+  );
+  assert.ok(zeroed.every((bytes) => bytes.every((b) => b === 0)));
+  assert.ok(
+    ![key, chachaNonce, salsaNonce].some((bytes) => zeroed.includes(bytes)),
+    "not the caller's",
   );
 
-  const salsa = new Salsa20(key, salsaNonce);
-  salsa.wipe();
-  assert.deepEqual(
-    salsa.encrypt(new Uint8Array(64)),
-    salsa20Block(new Uint8Array(32), new Uint8Array(8), 0),
-  );
+  // Refused, so nothing is ever XORed with the all-zero key's keystream.
+  assert.throws(() => chacha.encrypt(new Uint8Array(64)), /wiped/);
+  assert.throws(() => salsa.decrypt(new Uint8Array(64)), /wiped/);
 
   assert.deepEqual(
     key,

@@ -230,6 +230,7 @@ class CC_KeystreamCipher {
   #counter: number;
   #buffer: Uint8Array;
   #position: number;
+  #wiped = false;
 
   constructor(block: (counter: number) => Uint8Array, counter: number) {
     this.#block = block;
@@ -240,6 +241,8 @@ class CC_KeystreamCipher {
 
   /** XOR `data` with the next keystream bytes, continuing across calls. */
   process(data: Uint8Array): Uint8Array {
+    // Refused, not run on the zeroed key, whose keystream anyone can compute (#145).
+    if (this.#wiped) throw new Error('cipher was wiped and can no longer be used');
     const out = new Uint8Array(data.length);
     let i = 0;
     for (const byte of data) {
@@ -261,10 +264,10 @@ class CC_KeystreamCipher {
     return out;
   }
 
-  // Zero the buffered keystream; the next call starts a fresh block.
+  // Zero the buffered keystream, after which the cipher refuses to run (#145).
   wipe(): void {
     this.#buffer.fill(0);
-    this.#position = CC_BLOCK_BYTES;
+    this.#wiped = true;
   }
 }
 
