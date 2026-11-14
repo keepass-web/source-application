@@ -9,7 +9,9 @@ import {
   createGroup,
   findOrCreateRecycleBin,
   getChild,
+  getChildren,
   getEntryTimes,
+  getText,
   moveToGroup,
   setText,
   type XmlElement,
@@ -24,12 +26,14 @@ import {
   entryColumnValue,
   entryField,
   entryTitle,
+  entryUuid,
   filterEntriesByQuery,
   findEntryParent,
   findGroupParent,
   generatePassword,
   groupName,
   groupPathTo,
+  holdLockedEdit,
   ICON_PALETTE,
   iconName,
   isCustomField,
@@ -38,9 +42,11 @@ import {
   isValidAutoLockTimeout,
   isValidClipboardTimeout,
   isValidCurtainTimeout,
+  type LockedEdit,
   localInputValueToIso,
   openableUrl,
   sortEntries,
+  takeLockedEdit,
   toCsv,
   unlockAttempts,
 } from '../0x67/logic.ts';
@@ -680,4 +686,103 @@ test('defaultExpiryLocalInputValue is about one year from now, in datetime-local
   oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
   const diffMs = Math.abs(new Date(value).getTime() - oneYearFromNow.getTime());
   assert.ok(diffMs < 60_000, 'should be within a minute of exactly one year from now');
+});
+
+test("entryUuid reads an entry's UUID, or '' for an entry without one", () => {
+  const entry = createEntry({ title: 'Anything' });
+  assert.equal(entryUuid(entry), getText(getChild(entry, 'UUID') as XmlElement));
+  entry.children = entry.children.filter((c) => !(c.type === 'element' && c.name === 'UUID'));
+  assert.equal(entryUuid(entry), '');
+});
+
+// #185: what an edit screen held rides through a lock inside the database and comes back out whole.
+test('a locked edit goes into Meta CustomData and comes back out whole, once', () => {
+  const document = createDatabaseDocument('Vault');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  assert.equal(takeLockedEdit(document), null, 'nothing held, and no CustomData to look in');
+
+  const edit: LockedEdit = {
+    uuid: 'abc',
+    isNew: false,
+    modified: '2026-01-02T03:04:05Z',
+    form: {
+      fields: [
+        { key: 'Title', value: 'Bank <&> "quotes"', protect: false },
+        { key: 'Password', value: 'line one\nline two', protect: true },
+      ],
+      iconId: 43,
+      tags: 'money, home',
+      expires: true,
+      expiry: '2030-01-02T03:04',
+      attachments: [
+        { name: 'statement.pdf', data: new Uint8Array([0, 1, 2, 250, 255]) },
+        { name: 'ghost.pdf', ref: 99 }, // a stale Ref travels as it is
+      ],
+    },
+  };
+  holdLockedEdit(document, edit);
+  const customData = getChild(meta, 'CustomData') as XmlElement;
+  assert.equal(getChildren(customData, 'Item').length, 1, 'CustomData made to carry it');
+  assert.deepEqual(takeLockedEdit(document), edit);
+  assert.equal(getChildren(customData, 'Item').length, 0, 'taken out, not copied');
+  assert.equal(takeLockedEdit(document), null, 'and only once');
+
+  // An untouched form carries no values at all.
+  const untouched: LockedEdit = { uuid: 'def', isNew: true, modified: '', form: null };
+  holdLockedEdit(document, untouched);
+  assert.deepEqual(takeLockedEdit(document), untouched);
+});
+
+test("a locked edit leaves other apps' CustomData items where they are", () => {
+  const document = createDatabaseDocument('Vault');
+  const meta = getChild(document, 'Meta') as XmlElement;
+  const customData = createElement('CustomData');
+  const other = createElement('Item');
+  appendChild(other, createElement('Key', 'KPXC_autosaveDelayMin'));
+  appendChild(other, createElement('Value', '5'));
+  appendChild(customData, other);
+  const keyless = createElement('Item'); // no Key at all, as a careless writer might leave
+  appendChild(customData, keyless);
+  appendChild(meta, customData);
+  assert.equal(takeLockedEdit(document), null, 'none of these is a locked edit');
+
+  holdLockedEdit(document, { uuid: 'abc', isNew: false, modified: '', form: null });
+  assert.equal(getChildren(customData, 'Item').length, 3, 'added beside them');
+  assert.deepEqual(takeLockedEdit(document), {
+    uuid: 'abc',
+    isNew: false,
+    modified: '',
+    form: null,
+  });
+  const [first, second, ...rest] = getChildren(customData, 'Item');
+  assert.ok(first === other && second === keyless && rest.length === 0, 'the others untouched');
+});
+
+test('taking a locked edit removes every copy, and a damaged one reads back as none', () => {
+  const document = createDatabaseDocument('Vault');
+  holdLockedEdit(document, { uuid: 'first', isNew: false, modified: '', form: null });
+  holdLockedEdit(document, { uuid: 'second', isNew: false, modified: '', form: null });
+  const meta = getChild(document, 'Meta') as XmlElement;
+  const customData = getChild(meta, 'CustomData') as XmlElement;
+  assert.deepEqual(takeLockedEdit(document), {
+    uuid: 'first',
+    isNew: false,
+    modified: '',
+    form: null,
+  });
+  assert.equal(getChildren(customData, 'Item').length, 0, 'the second went with it');
+
+  const damaged = createElement('Item');
+  appendChild(damaged, createElement('Key', 'KeePassWeb_LockedEdit'));
+  appendChild(damaged, createElement('Value', '{"form": {"attachments": 7}}'));
+  appendChild(customData, damaged);
+  assert.equal(takeLockedEdit(document), null, 'unreadable, so nothing comes back');
+  assert.equal(getChildren(customData, 'Item').length, 0, 'and it is gone all the same');
+});
+
+test('a database with no Meta has nowhere to carry a locked edit, and holds none', () => {
+  const document = createElement('KeePassFile');
+  holdLockedEdit(document, { uuid: 'abc', isNew: false, modified: '', form: null });
+  assert.deepEqual(document.children, []);
+  assert.equal(takeLockedEdit(document), null);
 });

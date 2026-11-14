@@ -1,6 +1,7 @@
 /** Merges another copy of a database into this one by KeePass's synchronization
 rules, so the result matches what KeePass and KeePassXC make of the same two
-files (#74). See SPEC.md, "Merging". */
+files (#74). Like theirs, it trusts each writer's clock, so clock skew between
+workstations can pick the wrong copy; that is accepted. See SPEC.md, "Merging". */
 
 import type { InnerBinary } from './inner-header.ts';
 import {
