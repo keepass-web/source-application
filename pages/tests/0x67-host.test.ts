@@ -1600,4 +1600,144 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
     // Locking stops the idle clock, which would otherwise hold this process open.
     await lockNow();
   });
+
+  // --- An edit screen open at the lock (#185) ----------------------------------
+
+  let stored = lastSave().bytes as ArrayBuffer; // what storage holds: this tab's last save
+  /** Another workstation's save over what storage holds, with `change` made there. */
+  async function savedOver(change: (db: Kdbx) => void): Promise<ArrayBuffer> {
+    const db = await Kdbx.load(new Uint8Array(stored), credentials);
+    change(db);
+    stored = new Uint8Array(await db.save()).buffer;
+    return stored;
+  }
+  const removedThere = (title: string) => (db: Kdbx) => {
+    const entry = getChildren(db.getRootGroup(), 'Entry').find(
+      (e) => logic.entryTitle(e) === title,
+    ) as XmlElement;
+    deletePermanently(db.root, entry, db.getRootGroup());
+    // Stamped after anything this tab did to it, so the merge here takes the deletion.
+    const deleted = getChild(getChild(db.root, 'Root') as XmlElement, 'DeletedObjects');
+    const record = getChildren(deleted as XmlElement, 'DeletedObject').at(-1) as XmlElement;
+    setText(getChild(record, 'DeletionTime') as XmlElement, LATER);
+  };
+  const fieldInput = (key: string): HTMLInputElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('.edit-field'))
+      .find((row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === key)
+      ?.querySelector('.edit-value') as HTMLInputElement;
+  function editEntry(title: string): void {
+    const row = Array.from(root().querySelectorAll('.entry-row')).find(
+      (each) => each.querySelector('.entry-row-title')?.textContent === title,
+    );
+    click(row as Element);
+    click(q('[data-action="edit"]'));
+  }
+  async function unlockToEdit(): Promise<void> {
+    submitUnlock();
+    await waitFor(() => q('.screen-edit') !== null);
+  }
+
+  await t.test(
+    'an edit screen open at the lock comes back over a newer version (#185)',
+    async () => {
+      await unlock();
+      click(q('[data-action="view-tile"]'));
+      editEntry('Shared');
+      fieldInput('UserName').value = 'typed here';
+      checkAnswer = newer(await savedOver(addedThere('Meanwhile')), 'rev-15', LATER);
+      await lockNow();
+      await unlockToEdit();
+      assert.equal(
+        dq('#notice-title').textContent,
+        'Opened the newer version',
+        'nothing but the open form was unsaved here',
+      );
+      assert.doesNotMatch(noticeText(), /also changed there/, 'the entry itself did not change');
+      closeNotice();
+      assert.equal(fieldInput('UserName').value, 'typed here');
+      click(q('[data-action="cancel"]'));
+      click(q('[data-action="back"]'));
+      assert.ok(shows('Meanwhile'));
+      assert.equal(q<HTMLButtonElement>('[data-action="save-database"]').disabled, true);
+      checkAnswer = UNCHANGED;
+    },
+  );
+
+  await t.test(
+    'an entry changed elsewhere under the open edit screen is named in the notice (#185)',
+    async () => {
+      editEntry('Shared');
+      fieldInput('UserName').value = 'typed over it';
+      // Before LATER, so the removal stamped LATER in the next test still wins.
+      const CHANGED_AT = '2098-01-01T00:00:00Z';
+      checkAnswer = newer(
+        await savedOver((db) => {
+          const entry = getChildren(db.getRootGroup(), 'Entry').find(
+            (e) => logic.entryTitle(e) === 'Shared',
+          ) as XmlElement;
+          const url = getChildren(entry, 'String').find(
+            (s) => getText(getChild(s, 'Key') as XmlElement) === 'URL',
+          ) as XmlElement;
+          setText(getChild(url, 'Value') as XmlElement, 'https://changed.example');
+          const times = getChild(entry, 'Times') as XmlElement;
+          setText(getChild(times, 'LastModificationTime') as XmlElement, CHANGED_AT);
+        }),
+        'rev-15b',
+        LATER,
+      );
+      await lockNow();
+      await unlockToEdit();
+      assert.match(
+        noticeText(),
+        /"Shared" also changed there; what you typed here is shown in place of it/,
+      );
+      closeNotice();
+      assert.equal(fieldInput('UserName').value, 'typed over it');
+      assert.equal(fieldInput('URL').value, '', 'the form as it was left');
+      click(q('[data-action="cancel"]'));
+      click(q('[data-action="back"]'));
+      checkAnswer = UNCHANGED;
+    },
+  );
+
+  await t.test(
+    'an entry removed elsewhere comes back as a new one, with what was typed (#185)',
+    async () => {
+      editEntry('Shared');
+      fieldInput('UserName').value = 'kept anyway';
+      checkAnswer = newer(await savedOver(removedThere('Shared')), 'rev-16', LATER);
+      await lockNow();
+      await unlockToEdit();
+      closeNotice();
+      assert.equal(q('#edit-title').textContent, 'New Entry');
+      assert.equal(fieldInput('Title').value, 'Shared');
+      assert.equal(fieldInput('UserName').value, 'kept anyway');
+      click(q('[data-action="save"]'));
+      click(saveDlg('[data-role="save-later"]'));
+      click(q('[data-action="back"]'));
+      assert.ok(shows('Shared'));
+      assert.equal(q<HTMLButtonElement>('[data-action="save-database"]').disabled, false);
+      checkAnswer = UNCHANGED;
+    },
+  );
+
+  await t.test(
+    'an untouched edit screen whose entry was removed elsewhere leaves the list (#185)',
+    async () => {
+      // Something unsaved besides the form, so the newer version is merged in, not opened in place.
+      await editUnsaved();
+      click(q('[data-action="back"]'));
+      click(q('[data-action="view-tile"]'));
+      editEntry('Meanwhile');
+      checkAnswer = newer(await savedOver(removedThere('Meanwhile')), 'rev-17', LATER);
+      await lockNow();
+      await unlock();
+      assert.equal(dq('#notice-title').textContent, 'Merged with the version saved elsewhere');
+      closeNotice();
+      assert.ok(!shows('Meanwhile'));
+      checkAnswer = UNCHANGED;
+      // Locking stops the idle clock, which would otherwise hold this process open.
+      await lockNow();
+    },
+  );
 });

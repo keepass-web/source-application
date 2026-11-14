@@ -2236,6 +2236,276 @@ test('idle hides the page behind a curtain, then locks it', async (t) => {
   assert.ok(q('#drop-zone'));
 });
 
+test('a lock over the edit screen carries it, and unlocking brings it back as left (#185)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Alpha' }));
+  const travel = createGroup('Travel');
+  appendChild(kdbx.getRootGroup(), travel);
+  const passport = createEntry({ title: 'Passport', username: 'me' });
+  addEntryAttachment(passport, 'scan.pdf', kdbx.addBinary(new TextEncoder().encode('scan')));
+  addEntryAttachment(passport, 'ghost.pdf', 99); // a stale Ref, as a broken file can carry
+  appendChild(travel, passport);
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  async function unlockTo(screen: string): Promise<void> {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => q(screen) !== null);
+  }
+  // A day idle, noticed when the tab is next looked at, as a late background wake would.
+  async function lockNow(): Promise<void> {
+    const realNow = Date.now;
+    Date.now = () => realNow() + 24 * 3_600_000;
+    try {
+      setVisibility('visible');
+      await waitFor(() => q('#master-password') !== null);
+    } finally {
+      Date.now = realNow;
+    }
+  }
+  const rows = (): HTMLElement[] => Array.from(root().querySelectorAll<HTMLElement>('.entry-row'));
+  const rowTitled = (title: string): HTMLElement =>
+    rows().find(
+      (row) => row.querySelector('.entry-row-title')?.textContent === title,
+    ) as HTMLElement;
+  const fieldRow = (key: string): HTMLElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === key,
+    ) as HTMLElement;
+  const fieldValue = (key: string): string =>
+    (fieldRow(key).querySelector('.edit-value') as HTMLInputElement).value;
+  const setField = (key: string, value: string): void => {
+    (fieldRow(key).querySelector('.edit-value') as HTMLInputElement).value = value;
+  };
+  const attachmentNames = (): HTMLInputElement[] =>
+    Array.from(root().querySelectorAll<HTMLInputElement>('#edit-attachments .attachment-name'));
+  async function attach(name: string, text: string): Promise<void> {
+    const count = attachmentNames().length;
+    const input = q<HTMLInputElement>('#edit-attachment-input');
+    setFiles(input, [makeFile(name, new TextEncoder().encode(text))]);
+    dispatch(input, 'change');
+    await waitFor(() => attachmentNames().length === count + 1);
+  }
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('lock-edit.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  await unlockTo('#search-input');
+  click(q('[data-action="view-tile"]'));
+
+  // Alpha takes an attachment first, so the lock's save renumbers Passport's.
+  click(rowTitled('Alpha'));
+  click(q('[data-action="edit"]'));
+  await attach('new.txt', 'new');
+  click(q('[data-action="save"]'));
+  click(dq('#dlg-save [data-action="close"]'));
+  click(q('[data-action="back"]'));
+
+  click(
+    Array.from(q('#group-tree').querySelectorAll('.group-btn')).find((b) =>
+      b.textContent?.endsWith('Travel'),
+    ) as Element,
+  );
+  click(rowTitled('Passport'));
+  click(q('[data-action="edit"]'));
+  setField('UserName', 'me, edited');
+  const scan = attachmentNames().find((input) => input.value === 'scan.pdf') as HTMLInputElement;
+  scan.value = 'passport.pdf';
+  dispatch(scan, 'change');
+  await attach('visa.pdf', 'visa');
+  click(q('#edit-icon-btn'));
+  click(
+    Array.from(byId<HTMLElement>('icon-grid').querySelectorAll<HTMLElement>('.icon-grid-btn')).find(
+      (b) => b.title === 'Bank',
+    ) as Element,
+  );
+  q<HTMLInputElement>('#edit-tags').value = 'travel';
+  q<HTMLInputElement>('#edit-expires').checked = true;
+  dispatch(q('#edit-expires'), 'change');
+  const expiry = q<HTMLInputElement>('#edit-expiry-time').value;
+
+  await lockNow();
+  assert.match(dom.window.document.title, /Locked/);
+  await unlockTo('.screen-edit');
+  assert.doesNotMatch(dom.window.document.title, /Locked/, 'the tab says it is open again');
+  assert.equal(q('#edit-title').textContent, 'Edit Entry');
+  assert.equal(fieldValue('Title'), 'Passport');
+  assert.equal(fieldValue('UserName'), 'me, edited');
+  assert.deepEqual(
+    attachmentNames().map((input) => input.value),
+    ['passport.pdf', 'ghost.pdf', 'visa.pdf'],
+  );
+  assert.equal(iconOf(q('#edit-icon-btn')), '#icon-bank');
+  assert.equal(q<HTMLInputElement>('#edit-tags').value, 'travel');
+  assert.equal(q<HTMLInputElement>('#edit-expires').checked, true);
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').disabled, false);
+  assert.equal(q<HTMLInputElement>('#edit-expiry-time').value, expiry);
+
+  // Save still takes the edit as a change, and the file it makes holds no trace of the lock.
+  click(q('[data-action="save"]'));
+  assert.equal(q('#detail-history').querySelectorAll('.history-row').length, 1);
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(dq('#dlg-save [data-action="download"]'));
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    credentials,
+  );
+  assert.equal(logic.takeLockedEdit(saved.root), null);
+  const bytesOf = (entry: XmlElement): Array<[string, string | undefined]> =>
+    getEntryAttachments(entry).map(({ name, ref }) => {
+      const data = saved.getBinaryData(ref);
+      return [name, data && new TextDecoder().decode(data)];
+    });
+  const savedRoot = saved.getRootGroup();
+  const savedPassport = getChildren(getChild(savedRoot, 'Group') as XmlElement, 'Entry')[0];
+  assert.equal(logic.entryField(savedPassport as XmlElement, 'UserName'), 'me, edited');
+  assert.deepEqual(bytesOf(savedPassport as XmlElement), [
+    ['passport.pdf', 'scan'],
+    ['ghost.pdf', undefined],
+    ['visa.pdf', 'visa'],
+  ]);
+  assert.deepEqual(bytesOf(getChildren(savedRoot, 'Entry')[0] as XmlElement), [['new.txt', 'new']]);
+  click(q('[data-action="back"]'));
+  assert.ok(
+    q('#group-tree .group-btn.active')?.textContent?.endsWith('Travel'),
+    'back in the group it was edited in',
+  );
+
+  // A new entry comes back new, so Cancel still leaves nothing behind.
+  click(q('[data-action="add-entry"]'));
+  setField('Title', 'Bank');
+  setField('UserName', 'banker');
+  await lockNow();
+  await unlockTo('.screen-edit');
+  assert.equal(q('#edit-title').textContent, 'New Entry');
+  assert.equal(fieldValue('Title'), 'Bank');
+  assert.equal(fieldValue('UserName'), 'banker');
+  click(q('[data-action="cancel"]'));
+  assert.deepEqual(
+    rows().map((row) => row.querySelector('.entry-row-title')?.textContent),
+    ['Passport'],
+  );
+
+  // So does one nothing was typed into.
+  click(q('[data-action="add-entry"]'));
+  await lockNow();
+  await unlockTo('.screen-edit');
+  assert.equal(q('#edit-title').textContent, 'New Entry');
+  assert.equal(fieldValue('Title'), '');
+  click(q('[data-action="cancel"]'));
+  assert.equal(rows().length, 1);
+
+  // An edit screen left untouched comes back as stored, and saving it still changes nothing (#134).
+  click(rowTitled('Passport'));
+  click(q('[data-action="edit"]'));
+  await lockNow();
+  await unlockTo('.screen-edit');
+  assert.equal(fieldValue('UserName'), 'me, edited');
+  click(q('[data-action="save"]'));
+  assert.equal(byId<HTMLDialogElement>('dlg-save').open, false, 'nothing to save');
+  assert.equal(q('#detail-history').querySelectorAll('.history-row').length, 1);
+
+  click(q('[data-action="back"]'));
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
+test('an edit held in a file opened fresh is dropped, not brought back or saved again (#185)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Held elsewhere' });
+  appendChild(kdbx.getRootGroup(), entry);
+  // Only a bug could put one in a file, but one that got there must not live on.
+  logic.holdLockedEdit(kdbx.root, {
+    uuid: logic.entryUuid(entry),
+    isNew: false,
+    modified: '',
+    form: {
+      fields: [{ key: 'Title', value: 'typed somewhere', protect: false }],
+      iconId: null,
+      tags: '',
+      expires: false,
+      expiry: '',
+      attachments: [],
+    },
+  });
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('held-elsewhere.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => q('#search-input') !== null);
+  assert.equal(q('.screen-edit'), null, 'the list, not an edit screen');
+
+  // Something to save, so the file can be written back.
+  click(q('[data-action="add-entry"]'));
+  click(q('[data-action="cancel"]'));
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    click(q('[data-action="save-database"]'));
+    click(dq('#dlg-save [data-action="download"]'));
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    credentials,
+  );
+  assert.equal(logic.takeLockedEdit(saved.root), null, 'gone from the saved file');
+  assert.equal(
+    logic.entryTitle(getChildren(saved.getRootGroup(), 'Entry')[0] as XmlElement),
+    'Held elsewhere',
+  );
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
 // ============================================================
 // Edge cases: closing genuinely reachable defensive branches
 // ============================================================
