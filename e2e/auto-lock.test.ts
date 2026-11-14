@@ -102,3 +102,46 @@ test('idle brings a curtain down over the app, then locks it', async () => {
     'with no curtain left over the unlock screen',
   );
 });
+
+// The built page carries the form through the lock inside the encrypted database, attachment
+// bytes and all, using the bundle's own copies of the kdbx helpers (#185).
+test('an edit screen the lock closed over comes back on unlocking, as it was left', async () => {
+  const fixture = await writeKdbxFixture();
+  const tab = await browser.newPage(); // a fresh tab, so no prompt guards leaving the last one
+  try {
+    await tab.setViewport({ width: 1280, height: 900 });
+    const app = await openApp(tab, server.origin, fixture);
+    await app.click('[data-action="add-entry"]');
+    const title = (await app.waitForSelector(
+      '#edit-fields .edit-value',
+    )) as ElementHandle<HTMLInputElement>;
+    await title.type('Bank');
+    const attach = (await app.$('#edit-attachment-input')) as ElementHandle<HTMLInputElement>;
+    await attach.uploadFile(fixture.path);
+    await app.waitForSelector('#edit-attachments .attachment-name');
+
+    // A day idle, noticed as soon as the tab is looked at, rather than waited out.
+    await app.evaluate(() => {
+      const realNow = Date.now;
+      Date.now = () => realNow() + 24 * 3_600_000;
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const password = (await app.waitForSelector('#master-password')) as ElementHandle;
+    await password.type(fixture.password);
+    await app.click('#unlock-btn');
+    await app.waitForSelector('#root .screen-edit');
+    assert.deepEqual(
+      await app.evaluate(() => ({
+        heading: document.querySelector('#edit-title')?.textContent,
+        title: document.querySelector<HTMLInputElement>('#edit-fields .edit-value')?.value,
+        attachments: Array.from(
+          document.querySelectorAll<HTMLInputElement>('#edit-attachments .attachment-name'),
+          (input) => input.value,
+        ),
+      })),
+      { heading: 'New Entry', title: 'Bank', attachments: [basename(fixture.path)] },
+    );
+  } finally {
+    await tab.close();
+  }
+});
