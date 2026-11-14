@@ -704,6 +704,7 @@ test('a locked edit goes into Meta CustomData and comes back out whole, once', (
   const edit: LockedEdit = {
     uuid: 'abc',
     isNew: false,
+    modified: '2026-01-02T03:04:05Z',
     form: {
       fields: [
         { key: 'Title', value: 'Bank <&> "quotes"', protect: false },
@@ -727,7 +728,7 @@ test('a locked edit goes into Meta CustomData and comes back out whole, once', (
   assert.equal(takeLockedEdit(document), null, 'and only once');
 
   // An untouched form carries no values at all.
-  const untouched: LockedEdit = { uuid: 'def', isNew: true, form: null };
+  const untouched: LockedEdit = { uuid: 'def', isNew: true, modified: '', form: null };
   holdLockedEdit(document, untouched);
   assert.deepEqual(takeLockedEdit(document), untouched);
 });
@@ -745,20 +746,30 @@ test("a locked edit leaves other apps' CustomData items where they are", () => {
   appendChild(meta, customData);
   assert.equal(takeLockedEdit(document), null, 'none of these is a locked edit');
 
-  holdLockedEdit(document, { uuid: 'abc', isNew: false, form: null });
+  holdLockedEdit(document, { uuid: 'abc', isNew: false, modified: '', form: null });
   assert.equal(getChildren(customData, 'Item').length, 3, 'added beside them');
-  assert.deepEqual(takeLockedEdit(document), { uuid: 'abc', isNew: false, form: null });
+  assert.deepEqual(takeLockedEdit(document), {
+    uuid: 'abc',
+    isNew: false,
+    modified: '',
+    form: null,
+  });
   const [first, second, ...rest] = getChildren(customData, 'Item');
   assert.ok(first === other && second === keyless && rest.length === 0, 'the others untouched');
 });
 
 test('taking a locked edit removes every copy, and a damaged one reads back as none', () => {
   const document = createDatabaseDocument('Vault');
-  holdLockedEdit(document, { uuid: 'first', isNew: false, form: null });
-  holdLockedEdit(document, { uuid: 'second', isNew: false, form: null });
+  holdLockedEdit(document, { uuid: 'first', isNew: false, modified: '', form: null });
+  holdLockedEdit(document, { uuid: 'second', isNew: false, modified: '', form: null });
   const meta = getChild(document, 'Meta') as XmlElement;
   const customData = getChild(meta, 'CustomData') as XmlElement;
-  assert.deepEqual(takeLockedEdit(document), { uuid: 'first', isNew: false, form: null });
+  assert.deepEqual(takeLockedEdit(document), {
+    uuid: 'first',
+    isNew: false,
+    modified: '',
+    form: null,
+  });
   assert.equal(getChildren(customData, 'Item').length, 0, 'the second went with it');
 
   const damaged = createElement('Item');
@@ -771,7 +782,7 @@ test('taking a locked edit removes every copy, and a damaged one reads back as n
 
 test('a database with no Meta has nowhere to carry a locked edit, and holds none', () => {
   const document = createElement('KeePassFile');
-  holdLockedEdit(document, { uuid: 'abc', isNew: false, form: null });
+  holdLockedEdit(document, { uuid: 'abc', isNew: false, modified: '', form: null });
   assert.deepEqual(document.children, []);
   assert.equal(takeLockedEdit(document), null);
 });

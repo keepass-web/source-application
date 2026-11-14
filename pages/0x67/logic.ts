@@ -368,6 +368,7 @@ export function entryUuid(entry: XmlElement): string {
 export interface LockedEdit {
   uuid: string;
   isNew: boolean;
+  modified: string; // the entry's LastModificationTime as the form read it
   form: LockedForm | null;
 }
 

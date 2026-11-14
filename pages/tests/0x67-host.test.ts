@@ -1652,12 +1652,50 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
         'Opened the newer version',
         'nothing but the open form was unsaved here',
       );
+      assert.doesNotMatch(noticeText(), /also changed there/, 'the entry itself did not change');
       closeNotice();
       assert.equal(fieldInput('UserName').value, 'typed here');
       click(q('[data-action="cancel"]'));
       click(q('[data-action="back"]'));
       assert.ok(shows('Meanwhile'));
       assert.equal(q<HTMLButtonElement>('[data-action="save-database"]').disabled, true);
+      checkAnswer = UNCHANGED;
+    },
+  );
+
+  await t.test(
+    'an entry changed elsewhere under the open edit screen is named in the notice (#185)',
+    async () => {
+      editEntry('Shared');
+      fieldInput('UserName').value = 'typed over it';
+      // Before LATER, so the removal stamped LATER in the next test still wins.
+      const CHANGED_AT = '2098-01-01T00:00:00Z';
+      checkAnswer = newer(
+        await savedOver((db) => {
+          const entry = getChildren(db.getRootGroup(), 'Entry').find(
+            (e) => logic.entryTitle(e) === 'Shared',
+          ) as XmlElement;
+          const url = getChildren(entry, 'String').find(
+            (s) => getText(getChild(s, 'Key') as XmlElement) === 'URL',
+          ) as XmlElement;
+          setText(getChild(url, 'Value') as XmlElement, 'https://changed.example');
+          const times = getChild(entry, 'Times') as XmlElement;
+          setText(getChild(times, 'LastModificationTime') as XmlElement, CHANGED_AT);
+        }),
+        'rev-15b',
+        LATER,
+      );
+      await lockNow();
+      await unlockToEdit();
+      assert.match(
+        noticeText(),
+        /"Shared" also changed there; what you typed here is shown in place of it/,
+      );
+      closeNotice();
+      assert.equal(fieldInput('UserName').value, 'typed over it');
+      assert.equal(fieldInput('URL').value, '', 'the form as it was left');
+      click(q('[data-action="cancel"]'));
+      click(q('[data-action="back"]'));
       checkAnswer = UNCHANGED;
     },
   );

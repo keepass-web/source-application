@@ -291,6 +291,7 @@ interface LockedForm {
 interface LockedEdit {
   uuid: string;
   isNew: boolean;
+  modified: string;
   form: LockedForm | null;
 }
 

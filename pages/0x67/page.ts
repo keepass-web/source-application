@@ -371,10 +371,16 @@ function showUnlock(relocking = false): void {
       // Each open strips any held edit, so none is saved; only this tab's own returns (#185).
       const held = takeLockedEdit(must(app.db).root);
       const edit = relocking && editLocked ? held : null;
-      if (edit) resumeEdit(edit);
+      let changedThere: string | null = null;
+      if (edit) changedThere = resumeEdit(edit);
       else showEntryList();
       armIdleWatch();
-      if (notice) showNotice(notice);
+      if (notice) {
+        if (changedThere !== null) {
+          notice.message += ` "${changedThere}" also changed there; what you typed here is shown in place of it, and saving keeps that version in the entry's History.`;
+        }
+        showNotice(notice);
+      }
     } catch (err) {
       errorEl.textContent =
         err instanceof Error ? err.message : 'Incorrect credentials or corrupt file.';
@@ -1732,6 +1738,7 @@ function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
   editInProgress = () => ({
     uuid: entryUuid(entry),
     isNew,
+    modified: getEntryTimes(entry).modified,
     form:
       formState() === untouched
         ? null
@@ -1902,8 +1909,9 @@ function editedFields(fieldsEl: HTMLElement): EditedField[] {
   }));
 }
 
-// Reopens the edit screen a lock carried; a new entry takes it if a merge removed the old (#185).
-function resumeEdit(edit: LockedEdit): void {
+/* Reopens the edit screen a lock carried; a new entry takes it if a merge removed the old.
+Returns the entry's title when a version from elsewhere changed it under what was typed (#185). */
+function resumeEdit(edit: LockedEdit): string | null {
   publishTitle();
   const rootGroup = must(app.db).getRootGroup();
   const found = collectAllEntries(rootGroup).find(({ entry }) => entryUuid(entry) === edit.uuid);
@@ -1911,7 +1919,10 @@ function resumeEdit(edit: LockedEdit): void {
     app.currentGroup = found.group;
     app.currentEntry = found.entry;
     showEntryEdit(edit.isNew, edit.form);
-  } else if (edit.form) {
+    const changed = edit.form !== null && getEntryTimes(found.entry).modified !== edit.modified;
+    return changed ? entryTitle(found.entry) : null;
+  }
+  if (edit.form) {
     app.currentEntry = createEntry({});
     appendChild(rootGroup, app.currentEntry);
     setDirty(true);
@@ -1919,6 +1930,7 @@ function resumeEdit(edit: LockedEdit): void {
   } else {
     showEntryList();
   }
+  return null;
 }
 
 function commitEdits(

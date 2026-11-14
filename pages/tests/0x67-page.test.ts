@@ -2449,6 +2449,7 @@ test('an edit held in a file opened fresh is dropped, not brought back or saved 
   logic.holdLockedEdit(kdbx.root, {
     uuid: logic.entryUuid(entry),
     isNew: false,
+    modified: '',
     form: {
       fields: [{ key: 'Title', value: 'typed somewhere', protect: false }],
       iconId: null,
