@@ -114,6 +114,11 @@ function wipeUnadopted(credentials: Credentials[]): void {
   for (const c of credentials) if (!app.db?.usesCredentials(c)) c.wipe();
 }
 
+// A lock's held edit carries its attachments as bytes, which no screen will show (#145).
+function wipeLockedEdit(edit: LockedEdit | null): void {
+  for (const held of edit?.form?.attachments ?? []) if ('data' in held) held.data.fill(0);
+}
+
 // Replace the #root content with the given fragment.
 function setRoot(fragment: DocumentFragment): void {
   forgetPicked();
@@ -392,8 +397,12 @@ function showUnlock(relocking = false): void {
       const held = takeLockedEdit(must(app.db).root);
       const edit = relocking && editLocked ? held : null;
       let changedThere: string | null = null;
-      if (edit) changedThere = resumeEdit(edit);
-      else showEntryList();
+      if (edit) {
+        changedThere = resumeEdit(edit);
+      } else {
+        wipeLockedEdit(held);
+        showEntryList();
+      }
       armIdleWatch();
       if (notice) {
         if (changedThere !== null) {
@@ -1242,7 +1251,7 @@ async function lockDatabase(): Promise<void> {
     const edit = editInProgress?.();
     if (edit) holdLockedEdit(db.root, edit);
     // The open database never keeps it, even when the save fails (#185).
-    const bytes = await db.save().finally(() => takeLockedEdit(db.root));
+    const bytes = await db.save().finally(() => wipeLockedEdit(takeLockedEdit(db.root)));
     editLocked = edit !== undefined;
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
@@ -1757,6 +1766,9 @@ function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
     expiryInput.disabled = !held.expires;
     expiryInput.value = held.expiry;
     attachments.splice(0, attachments.length, ...held.attachments);
+    // Zeroed with this screen, like a picked file (#145).
+    for (const attachment of held.attachments)
+      if ('data' in attachment) pickedBytes.push(attachment.data);
     renderEditAttachments(attachments, attachmentsList);
   }
   if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
