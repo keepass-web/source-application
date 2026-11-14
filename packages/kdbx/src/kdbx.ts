@@ -227,6 +227,7 @@ export class Kdbx {
   #innerStreamId: number;
   // Inner random stream key (KDBX 4.x); for 3.1 the protected-stream key is in the header.
   #innerStreamKey: Uint8Array;
+  #wiped = false;
 
   private constructor(init: {
     header: OuterHeader;
@@ -281,11 +282,18 @@ export class Kdbx {
     this.#innerStreamKey.fill(0);
     kx_zeroBinaries(this.binaries);
     this.binaries = [];
+    this.#wiped = true;
+  }
+
+  // Refused, so nothing writes out a database whose attachments are already gone (#145).
+  #assertNotWiped(): void {
+    if (this.#wiped) throw new Error('database was wiped and can no longer be used');
   }
 
   /** Merge another copy of this database, which must open with this one's
   credentials, into this one by KeePass's synchronization rules (#74). */
   async mergeIn(data: Uint8Array): Promise<MergeSummary> {
+    this.#assertNotWiped();
     const other = await Kdbx.load(data, this.#credentials);
     try {
       return mergeDocuments(
@@ -530,6 +538,7 @@ export class Kdbx {
 
   // Serialize the database to KDBX bytes (regenerating all random material).
   async save(): Promise<Uint8Array> {
+    this.#assertNotWiped();
     return this.header.version.major >= 4 ? this.#save4() : this.#save3();
   }
 
@@ -537,6 +546,7 @@ export class Kdbx {
   export and import, so it moves into either without loss (#137). Attachments go
   in Meta, as KDBX 3.1 keeps them, and protected values in the clear. */
   exportXml(): string {
+    this.#assertNotWiped();
     const root = cloneElement(this.root);
     writeMetaBinaries(root, this.binaries);
     markProtectedInMemory(root);

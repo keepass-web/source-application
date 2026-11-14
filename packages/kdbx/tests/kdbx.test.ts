@@ -451,6 +451,11 @@ test('wipeContent zeroes the attachments but leaves the credentials, which a cal
   assert.equal(kdbx.binaries.length, 0);
   assert.deepEqual(await credentials.getCompositeKey(), key, 'the credentials are as they were');
   await Kdbx.load(saved, credentials); // and still open what they opened
+
+  // The database itself refuses to write out what it no longer holds.
+  await assert.rejects(() => kdbx.save(), /database was wiped/);
+  assert.throws(() => kdbx.exportXml(), /database was wiped/);
+  await assert.rejects(() => kdbx.mergeIn(saved), /database was wiped/);
 });
 
 test('setCredentials wipes the credentials it replaces, unless handed the same ones (#145)', async () => {
