@@ -381,10 +381,11 @@ function showUnlock(relocking = false): void {
     btn.textContent = 'Unlocking…';
     errorEl.hidden = true;
 
-    const attempts = unlockAttempts(passwordInput.value, keyfileData).map(
-      (input) => new Credentials(input),
-    );
+    let attempts: Credentials[] = [];
     try {
+      attempts = unlockAttempts(passwordInput.value, keyfileData).map(
+        (input) => new Credentials(input),
+      );
       const latest = relocking && isHosted() ? await requestCheck() : null;
       const notice =
         latest?.status === 'newer'
