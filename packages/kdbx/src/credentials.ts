@@ -17,6 +17,7 @@ the password and key file, so wipe() zeroes those without touching the caller's 
 export class Credentials {
   readonly #password: Uint8Array | undefined;
   readonly #keyFile: Uint8Array | undefined;
+  #wiped = false;
 
   constructor(input: CredentialsInput) {
     if (input.password === undefined && input.keyFile === undefined) {
@@ -34,6 +35,8 @@ export class Credentials {
 
   // Compute the 32-byte composite key for these credentials.
   async getCompositeKey(): Promise<Uint8Array> {
+    // Refused, not derived from the zeros, so nothing is ever sealed under an all-zero key (#145).
+    if (this.#wiped) throw new Error('credentials were wiped and can no longer derive a key');
     const components: Uint8Array[] = [];
     let joined: Uint8Array = new Uint8Array(0);
     try {
@@ -55,6 +58,7 @@ export class Credentials {
   wipe(): void {
     this.#password?.fill(0);
     this.#keyFile?.fill(0);
+    this.#wiped = true;
   }
 }
 

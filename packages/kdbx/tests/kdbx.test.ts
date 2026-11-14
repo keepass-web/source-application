@@ -434,11 +434,8 @@ test("wipe zeroes a database's attachments and credentials (#145)", async () => 
 
   assert.deepEqual(pooled, new Uint8Array(3), 'the attachment bytes are zeroed');
   assert.equal(kdbx.binaries.length, 0);
-  assert.deepEqual(
-    await credentials.getCompositeKey(),
-    await new Credentials({ password: new Uint8Array(2) }).getCompositeKey(),
-    'the password copy is zeroed',
-  );
+  await assert.rejects(() => credentials.getCompositeKey(), /wiped/, 'its credentials are wiped');
+  await assert.rejects(() => kdbx.save(), /wiped/, 'so it is never saved under the zeros');
 });
 
 test('wipeContent zeroes the attachments but leaves the credentials, which a caller may still need (#145)', async () => {
@@ -469,11 +466,7 @@ test('setCredentials wipes the credentials it replaces, unless handed the same o
   );
 
   kdbx.setCredentials(Credentials.fromPassword('new'));
-  assert.deepEqual(
-    await old.getCompositeKey(),
-    await new Credentials({ password: new Uint8Array(3) }).getCompositeKey(),
-    'the replaced credentials are zeroed',
-  );
+  await assert.rejects(() => old.getCompositeKey(), /wiped/, 'the replaced credentials are wiped');
 });
 
 test('an attachment added, saved, and reloaded round-trips its name and bytes', async () => {

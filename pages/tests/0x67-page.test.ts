@@ -2560,9 +2560,9 @@ test('create-database: an Error thrown by Kdbx.create is shown as-is', async () 
   assert.equal(q<HTMLElement>('#create-error').textContent, 'simulated creation failure');
   assert.equal(q<HTMLButtonElement>('#create-btn').disabled, false);
   assert.equal(q<HTMLButtonElement>('#create-btn').textContent, 'Create');
-  assert.deepEqual(
-    await (given as Credentials).getCompositeKey(),
-    await new Credentials({ password: new Uint8Array(1) }).getCompositeKey(),
+  await assert.rejects(
+    () => (given as Credentials).getCompositeKey(),
+    /wiped/,
     'the credentials no database took are wiped (#145)',
   );
 

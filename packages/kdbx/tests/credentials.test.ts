@@ -109,7 +109,7 @@ test('keyFileComponent: an XML-ish key file missing <Data> falls through to the 
   assert.equal(component.length, 32); // SHA-256 fallback
 });
 
-test('credentials keep their own copies, and wipe() zeroes only those (#145)', async () => {
+test('credentials keep their own copies, and wipe() zeroes only those, then refuses a key (#145)', async (t) => {
   const password = utf8Encode('correct horse'); // 13 bytes
   const keyFile = new Uint8Array(32).fill(7);
   const credentials = new Credentials({ password, keyFile });
@@ -119,28 +119,32 @@ test('credentials keep their own copies, and wipe() zeroes only those (#145)', a
   keyFile.fill(2);
   assert.equal(toHex(await credentials.getCompositeKey()), before, 'copied at construction');
 
+  // The copies are private, so the zeroing is seen as the fill(0) calls wipe() makes.
+  const fills = t.mock.method(Uint8Array.prototype, 'fill');
   credentials.wipe();
-  const zeros = new Credentials({ password: new Uint8Array(13), keyFile: new Uint8Array(32) });
-  assert.equal(
-    toHex(await credentials.getCompositeKey()),
-    toHex(await zeros.getCompositeKey()),
-    'its copies are all zeros now',
+  const zeroed = fills.mock.calls
+    .filter((call) => call.arguments[0] === 0)
+    .map((call) => call.this as Uint8Array);
+  fills.mock.restore();
+  assert.deepEqual(
+    zeroed.map((bytes) => bytes.length),
+    [13, 32],
+    'its own password and key file copies',
   );
+  assert.ok(zeroed.every((bytes) => bytes.every((b) => b === 0)));
+  assert.ok(!zeroed.includes(password) && !zeroed.includes(keyFile), "not the caller's");
   assert.deepEqual(password, new Uint8Array(13).fill(1), "the caller's buffers are untouched");
   assert.deepEqual(keyFile, new Uint8Array(32).fill(2));
+
+  // Refused, so a stray save can't seal a database under the all-zero key.
+  await assert.rejects(() => credentials.getCompositeKey(), /wiped/);
 });
 
 test('wipe() covers a password alone and a key file alone (#145)', async () => {
   const passwordOnly = Credentials.fromPassword('pw');
   passwordOnly.wipe();
-  assert.equal(
-    toHex(await passwordOnly.getCompositeKey()),
-    toHex(await new Credentials({ password: new Uint8Array(2) }).getCompositeKey()),
-  );
+  await assert.rejects(() => passwordOnly.getCompositeKey(), /wiped/);
   const keyFileOnly = new Credentials({ keyFile: new Uint8Array(32).fill(4) });
   keyFileOnly.wipe();
-  assert.equal(
-    toHex(await keyFileOnly.getCompositeKey()),
-    toHex(await new Credentials({ keyFile: new Uint8Array(32) }).getCompositeKey()),
-  );
+  await assert.rejects(() => keyFileOnly.getCompositeKey(), /wiped/);
 });
