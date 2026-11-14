@@ -335,9 +335,17 @@ test('create defaults to KDBX version 4 when no options are given', async () => 
   assert.equal(kdbx.header.version.major, 4);
 });
 
+test("create defaults to Argon2id at KeePassXC's starting cost (#145)", async () => {
+  const params = (await Kdbx.create(Credentials.fromPassword('pw'))).header.kdfParameters;
+  assert.deepEqual(params?.get(KdfParam.Uuid)?.value, KdfId.Argon2id);
+  assert.equal(params?.get(KdfParam.Argon2Memory)?.value, 64n * 1024n * 1024n);
+  assert.equal(params?.get(KdfParam.Argon2Iterations)?.value, 10n);
+  assert.equal(params?.get(KdfParam.Argon2Parallelism)?.value, 4);
+});
+
 test('create defaults KDBX 3.1 transform rounds when aesKdfRounds is not given', async () => {
   const kdbx = await Kdbx.create(Credentials.fromPassword('pw'), { version: 3 });
-  assert.equal(kdbx.header.transformRounds, 60000n);
+  assert.equal(kdbx.header.transformRounds, 1_000_000n);
 });
 
 test('#save4 sizes a fresh inner stream key for a non-ChaCha20 inner stream (Salsa20)', async () => {

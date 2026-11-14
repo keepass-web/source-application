@@ -146,16 +146,18 @@ function kx_walkProtected(element: XmlElement, visit: (el: XmlElement) => void):
 Base64 ciphertext with plaintext (the marker attribute is kept). */
 export function applyInboundProtection(root: XmlElement, cipher: ProtectedStreamCipher): void {
   kx_walkProtected(root, (element) => {
-    const ciphertext = fromBase64(getText(element));
-    setText(element, utf8Decode(cipher.process(ciphertext)));
+    const plaintext = cipher.process(fromBase64(getText(element)));
+    setText(element, utf8Decode(plaintext));
+    plaintext.fill(0); // #145
   });
 }
 
 // Encrypts every Protected="True" value in place; call on a clone to keep the original readable.
 export function applyOutboundProtection(root: XmlElement, cipher: ProtectedStreamCipher): void {
   kx_walkProtected(root, (element) => {
-    const ciphertext = cipher.process(utf8Encode(getText(element)));
-    setText(element, toBase64(ciphertext));
+    const plaintext = utf8Encode(getText(element));
+    setText(element, toBase64(cipher.process(plaintext)));
+    plaintext.fill(0); // #145
   });
 }
 

@@ -95,8 +95,33 @@ function cloneTemplate(id: string): DocumentFragment {
   return byId<HTMLTemplateElement>(id).content.cloneNode(true) as DocumentFragment;
 }
 
+// Bytes read from a picked key file or attachment, zeroed once their screen or dialog is gone (#145).
+let pickedBytes: Uint8Array[] = [];
+
+async function readPicked(file: File): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  pickedBytes.push(bytes);
+  return bytes;
+}
+
+function forgetPicked(): void {
+  for (const bytes of pickedBytes) bytes.fill(0);
+  pickedBytes = [];
+}
+
+// The database keeps the credentials it opened or was created with; any others are spent (#145).
+function wipeUnadopted(credentials: Credentials[]): void {
+  for (const c of credentials) if (!app.db?.usesCredentials(c)) c.wipe();
+}
+
+// A lock's held edit carries its attachments as bytes, which no screen will show (#145).
+function wipeLockedEdit(edit: LockedEdit | null): void {
+  for (const held of edit?.form?.attachments ?? []) if ('data' in held) held.data.fill(0);
+}
+
 // Replace the #root content with the given fragment.
 function setRoot(fragment: DocumentFragment): void {
+  forgetPicked();
   const root = byId('root');
   root.innerHTML = '';
   tableRows = new WeakMap();
@@ -343,7 +368,7 @@ function showUnlock(relocking = false): void {
   keyfileInput.addEventListener('change', async () => {
     const f = keyfileInput.files?.[0];
     if (f) {
-      keyfileData = new Uint8Array(await f.arrayBuffer());
+      keyfileData = await readPicked(f);
       qs('#keyfile-label').textContent = f.name;
     }
   });
@@ -356,8 +381,9 @@ function showUnlock(relocking = false): void {
     btn.textContent = 'Unlocking…';
     errorEl.hidden = true;
 
+    let attempts: Credentials[] = [];
     try {
-      const attempts = unlockAttempts(passwordInput.value, keyfileData).map(
+      attempts = unlockAttempts(passwordInput.value, keyfileData).map(
         (input) => new Credentials(input),
       );
       const latest = relocking && isHosted() ? await requestCheck() : null;
@@ -372,8 +398,12 @@ function showUnlock(relocking = false): void {
       const held = takeLockedEdit(must(app.db).root);
       const edit = relocking && editLocked ? held : null;
       let changedThere: string | null = null;
-      if (edit) changedThere = resumeEdit(edit);
-      else showEntryList();
+      if (edit) {
+        changedThere = resumeEdit(edit);
+      } else {
+        wipeLockedEdit(held);
+        showEntryList();
+      }
       armIdleWatch();
       if (notice) {
         if (changedThere !== null) {
@@ -388,6 +418,8 @@ function showUnlock(relocking = false): void {
       btn.disabled = false;
       btn.textContent = 'Unlock';
       passwordInput.focus();
+    } finally {
+      wipeUnadopted(attempts);
     }
   });
 }
@@ -412,7 +444,7 @@ function showCreateDatabase(): void {
   keyfileInput.addEventListener('change', async () => {
     const f = keyfileInput.files?.[0];
     if (f) {
-      keyfileData = new Uint8Array(await f.arrayBuffer());
+      keyfileData = await readPicked(f);
       qs('#create-keyfile-label').textContent = f.name;
     }
   });
@@ -439,10 +471,10 @@ function showCreateDatabase(): void {
     btn.disabled = true;
     btn.textContent = 'Creating…';
 
+    const input: CredentialsInput = { password: passwordInput.value };
+    if (keyfileData) input.keyFile = keyfileData;
+    const creds = new Credentials(input);
     try {
-      const input: CredentialsInput = { password: passwordInput.value };
-      if (keyfileData) input.keyFile = keyfileData;
-      const creds = new Credentials(input);
       const databaseName = nameInput.value.trim() || 'Database';
       app.db = await Kdbx.create(creds, { databaseName });
       app.filename = `${databaseName}.kdbx`;
@@ -456,6 +488,8 @@ function showCreateDatabase(): void {
       errorEl.hidden = false;
       btn.disabled = false;
       btn.textContent = 'Create';
+    } finally {
+      wipeUnadopted([creds]);
     }
   });
 }
@@ -1218,10 +1252,11 @@ async function lockDatabase(): Promise<void> {
     const edit = editInProgress?.();
     if (edit) holdLockedEdit(db.root, edit);
     // The open database never keeps it, even when the save fails (#185).
-    const bytes = await db.save().finally(() => takeLockedEdit(db.root));
+    const bytes = await db.save().finally(() => wipeLockedEdit(takeLockedEdit(db.root)));
     editLocked = edit !== undefined;
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
+    db.wipe(); // a locked tab keeps only the re-encrypted bytes (#145)
     forgetCopiedIfGone(); // one a copy marked while the lock re-encrypted
     showUnlock(true);
     curtain().close(); // only now, so the re-encrypting page never shows through (#84)
@@ -1232,6 +1267,7 @@ async function lockDatabase(): Promise<void> {
 
 function closeDatabase(): void {
   clearTimeout(idleTimer);
+  app.db?.wipe(); // none if it locked while the prompt was open (#145)
   Object.assign(app, {
     db: null,
     file: null,
@@ -1563,7 +1599,7 @@ function renderDetailAttachments(db: Kdbx, entry: XmlElement, container: HTMLEle
       const { ref } = getEntryAttachments(entry)[index] as EntryAttachment;
       const data = db.getBinaryData(ref);
       if (!data) return;
-      const blob = new Blob([new Uint8Array(data)]);
+      const blob = new Blob([data as Uint8Array<ArrayBuffer>]); // no copy left here to zero (#145)
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1682,7 +1718,7 @@ function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    attachments.push({ name: file.name, data: new Uint8Array(await file.arrayBuffer()) });
+    attachments.push({ name: file.name, data: await readPicked(file) });
     renderEditAttachments(attachments, attachmentsList);
     input.value = '';
   });
@@ -1731,6 +1767,9 @@ function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
     expiryInput.disabled = !held.expires;
     expiryInput.value = held.expiry;
     attachments.splice(0, attachments.length, ...held.attachments);
+    // Zeroed with this screen, like a picked file (#145).
+    for (const attachment of held.attachments)
+      if ('data' in attachment) pickedBytes.push(attachment.data);
     renderEditAttachments(attachments, attachmentsList);
   }
   if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
@@ -2026,10 +2065,11 @@ function openSettings(): void {
   keyfileInput.onchange = async () => {
     const f = keyfileInput.files?.[0];
     if (f) {
-      keyfileData = new Uint8Array(await f.arrayBuffer());
+      keyfileData = await readPicked(f);
       keyfileLabel.textContent = f.name;
     }
   };
+  dlg.onclose = forgetPicked;
 
   must(dlg.querySelector<HTMLButtonElement>('[data-action="save-settings"]')).onclick = () => {
     const v = Number.parseInt(timeoutInput.value, 10);
@@ -2692,7 +2732,7 @@ async function openHeld(attempts: Credentials[], gone: boolean): Promise<Notice 
 
 async function opens(bytes: Uint8Array, attempts: Credentials[]): Promise<boolean> {
   try {
-    await loadWithAny(bytes, attempts);
+    (await loadWithAny(bytes, attempts)).wipeContent(); // opened only to find out; the attempts stay usable (#145)
     return true;
   } catch {
     return false;

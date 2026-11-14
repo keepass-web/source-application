@@ -2544,7 +2544,11 @@ test('create-database: an Error thrown by Kdbx.create is shown as-is', async () 
     new dom.window.Event('click', { bubbles: true }),
   );
   const realCreate = Kdbx.create;
-  Kdbx.create = () => Promise.reject(new Error('simulated creation failure'));
+  let given: Credentials | undefined;
+  Kdbx.create = (credentials: Credentials) => {
+    given = credentials;
+    return Promise.reject(new Error('simulated creation failure'));
+  };
   try {
     q<HTMLInputElement>('#create-password').value = 'x';
     q<HTMLInputElement>('#create-password-confirm').value = 'x';
@@ -2556,6 +2560,11 @@ test('create-database: an Error thrown by Kdbx.create is shown as-is', async () 
   assert.equal(q<HTMLElement>('#create-error').textContent, 'simulated creation failure');
   assert.equal(q<HTMLButtonElement>('#create-btn').disabled, false);
   assert.equal(q<HTMLButtonElement>('#create-btn').textContent, 'Create');
+  await assert.rejects(
+    () => (given as Credentials).getCompositeKey(),
+    /wiped/,
+    'the credentials no database took are wiped (#145)',
+  );
 
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 });
@@ -2730,6 +2739,246 @@ test('an empty password box opens a key-file-only database, and one keyed with a
   assert.match(q<HTMLElement>('#unlock-error').textContent ?? '', /wrong credentials/);
   q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   assert.ok(q('#drop-zone'));
+});
+
+/** A picked file whose bytes the test keeps hold of, to see whether the page zeroes them (#145). */
+function heldFile(name: string, bytes: Uint8Array): { file: File; held: Uint8Array } {
+  const held = bytes.slice();
+  const file = makeFile(name, bytes);
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => held.buffer as ArrayBuffer });
+  return { file, held };
+}
+const zeroed = (bytes: Uint8Array): boolean => bytes.every((b) => b === 0);
+
+test('a picked key file is kept for a retry, then zeroed with its screen, and spent credentials are wiped (#145)', async (t) => {
+  const credentialWipes = t.mock.method(Credentials.prototype, 'wipe');
+  const databaseWipes = t.mock.method(Kdbx.prototype, 'wipe');
+  const kdbx = await Kdbx.create(new Credentials({ keyFile: KEYFILE }), {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  appendChild(kdbx.getRootGroup(), createEntry({ title: 'Behind a key file' }));
+  const fileBytes = await kdbx.save();
+  const pickKeyFile = async (bytes: Uint8Array): Promise<Uint8Array> => {
+    const fileInput = q<HTMLInputElement>('#file-input');
+    setFiles(fileInput, [makeFile('key-only.kdbx', fileBytes)]);
+    dispatch(fileInput, 'change');
+    await waitFor(() => q('#master-password') !== null);
+    const { file, held } = heldFile('keyfile.bin', bytes);
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [file]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    return held;
+  };
+  const appMode = (): boolean => dom.window.document.body.classList.contains('app-mode');
+
+  // A wrong key file fails both attempts (#127), and both are wiped.
+  const wrong = await pickKeyFile(KEYFILE.map((b) => b ^ 1));
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => q<HTMLElement>('#unlock-error').hidden === false);
+  assert.equal(
+    credentialWipes.mock.callCount(),
+    2,
+    'the key file alone, and with an empty password',
+  );
+  assert.ok(!zeroed(wrong), 'the key file is kept for another try while the screen is up');
+  dispatch(q('[data-action="back"]'), 'click');
+  assert.ok(zeroed(wrong), 'and zeroed once the screen is gone');
+
+  // The right one opens with the first attempt, which the database keeps.
+  const right = await pickKeyFile(KEYFILE);
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(appMode);
+  assert.equal(credentialWipes.mock.callCount(), 3, 'only the second, unused attempt is wiped');
+  assert.ok(zeroed(right));
+
+  // A locked tab keeps only the re-encrypted bytes, and closing wipes what was open.
+  dispatch(q('[data-action="lock"]'), 'click');
+  await waitFor(() => !appMode());
+  assert.equal(databaseWipes.mock.callCount(), 1);
+  dispatch(q('[data-action="back"]'), 'click');
+  await pickKeyFile(KEYFILE);
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(appMode);
+  dispatch(q('[data-action="close"]'), 'click');
+  dispatch(dq('#dlg-confirm-discard [data-action="confirm-discard"]'), 'click');
+  assert.ok(q('#drop-zone'));
+  assert.equal(databaseWipes.mock.callCount(), 2);
+  assert.equal(credentialWipes.mock.callCount(), 6, "each database's wipe takes its credentials");
+});
+
+test('a picked attachment is zeroed once Save copies it in, and a key file picked in Settings once the dialog closes (#145)', async () => {
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('test.kdbx', dbBytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  dispatch(q('.entry-row'), 'click');
+  dispatch(q('[data-action="edit"]'), 'click');
+  const attachment = heldFile('notes.txt', new TextEncoder().encode('kept by the database'));
+  const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+  setFiles(attachmentInput, [attachment.file]);
+  dispatch(attachmentInput, 'change');
+  await waitFor(() => q('#edit-attachments').children.length === 1);
+  assert.ok(!zeroed(attachment.held), 'held until Save');
+
+  const downloads: Blob[] = [];
+  const realCreate = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (obj: Blob | MediaSource) => {
+    downloads.push(obj as Blob);
+    return realCreate(obj);
+  };
+  try {
+    dispatch(q('[data-action="save"]'), 'click');
+    assert.ok(zeroed(attachment.held), 'zeroed once the edit screen is gone');
+    dispatch(dq('#dlg-save [data-action="download"]'), 'click');
+    await waitFor(() => downloads.length === 1);
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
+  dispatch(dq('#dlg-save [data-action="close"]'), 'click');
+  const saved = await Kdbx.load(
+    new Uint8Array(await (downloads[0] as Blob).arrayBuffer()),
+    new Credentials({ password: PASSWORD, keyFile: KEYFILE }),
+  );
+  assert.deepEqual(
+    saved.binaries.map((binary) => new TextDecoder().decode(binary.data)),
+    ['kept by the database'],
+    'the database kept its own copy',
+  );
+
+  dispatch(q('[data-action="back"]'), 'click');
+  dispatch(q('[data-action="settings"]'), 'click');
+  const keyFile = heldFile('keyfile.bin', KEYFILE);
+  const settingsKeyfileInput = byId<HTMLInputElement>('settings-keyfile-input');
+  setFiles(settingsKeyfileInput, [keyFile.file]);
+  dispatch(settingsKeyfileInput, 'change');
+  await waitFor(() => byId<HTMLElement>('settings-keyfile-label').textContent === 'keyfile.bin');
+  assert.ok(!zeroed(keyFile.held));
+  dispatch(dq('#dlg-settings [data-action="close"]'), 'click');
+  assert.ok(zeroed(keyFile.held), 'zeroed once the dialog closes');
+
+  dispatch(q('[data-action="close"]'), 'click');
+  dispatch(dq('#dlg-confirm-discard [data-action="confirm-discard"]'), 'click');
+  assert.ok(q('#drop-zone'));
+});
+
+test('attachment bytes a held edit carries through a lock are zeroed once no screen shows them (#145)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({ title: 'Carried' });
+  addEntryAttachment(entry, 'stored.txt', kdbx.addBinary(new TextEncoder().encode('stored')));
+  appendChild(kdbx.getRootGroup(), entry);
+
+  // Every held edit the page takes back out of a database, as it reads them (#185).
+  const globals = globalThis as unknown as { takeLockedEdit: typeof logic.takeLockedEdit };
+  const realTake = globals.takeLockedEdit;
+  const taken: Array<ReturnType<typeof logic.takeLockedEdit>> = [];
+  globals.takeLockedEdit = (document) => {
+    const edit = realTake(document);
+    taken.push(edit);
+    return edit;
+  };
+  const carried = (edit: ReturnType<typeof logic.takeLockedEdit> | undefined): Uint8Array[] =>
+    (edit?.form?.attachments ?? []).flatMap((held) => ('data' in held ? [held.data] : []));
+  const text = (bytes: Uint8Array[]): string[] => bytes.map((b) => new TextDecoder().decode(b));
+  async function openAndUnlock(name: string, bytes: Uint8Array, screen: string): Promise<void> {
+    const fileInput = q<HTMLInputElement>('#file-input');
+    setFiles(fileInput, [makeFile(name, bytes)]);
+    dispatch(fileInput, 'change');
+    await waitFor(() => q('#master-password') !== null);
+    await unlock(screen);
+  }
+  async function unlock(screen: string): Promise<void> {
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => q(screen) !== null);
+  }
+  const closeDatabase = (): void => {
+    dispatch(q('[data-action="close"]'), 'click');
+    dispatch(dq('#dlg-confirm-discard [data-action="confirm-discard"]'), 'click');
+    assert.ok(q('#drop-zone'));
+  };
+
+  try {
+    await openAndUnlock('carried.kdbx', await kdbx.save(), '#search-input');
+    dispatch(q('.entry-row'), 'click');
+    dispatch(q('[data-action="edit"]'), 'click');
+    const picked = heldFile('picked.txt', new TextEncoder().encode('picked'));
+    const attachmentInput = q<HTMLInputElement>('#edit-attachment-input');
+    setFiles(attachmentInput, [picked.file]);
+    dispatch(attachmentInput, 'change');
+    await waitFor(() => q('#edit-attachments').children.length === 2);
+
+    // A day idle, noticed when the tab is next looked at, locks it over the edit screen.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 24 * 3_600_000;
+    try {
+      setVisibility('visible');
+      await waitFor(() => q('#master-password') !== null);
+    } finally {
+      Date.now = realNow;
+    }
+    const readBack = carried(taken.at(-1));
+    assert.equal(readBack.length, 2, 'the lock reads its held edit back out after the save');
+    assert.ok(readBack.every(zeroed), 'and zeroes that copy, which nothing shows');
+    assert.ok(zeroed(picked.held), 'the picked file went with its screen');
+
+    await unlock('.screen-edit');
+    const resumed = carried(taken.at(-1));
+    assert.deepEqual(
+      text(resumed),
+      ['stored', 'picked'],
+      'shown on the edit screen it came back to',
+    );
+    dispatch(q('[data-action="cancel"]'), 'click');
+    assert.ok(resumed.every(zeroed), 'and zeroed once that screen is gone');
+    dispatch(q('[data-action="back"]'), 'click');
+    closeDatabase();
+
+    // One held in a file opened fresh is never shown, so it is zeroed at once.
+    logic.holdLockedEdit(kdbx.root, {
+      uuid: logic.entryUuid(entry),
+      isNew: false,
+      modified: '',
+      form: {
+        fields: [],
+        iconId: null,
+        tags: '',
+        expires: false,
+        expiry: '',
+        attachments: [{ name: 'elsewhere.txt', data: new TextEncoder().encode('elsewhere') }],
+      },
+    });
+    await openAndUnlock('held.kdbx', await kdbx.save(), '#search-input');
+    const dropped = carried(taken.at(-1));
+    assert.equal(dropped.length, 1);
+    assert.ok(dropped.every(zeroed));
+    closeDatabase();
+  } finally {
+    globals.takeLockedEdit = realTake;
+  }
 });
 
 test('a stale attachment Ref (pointing to no pool data) is shown but downloading it is a no-op, not a throw', async () => {

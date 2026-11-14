@@ -1,10 +1,8 @@
 /** Argon2d/Argon2id per RFC 9106 (see SPEC.md). Algorithm core only —
-validated public entry points live in index.ts; 64-bit math uses bigint. */
+validated public entry points live in index.ts. Each 64-bit word is held as
+its little-endian 32-bit halves, keeping the fill loop in plain integer math (#145). */
 
 import { blake2b } from './blake2b.ts';
-
-const A2_M32 = 0xffffffffn;
-const A2_M64 = (1n << 64n) - 1n;
 
 // Argon2 type code: 0 = Argon2d, 2 = Argon2id (RFC 9106, Section 3.1).
 export const ARGON2_D = 0;
@@ -15,8 +13,12 @@ export const ARGON2_VERSION_10 = 0x10;
 export const ARGON2_VERSION_13 = 0x13;
 
 const A2_SYNC_POINTS = 4; // number of vertical slices (SL)
-const A2_WORDS_PER_BLOCK = 128; // 1024 bytes / 8
+const A2_HALVES_PER_BLOCK = 256; // 1024 bytes / 4
 const A2_ADDRESSES_PER_BLOCK = 128;
+// Where the zero, input and address blocks sit in a segment's addressing scratch.
+const A2_ZERO = 0;
+const A2_INPUT = A2_HALVES_PER_BLOCK;
+const A2_ADDRESS = 2 * A2_HALVES_PER_BLOCK;
 
 export interface CoreParams {
   password: Uint8Array;
@@ -31,10 +33,6 @@ export interface CoreParams {
   version: number;
   // 0 for Argon2d, 2 for Argon2id.
   type: number;
-}
-
-function a2_rotr64(x: bigint, n: bigint): bigint {
-  return ((x >> n) | (x << (64n - n))) & A2_M64;
 }
 
 function a2_le32(n: number): Uint8Array {
@@ -60,123 +58,238 @@ function a2_concatBytes(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function a2_bytesToBlock(bytes: Uint8Array, out: BigUint64Array): void {
-  for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-    let word = 0n;
-    for (let b = 0; b < 8; b++) {
-      word |= BigInt(bytes[k * 8 + b] as number) << BigInt(8 * b);
+function a2_bytesToBlock(bytes: Uint8Array, out: Uint32Array, at: number): void {
+  for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
+    const i = 4 * k;
+    out[at + k] =
+      ((bytes[i] as number) |
+        ((bytes[i + 1] as number) << 8) |
+        ((bytes[i + 2] as number) << 16) |
+        ((bytes[i + 3] as number) << 24)) >>>
+      0;
+  }
+}
+
+function a2_blockToBytes(block: Uint32Array, out: Uint8Array): void {
+  for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
+    const half = block[k] as number;
+    out[4 * k] = half;
+    out[4 * k + 1] = half >>> 8;
+    out[4 * k + 2] = half >>> 16;
+    out[4 * k + 3] = half >>> 24;
+  }
+}
+
+/** Variable-length hash H' (RFC 9106 §3.3) of input into out, built on BLAKE2b. The caller
+owns out; every intermediate digest here is zeroed on every path (#145). */
+function a2_hPrime(out: Uint8Array, input: Uint8Array): void {
+  const prefixed = a2_concatBytes(a2_le32(out.length), input);
+  let v: Uint8Array = new Uint8Array(0);
+  try {
+    if (out.length <= 64) {
+      v = blake2b(out.length, prefixed);
+      out.set(v);
+      return;
     }
-    out[k] = word;
-  }
-}
-
-function a2_blockToBytes(block: BigUint64Array): Uint8Array {
-  const out = new Uint8Array(1024);
-  for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-    const word = block[k] as bigint;
-    for (let b = 0; b < 8; b++) {
-      out[k * 8 + b] = Number((word >> BigInt(8 * b)) & 0xffn);
+    const blocks = Math.ceil(out.length / 32) - 2;
+    v = blake2b(64, prefixed);
+    out.set(v.subarray(0, 32), 0);
+    let pos = 32;
+    for (let i = 2; i <= blocks; i++) {
+      const next = blake2b(64, v);
+      v.fill(0);
+      v = next;
+      out.set(v.subarray(0, 32), pos);
+      pos += 32;
     }
+    const last = blake2b(out.length - 32 * blocks, v);
+    out.set(last, pos);
+    last.fill(0);
+  } finally {
+    prefixed.fill(0);
+    v.fill(0);
   }
-  return out;
 }
 
-// Variable-length hash H' (RFC 9106 §3.3), built on BLAKE2b.
-function a2_hPrime(outLength: number, input: Uint8Array): Uint8Array {
-  if (outLength <= 64) {
-    return blake2b(outLength, a2_concatBytes(a2_le32(outLength), input));
-  }
-  const out = new Uint8Array(outLength);
-  const blocks = Math.ceil(outLength / 32) - 2;
-  let v = blake2b(64, a2_concatBytes(a2_le32(outLength), input));
-  out.set(v.subarray(0, 32), 0);
-  let pos = 32;
-  for (let i = 2; i <= blocks; i++) {
-    v = blake2b(64, v);
-    out.set(v.subarray(0, 32), pos);
-    pos += 32;
-  }
-  out.set(blake2b(outLength - 32 * blocks, v), pos);
-  return out;
+// High 32 bits of x * y: the double product is within 2^11 of exact, so rounding recovers them.
+function a2_mulHi(x: number, y: number): number {
+  return Math.round((x * y - (Math.imul(x, y) >>> 0)) / 0x100000000);
 }
 
-// P's index patterns over the 1024-byte block as an 8x8 register matrix (RFC 9106 §3.5).
-const A2_ROWS: number[][] = [];
-const A2_COLS: number[][] = [];
-for (let r = 0; r < 8; r++) {
-  const row: number[] = [];
-  const col: number[] = [];
-  for (let k = 0; k < 16; k++) {
-    row.push(16 * r + k);
-  }
-  for (let k = 0; k < 8; k++) {
-    col.push(2 * r + 16 * k);
-    col.push(2 * r + 16 * k + 1);
-  }
-  A2_ROWS.push(row);
-  A2_COLS.push(col);
+// Scratch for every G call; Argon2 runs synchronously, so no two calls share them at once.
+const A2_R = new Uint32Array(A2_HALVES_PER_BLOCK);
+const A2_TMP = new Uint32Array(A2_HALVES_PER_BLOCK);
+
+/** GB, the modified BLAKE2b mixing function with multiplications (RFC 9106 §3.6), on the words of
+A2_R at a, b, c, d. Each word's halves stay in locals, read and written once; each x + y +
+2 * lo32(x) * lo32(y) step takes the product's high half as a2_mulHi does, reusing its low half p. */
+function a2_gb(a: number, b: number, c: number, d: number): void {
+  const v = A2_R;
+  let al = v[a] as number;
+  let ah = v[a + 1] as number;
+  let bl = v[b] as number;
+  let bh = v[b + 1] as number;
+  let cl = v[c] as number;
+  let ch = v[c + 1] as number;
+  let dl = v[d] as number;
+  let dh = v[d + 1] as number;
+  let p: number;
+  let s: number;
+  let xl: number;
+  let xh: number;
+
+  p = Math.imul(al, bl) >>> 0; // a = a + b + 2 * lo32(a) * lo32(b)
+  s = al + bl + ((p << 1) >>> 0);
+  ah =
+    (ah +
+      bh +
+      (((Math.round((al * bl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  al = s >>> 0;
+  xl = (dl ^ al) >>> 0; // d = rotr64(d ^ a, 32)
+  dl = (dh ^ ah) >>> 0;
+  dh = xl;
+
+  p = Math.imul(cl, dl) >>> 0; // c = c + d + 2 * lo32(c) * lo32(d)
+  s = cl + dl + ((p << 1) >>> 0);
+  ch =
+    (ch +
+      dh +
+      (((Math.round((cl * dl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  cl = s >>> 0;
+  xl = (bl ^ cl) >>> 0; // b = rotr64(b ^ c, 24)
+  xh = (bh ^ ch) >>> 0;
+  bl = ((xl >>> 24) | (xh << 8)) >>> 0;
+  bh = ((xh >>> 24) | (xl << 8)) >>> 0;
+
+  p = Math.imul(al, bl) >>> 0; // a = a + b + 2 * lo32(a) * lo32(b)
+  s = al + bl + ((p << 1) >>> 0);
+  ah =
+    (ah +
+      bh +
+      (((Math.round((al * bl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  al = s >>> 0;
+  xl = (dl ^ al) >>> 0; // d = rotr64(d ^ a, 16)
+  xh = (dh ^ ah) >>> 0;
+  dl = ((xl >>> 16) | (xh << 16)) >>> 0;
+  dh = ((xh >>> 16) | (xl << 16)) >>> 0;
+
+  p = Math.imul(cl, dl) >>> 0; // c = c + d + 2 * lo32(c) * lo32(d)
+  s = cl + dl + ((p << 1) >>> 0);
+  ch =
+    (ch +
+      dh +
+      (((Math.round((cl * dl - p) / 0x100000000) << 1) | (p >>> 31)) >>> 0) +
+      ((s / 0x100000000) | 0)) >>>
+    0;
+  cl = s >>> 0;
+  xl = (bl ^ cl) >>> 0; // b = rotr64(b ^ c, 63)
+  xh = (bh ^ ch) >>> 0;
+  bl = ((xh >>> 31) | (xl << 1)) >>> 0;
+  bh = ((xl >>> 31) | (xh << 1)) >>> 0;
+
+  v[a] = al;
+  v[a + 1] = ah;
+  v[b] = bl;
+  v[b + 1] = bh;
+  v[c] = cl;
+  v[c + 1] = ch;
+  v[d] = dl;
+  v[d + 1] = dh;
 }
 
-// GB, the modified BLAKE2b mixing function with multiplications (Section 3.6).
-function a2_gb(v: BigUint64Array, a: number, b: number, c: number, d: number): void {
-  let va = v[a] as bigint;
-  let vb = v[b] as bigint;
-  let vc = v[c] as bigint;
-  let vd = v[d] as bigint;
-  va = (va + vb + 2n * (va & A2_M32) * (vb & A2_M32)) & A2_M64;
-  vd = a2_rotr64(vd ^ va, 32n);
-  vc = (vc + vd + 2n * (vc & A2_M32) * (vd & A2_M32)) & A2_M64;
-  vb = a2_rotr64(vb ^ vc, 24n);
-  va = (va + vb + 2n * (va & A2_M32) * (vb & A2_M32)) & A2_M64;
-  vd = a2_rotr64(vd ^ va, 16n);
-  vc = (vc + vd + 2n * (vc & A2_M32) * (vd & A2_M32)) & A2_M64;
-  vb = a2_rotr64(vb ^ vc, 63n);
-  v[a] = va;
-  v[b] = vb;
-  v[c] = vc;
-  v[d] = vd;
+// Permutation P on the 16 words of A2_R whose low halves sit at w0..w15 (RFC 9106, Section 3.6).
+function a2_permute(
+  w0: number,
+  w1: number,
+  w2: number,
+  w3: number,
+  w4: number,
+  w5: number,
+  w6: number,
+  w7: number,
+  w8: number,
+  w9: number,
+  w10: number,
+  w11: number,
+  w12: number,
+  w13: number,
+  w14: number,
+  w15: number,
+): void {
+  a2_gb(w0, w4, w8, w12);
+  a2_gb(w1, w5, w9, w13);
+  a2_gb(w2, w6, w10, w14);
+  a2_gb(w3, w7, w11, w15);
+  a2_gb(w0, w5, w10, w15);
+  a2_gb(w1, w6, w11, w12);
+  a2_gb(w2, w7, w8, w13);
+  a2_gb(w3, w4, w9, w14);
 }
 
-// Permutation P applied to the 16 words named by `q` (RFC 9106, Section 3.6).
-function a2_permute(v: BigUint64Array, q: number[]): void {
-  const i = (k: number): number => q[k] as number;
-  a2_gb(v, i(0), i(4), i(8), i(12));
-  a2_gb(v, i(1), i(5), i(9), i(13));
-  a2_gb(v, i(2), i(6), i(10), i(14));
-  a2_gb(v, i(3), i(7), i(11), i(15));
-  a2_gb(v, i(0), i(5), i(10), i(15));
-  a2_gb(v, i(1), i(6), i(11), i(12));
-  a2_gb(v, i(2), i(7), i(8), i(13));
-  a2_gb(v, i(3), i(4), i(9), i(14));
-}
-
-// G (RFC 9106 §3.5): next = (with_xor?next:0) XOR R XOR P_columns(P_rows(R)), where R=ref XOR prev.
+/** G (RFC 9106 §3.5) on the blocks of m starting at prev, ref and next: next = (with_xor?next:0)
+XOR R XOR P_columns(P_rows(R)), where R=ref XOR prev. The block is an 8x8 matrix of 16-byte
+registers; a row is 16 consecutive words, a column 8 word pairs one row apart. */
 function a2_fillBlock(
-  prev: BigUint64Array,
-  ref: BigUint64Array,
-  next: BigUint64Array,
+  m: Uint32Array,
+  prev: number,
+  ref: number,
+  next: number,
   withXor: boolean,
 ): void {
-  const r = new BigUint64Array(A2_WORDS_PER_BLOCK);
-  for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-    r[k] = (ref[k] as bigint) ^ (prev[k] as bigint);
+  const keep = withXor ? 0xffffffff : 0; // how much of next's old content XORs in
+  for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
+    const r = ((m[ref + k] as number) ^ (m[prev + k] as number)) >>> 0;
+    A2_R[k] = r;
+    A2_TMP[k] = (r ^ ((m[next + k] as number) & keep)) >>> 0;
   }
-  const tmp = new BigUint64Array(A2_WORDS_PER_BLOCK);
-  if (withXor) {
-    for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-      tmp[k] = (r[k] as bigint) ^ (next[k] as bigint);
-    }
-  } else {
-    tmp.set(r);
+  for (let b = 0; b < A2_HALVES_PER_BLOCK; b += 32) {
+    a2_permute(
+      b,
+      b + 2,
+      b + 4,
+      b + 6,
+      b + 8,
+      b + 10,
+      b + 12,
+      b + 14,
+      b + 16,
+      b + 18,
+      b + 20,
+      b + 22,
+      b + 24,
+      b + 26,
+      b + 28,
+      b + 30,
+    );
   }
-  for (let i = 0; i < 8; i++) {
-    a2_permute(r, A2_ROWS[i] as number[]);
+  for (let c = 0; c < 32; c += 4) {
+    a2_permute(
+      c,
+      c + 2,
+      c + 32,
+      c + 34,
+      c + 64,
+      c + 66,
+      c + 96,
+      c + 98,
+      c + 128,
+      c + 130,
+      c + 160,
+      c + 162,
+      c + 192,
+      c + 194,
+      c + 224,
+      c + 226,
+    );
   }
-  for (let i = 0; i < 8; i++) {
-    a2_permute(r, A2_COLS[i] as number[]);
-  }
-  for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-    next[k] = (tmp[k] as bigint) ^ (r[k] as bigint);
+  for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
+    m[next + k] = ((A2_TMP[k] as number) ^ (A2_R[k] as number)) >>> 0;
   }
 }
 
@@ -205,87 +318,121 @@ function a2_indexAlpha(
     referenceAreaSize = laneLength - segmentLength + (index === 0 ? -1 : 0);
   }
 
-  let relative = BigInt(pseudoRand);
-  relative = (relative * relative) >> 32n;
-  relative = BigInt(referenceAreaSize) - 1n - ((BigInt(referenceAreaSize) * relative) >> 32n);
+  const x = a2_mulHi(pseudoRand, pseudoRand);
+  const relative = referenceAreaSize - 1 - a2_mulHi(referenceAreaSize, x);
 
   let startPosition = 0;
   if (pass !== 0) {
     startPosition = slice === A2_SYNC_POINTS - 1 ? 0 : (slice + 1) * segmentLength;
   }
-  return Number((BigInt(startPosition) + relative) % BigInt(laneLength));
+  return (startPosition + relative) % laneLength;
 }
 
-// Run the full Argon2 operation and return the tag.
+/** Run the full Argon2 operation and return the tag. Everything derived from the password is
+zeroed before returning or throwing, and the tag too when it isn't returned (#145). */
 export function argon2Core(params: CoreParams): Uint8Array {
+  const tag = new Uint8Array(params.tagLength);
+  let h0Input: Uint8Array = new Uint8Array(0);
+  let h0: Uint8Array = new Uint8Array(0);
+  const laneSeed = new Uint8Array(72); // H_0 ‖ column ‖ lane
+  const blockBytes = new Uint8Array(1024);
+  let store = new Uint32Array(0);
+  const c = new Uint32Array(A2_HALVES_PER_BLOCK);
+  try {
+    h0Input = a2_h0Input(params);
+    h0 = blake2b(64, h0Input);
+    // Step 2: the memory matrix B[lanes][columns], allocated here so the finally below wipes it.
+    const lanes = params.parallelism;
+    store = new Uint32Array(
+      4 * lanes * Math.floor(params.memory / (4 * lanes)) * A2_HALVES_PER_BLOCK,
+    );
+    a2_fill(params, store, h0, laneSeed, blockBytes);
+    a2_finalBlock(params, store, c);
+    a2_blockToBytes(c, blockBytes);
+    a2_hPrime(tag, blockBytes); // Step 8: tag = H'^T(C).
+  } catch (err) {
+    tag.fill(0);
+    throw err;
+  } finally {
+    h0Input.fill(0);
+    h0.fill(0);
+    laneSeed.fill(0);
+    blockBytes.fill(0);
+    store.fill(0);
+    c.fill(0);
+    A2_R.fill(0);
+    A2_TMP.fill(0);
+  }
+  return tag;
+}
+
+// Step 1: the input hashed into H_0.
+function a2_h0Input(params: CoreParams): Uint8Array {
   const { password, salt, secret, associatedData } = params;
+  return a2_concatBytes(
+    a2_le32(params.parallelism),
+    a2_le32(params.tagLength),
+    a2_le32(params.memory),
+    a2_le32(params.iterations),
+    a2_le32(params.version),
+    a2_le32(params.type),
+    a2_le32(password.length),
+    password,
+    a2_le32(salt.length),
+    salt,
+    a2_le32(secret.length),
+    secret,
+    a2_le32(associatedData.length),
+    associatedData,
+  );
+}
+
+// Steps 3-6: fill the memory matrix in store; laneSeed and blockBytes are scratch.
+function a2_fill(
+  params: CoreParams,
+  store: Uint32Array,
+  h0: Uint8Array,
+  laneSeed: Uint8Array,
+  blockBytes: Uint8Array,
+): void {
   const lanes = params.parallelism;
-  const memory = params.memory;
   const passes = params.iterations;
-  const tagLength = params.tagLength;
   const version = params.version;
   const type = params.type;
-
-  // Step 1: H_0.
-  const h0 = blake2b(
-    64,
-    a2_concatBytes(
-      a2_le32(lanes),
-      a2_le32(tagLength),
-      a2_le32(memory),
-      a2_le32(passes),
-      a2_le32(version),
-      a2_le32(type),
-      a2_le32(password.length),
-      password,
-      a2_le32(salt.length),
-      salt,
-      a2_le32(secret.length),
-      secret,
-      a2_le32(associatedData.length),
-      associatedData,
-    ),
-  );
-
-  // Step 2: allocate memory matrix B[lanes][columns].
-  const memoryBlocks = 4 * lanes * Math.floor(memory / (4 * lanes));
+  const memoryBlocks = store.length / A2_HALVES_PER_BLOCK;
   const columns = memoryBlocks / lanes;
   const segmentLength = columns / A2_SYNC_POINTS;
-  const store = new BigUint64Array(memoryBlocks * A2_WORDS_PER_BLOCK);
-
-  const block = (lane: number, col: number): BigUint64Array => {
-    const start = (lane * columns + col) * A2_WORDS_PER_BLOCK;
-    return store.subarray(start, start + A2_WORDS_PER_BLOCK);
-  };
+  const at = (lane: number, col: number): number => (lane * columns + col) * A2_HALVES_PER_BLOCK;
 
   // Steps 3-4: first two columns of each lane.
+  laneSeed.set(h0);
   for (let lane = 0; lane < lanes; lane++) {
-    a2_bytesToBlock(a2_hPrime(1024, a2_concatBytes(h0, a2_le32(0), a2_le32(lane))), block(lane, 0));
-    a2_bytesToBlock(a2_hPrime(1024, a2_concatBytes(h0, a2_le32(1), a2_le32(lane))), block(lane, 1));
+    laneSeed.set(a2_le32(lane), 68);
+    for (let col = 0; col < 2; col++) {
+      laneSeed.set(a2_le32(col), 64);
+      a2_hPrime(blockBytes, laneSeed);
+      a2_bytesToBlock(blockBytes, store, at(lane, col));
+    }
   }
-
-  const zeroBlock = new BigUint64Array(A2_WORDS_PER_BLOCK);
 
   const fillSegment = (pass: number, slice: number, lane: number): void => {
     const dataIndependent = type === ARGON2_ID && pass === 0 && slice < A2_SYNC_POINTS / 2;
 
-    let addressBlock = zeroBlock;
-    let inputBlock = zeroBlock;
+    // The zero, input and address blocks of data-independent addressing (RFC 9106 §3.4.1.2).
+    const addressing = new Uint32Array(dataIndependent ? 3 * A2_HALVES_PER_BLOCK : 0);
     const nextAddresses = (): void => {
-      inputBlock[6] = (inputBlock[6] as bigint) + 1n;
-      a2_fillBlock(zeroBlock, inputBlock, addressBlock, false);
-      a2_fillBlock(zeroBlock, addressBlock, addressBlock, false);
+      addressing[A2_INPUT + 12] = (addressing[A2_INPUT + 12] as number) + 1; // word 6, the counter
+      a2_fillBlock(addressing, A2_ZERO, A2_INPUT, A2_ADDRESS, false);
+      a2_fillBlock(addressing, A2_ZERO, A2_ADDRESS, A2_ADDRESS, false);
     };
 
     if (dataIndependent) {
-      addressBlock = new BigUint64Array(A2_WORDS_PER_BLOCK);
-      inputBlock = new BigUint64Array(A2_WORDS_PER_BLOCK);
-      inputBlock[0] = BigInt(pass);
-      inputBlock[1] = BigInt(lane);
-      inputBlock[2] = BigInt(slice);
-      inputBlock[3] = BigInt(memoryBlocks);
-      inputBlock[4] = BigInt(passes);
-      inputBlock[5] = BigInt(type);
+      addressing[A2_INPUT] = pass;
+      addressing[A2_INPUT + 2] = lane;
+      addressing[A2_INPUT + 4] = slice;
+      addressing[A2_INPUT + 6] = memoryBlocks;
+      addressing[A2_INPUT + 8] = passes;
+      addressing[A2_INPUT + 10] = type;
     }
 
     let startIndex = 0;
@@ -300,17 +447,23 @@ export function argon2Core(params: CoreParams): Uint8Array {
       const col = slice * segmentLength + index;
       const prevCol = col === 0 ? columns - 1 : col - 1;
 
-      let pseudoRand: bigint;
+      // J1 and J2 (RFC 9106 §3.4.1) are the low and high halves of a 64-bit word.
+      let source: Uint32Array;
+      let word: number;
       if (dataIndependent) {
         if (index % A2_ADDRESSES_PER_BLOCK === 0) {
           nextAddresses();
         }
-        pseudoRand = addressBlock[index % A2_ADDRESSES_PER_BLOCK] as bigint;
+        source = addressing;
+        word = A2_ADDRESS + 2 * (index % A2_ADDRESSES_PER_BLOCK);
       } else {
-        pseudoRand = block(lane, prevCol)[0] as bigint;
+        source = store;
+        word = at(lane, prevCol);
       }
+      const j1 = source[word] as number;
+      const j2 = source[word + 1] as number;
 
-      let refLane = Number((pseudoRand >> 32n) % BigInt(lanes));
+      let refLane = j2 % lanes;
       if (pass === 0 && slice === 0) {
         refLane = lane;
       }
@@ -321,12 +474,12 @@ export function argon2Core(params: CoreParams): Uint8Array {
         index,
         segmentLength,
         columns,
-        Number(pseudoRand & A2_M32),
+        j1,
         refLane === lane,
       );
 
       const withXor = version !== ARGON2_VERSION_10 && pass > 0;
-      a2_fillBlock(block(lane, prevCol), block(refLane, refIndex), block(lane, col), withXor);
+      a2_fillBlock(store, at(lane, prevCol), at(refLane, refIndex), at(lane, col), withXor);
     }
   };
 
@@ -338,16 +491,16 @@ export function argon2Core(params: CoreParams): Uint8Array {
       }
     }
   }
+}
 
-  // Step 7: final block C is the XOR of the last column across lanes.
-  const c = new BigUint64Array(A2_WORDS_PER_BLOCK);
+// Step 7: final block C, the XOR of the last column across lanes, into c.
+function a2_finalBlock(params: CoreParams, store: Uint32Array, c: Uint32Array): void {
+  const lanes = params.parallelism;
+  const laneHalves = store.length / lanes;
   for (let lane = 0; lane < lanes; lane++) {
-    const last = block(lane, columns - 1);
-    for (let k = 0; k < A2_WORDS_PER_BLOCK; k++) {
-      c[k] = (c[k] as bigint) ^ (last[k] as bigint);
+    const last = (lane + 1) * laneHalves - A2_HALVES_PER_BLOCK;
+    for (let k = 0; k < A2_HALVES_PER_BLOCK; k++) {
+      c[k] = ((c[k] as number) ^ (store[last + k] as number)) >>> 0;
     }
   }
-
-  // Step 8: tag = H'^T(C).
-  return a2_hPrime(tagLength, a2_blockToBytes(c));
 }

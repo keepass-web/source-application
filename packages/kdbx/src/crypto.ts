@@ -78,14 +78,15 @@ export async function aesCbcDecrypt(
   }
 }
 
-/** Ceiling on AES-KDF `rounds`, read from the file before auth — unchecked, a
-crafted file could force a many-exabyte allocation just by being opened.
-Far above any real KeePass config, but keeps a worst case survivable. */
-const KX_MAX_AES_KDF_ROUNDS = 100_000_000n;
+/** Ceiling on AES-KDF `rounds`, read from the file before auth: KeePassXC's own
+maximum, so a crafted file can't hold an unlock open indefinitely (#145). */
+const KX_MAX_AES_KDF_ROUNDS = 1_000_000_000n;
+// 1 MiB of zero blocks per WebCrypto call, so memory stays flat at any round count (#145).
+const KX_AES_KDF_CHUNK_ROUNDS = 65_536;
 
 /** AES-KDF (KDBX 3.1's KDF): each 16-byte key half is AES-256-ECB'd `rounds`
 times under `seed`. WebCrypto has no ECB, so we simulate it via CBC with
-the half as IV over `rounds` zero blocks, then SHA-256 the final blocks. */
+the half as IV over zero blocks, then SHA-256 the final blocks. */
 export async function aesKdfTransform(
   key: Uint8Array,
   seed: Uint8Array,
@@ -106,19 +107,41 @@ export async function aesKdfTransform(
   const subtle = kx_getCrypto().subtle;
   const cryptoKey = await subtle.importKey('raw', kx_buf(seed), 'AES-CBC', false, ['encrypt']);
 
-  const transformHalf = async (iv: Uint8Array): Promise<Uint8Array> => {
-    // `n` zero plaintext blocks; CBC produces an extra PKCS#7 padding block,
-    // so the value we want (AES^n) is the n-th block, i.e. bytes [16*(n-1), 16*n).
-    const zeros = new Uint8Array(16 * n);
-    const ciphertext = new Uint8Array(
-      await subtle.encrypt({ name: 'AES-CBC', iv: kx_buf(iv) }, cryptoKey, kx_buf(zeros)),
-    );
-    return ciphertext.slice(16 * (n - 1), 16 * n);
+  const zeros = new Uint8Array(16 * Math.min(n, KX_AES_KDF_CHUNK_ROUNDS));
+
+  // AES^n of half into out; each chunk of intermediate blocks is zeroed once the next has its IV.
+  const transformHalf = async (half: Uint8Array, out: Uint8Array): Promise<void> => {
+    let block = half;
+    let ciphertext = new Uint8Array(0);
+    try {
+      for (let left = n; left > 0; left -= KX_AES_KDF_CHUNK_ROUNDS) {
+        const count = Math.min(left, KX_AES_KDF_CHUNK_ROUNDS);
+        // AES^count of the IV is the count-th block (CBC appends a PKCS#7 block after it).
+        const next = new Uint8Array(
+          await subtle.encrypt(
+            { name: 'AES-CBC', iv: kx_buf(block) },
+            cryptoKey,
+            kx_buf(zeros.subarray(0, 16 * count)),
+          ),
+        );
+        ciphertext.fill(0);
+        ciphertext = next;
+        block = ciphertext.subarray(16 * (count - 1), 16 * count);
+      }
+      out.set(block);
+    } finally {
+      ciphertext.fill(0);
+    }
   };
 
-  const left = await transformHalf(key.slice(0, 16));
-  const right = await transformHalf(key.slice(16, 32));
-  return sha256(concatBytes(left, right));
+  const transformed = new Uint8Array(32);
+  try {
+    await transformHalf(key.subarray(0, 16), transformed.subarray(0, 16));
+    await transformHalf(key.subarray(16, 32), transformed.subarray(16, 32));
+    return await sha256(transformed);
+  } finally {
+    transformed.fill(0);
+  }
 }
 
 async function kx_runTransformStream(
@@ -130,16 +153,21 @@ async function kx_runTransformStream(
   void writer.close();
   const reader = stream.readable.getReader();
   const chunks: Uint8Array[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        chunks.push(value);
+      }
     }
-    if (value) {
-      chunks.push(value);
-    }
+    return concatBytes(...chunks);
+  } finally {
+    // The chunks are (de)compressed database content (#145).
+    for (const chunk of chunks) chunk.fill(0);
   }
-  return concatBytes(...chunks);
 }
 
 /** GZip-compress `data` (RFC 1952), matching KDBX compression algorithm 1. */

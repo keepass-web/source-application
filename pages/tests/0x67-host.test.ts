@@ -1178,7 +1178,8 @@ test('0x67 embedded in a host frame: a version saved elsewhere (#74)', async (t)
     change: (db: Kdbx) => void,
     password = PASSWORD,
   ): Promise<ArrayBuffer> {
-    const db = await Kdbx.load(v1, credentials);
+    // Its own credentials, since setCredentials below wipes the ones it replaces (#145).
+    const db = await Kdbx.load(v1, new Credentials({ password: PASSWORD }));
     change(db);
     if (password !== PASSWORD) db.setCredentials(new Credentials({ password }));
     return new Uint8Array(await db.save()).buffer;

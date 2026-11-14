@@ -15,9 +15,13 @@ async function kx_blockMac(
   data: Uint8Array,
 ): Promise<Uint8Array> {
   const blockKey = await deriveBlockHmacKey(hmacBaseKey, index);
-  const indexBytes = new ByteWriter(8).writeU64(index).toBytes();
-  const sizeBytes = new ByteWriter(4).writeI32(data.length).toBytes();
-  return hmacSha256(blockKey, concatBytes(indexBytes, sizeBytes, data));
+  try {
+    const indexBytes = new ByteWriter(8).writeU64(index).toBytes();
+    const sizeBytes = new ByteWriter(4).writeI32(data.length).toBytes();
+    return await hmacSha256(blockKey, concatBytes(indexBytes, sizeBytes, data));
+  } finally {
+    blockKey.fill(0); // #145
+  }
 }
 
 // Verify and concatenate an HMAC-protected block stream into its payload.

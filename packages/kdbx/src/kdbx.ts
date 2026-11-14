@@ -93,13 +93,14 @@ export interface KdbxCreateOptions {
   aesKdfRounds?: bigint;
 }
 
+// KeePassXC's starting points, so a database made here is no cheaper to attack (#145).
 const KX_DEFAULT_ARGON2 = {
-  memoryBytes: 16n * 1024n * 1024n,
-  iterations: 3n,
-  parallelism: 1,
+  memoryBytes: 64n * 1024n * 1024n,
+  iterations: 10n,
+  parallelism: 4,
   version: Argon2Version.V13,
 } as const;
-const KX_DEFAULT_AES_KDF_ROUNDS = 60000n;
+const KX_DEFAULT_AES_KDF_ROUNDS = 1_000_000n;
 
 function kx_bytes(value: Uint8Array): VdValue {
   return { type: 'bytes', value };
@@ -120,15 +121,30 @@ function kx_ivLengthFor(cipherId: Uint8Array): number {
   return kx_cipherKind(cipherId) === 'chacha20' ? 12 : 16;
 }
 
+// Every buffer here held key material or database content and is done with (#145).
+function kx_zero(buffers: Uint8Array[]): void {
+  for (const buffer of buffers) buffer.fill(0);
+}
+
+function kx_zeroBinaries(binaries: InnerBinary[]): void {
+  for (const binary of binaries) binary.data.fill(0);
+}
+
 async function kx_encryptPayload(
   cipherId: Uint8Array,
   cipherKey: Uint8Array,
   iv: Uint8Array,
   payload: Uint8Array,
 ): Promise<Uint8Array> {
-  return kx_cipherKind(cipherId) === 'aes'
-    ? aesCbcEncrypt(cipherKey, iv, payload)
-    : new ChaCha20(cipherKey, iv).encrypt(payload);
+  if (kx_cipherKind(cipherId) === 'aes') {
+    return aesCbcEncrypt(cipherKey, iv, payload);
+  }
+  const cipher = new ChaCha20(cipherKey, iv);
+  try {
+    return cipher.encrypt(payload);
+  } finally {
+    cipher.wipe();
+  }
 }
 
 async function kx_decryptPayload(
@@ -137,9 +153,15 @@ async function kx_decryptPayload(
   iv: Uint8Array,
   data: Uint8Array,
 ): Promise<Uint8Array> {
-  return kx_cipherKind(cipherId) === 'aes'
-    ? aesCbcDecrypt(cipherKey, iv, data)
-    : new ChaCha20(cipherKey, iv).decrypt(data);
+  if (kx_cipherKind(cipherId) === 'aes') {
+    return aesCbcDecrypt(cipherKey, iv, data);
+  }
+  const cipher = new ChaCha20(cipherKey, iv);
+  try {
+    return cipher.decrypt(data);
+  } finally {
+    cipher.wipe();
+  }
 }
 
 // Transform the composite key according to the header's KDF settings.
@@ -205,6 +227,7 @@ export class Kdbx {
   #innerStreamId: number;
   // Inner random stream key (KDBX 4.x); for 3.1 the protected-stream key is in the header.
   #innerStreamKey: Uint8Array;
+  #wiped = false;
 
   private constructor(init: {
     header: OuterHeader;
@@ -233,34 +256,67 @@ export class Kdbx {
   }
 
   /** Replace the credentials used when the database is next saved, recording the
-  change in MasterKeyChanged, which other clients' key-age reminders read (#108). */
+  change in MasterKeyChanged, which other clients' key-age reminders read (#108).
+  The credentials replaced are wiped (#145). */
   setCredentials(credentials: Credentials): void {
+    if (credentials !== this.#credentials) this.#credentials.wipe();
     this.#credentials = credentials;
     touchMetaTime(this.root, 'MasterKeyChanged');
+  }
+
+  // Whether these are the credentials this database saves with.
+  usesCredentials(credentials: Credentials): boolean {
+    return credentials === this.#credentials;
+  }
+
+  /** Zero this database's credentials, inner stream key and attachments once it is closed
+  or replaced; it can't be used afterwards. Its XML text is left to the garbage collector,
+  since JavaScript strings can't be overwritten (#145). */
+  wipe(): void {
+    this.wipeContent();
+    this.#credentials.wipe();
+  }
+
+  // As wipe(), but leaving the credentials, for a copy opened with someone else's (#145).
+  wipeContent(): void {
+    this.#innerStreamKey.fill(0);
+    kx_zeroBinaries(this.binaries);
+    this.binaries = [];
+    this.#wiped = true;
+  }
+
+  // Refused, so nothing writes out a database whose attachments are already gone (#145).
+  #assertNotWiped(): void {
+    if (this.#wiped) throw new Error('database was wiped and can no longer be used');
   }
 
   /** Merge another copy of this database, which must open with this one's
   credentials, into this one by KeePass's synchronization rules (#74). */
   async mergeIn(data: Uint8Array): Promise<MergeSummary> {
+    this.#assertNotWiped();
     const other = await Kdbx.load(data, this.#credentials);
-    return mergeDocuments(
-      this.root,
-      other.root,
-      (ref) => {
-        const binary = other.getBinaryData(ref);
-        return binary === undefined ? -1 : this.addBinary(binary); // a stale reference stays stale
-      },
-      this.binaries,
-    );
+    try {
+      return mergeDocuments(
+        this.root,
+        other.root,
+        (ref) => {
+          const binary = other.getBinaryData(ref);
+          return binary === undefined ? -1 : this.addBinary(binary); // a stale reference stays stale
+        },
+        this.binaries,
+      );
+    } finally {
+      other.wipeContent(); // its credentials are this database's own, so they stay
+    }
   }
 
-  // Add a binary attachment, reusing an identical one if present; returns its pool index.
+  // Add a copy of a binary attachment, reusing an identical one if present; returns its pool index.
   addBinary(data: Uint8Array): number {
     for (let i = 0; i < this.binaries.length; i++) {
       // Index is always in range here; the cast only satisfies noUncheckedIndexedAccess.
       if (bytesEqual((this.binaries[i] as InnerBinary).data, data)) return i;
     }
-    this.binaries.push({ flags: 0, data });
+    this.binaries.push({ flags: 0, data: data.slice() });
     return this.binaries.length - 1;
   }
 
@@ -299,20 +355,37 @@ export class Kdbx {
       if (newRef !== undefined) setAttribute(valueEl, 'Ref', String(newRef));
     }
 
+    kx_zeroBinaries(this.binaries.filter((binary) => !kept.includes(binary)));
     this.binaries = kept;
   }
 
   // Parse a KDBX database from bytes.
   static async load(data: Uint8Array, credentials: Credentials): Promise<Kdbx> {
     const { header, rawHeader, offset } = readOuterHeader(data);
-    const compositeKey = await credentials.getCompositeKey();
-    const transformedKey = await kx_transformKey(header, compositeKey);
-    const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+    const keys: Uint8Array[] = [];
+    try {
+      const compositeKey = await credentials.getCompositeKey();
+      keys.push(compositeKey);
+      const transformedKey = await kx_transformKey(header, compositeKey);
+      keys.push(transformedKey);
+      const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+      keys.push(cipherKey);
 
-    if (header.version.major >= 4) {
-      return Kdbx.#load4(data, offset, header, rawHeader, transformedKey, cipherKey, credentials);
+      if (header.version.major >= 4) {
+        return await Kdbx.#load4(
+          data,
+          offset,
+          header,
+          rawHeader,
+          transformedKey,
+          cipherKey,
+          credentials,
+        );
+      }
+      return await Kdbx.#load3(data, offset, header, rawHeader, cipherKey, credentials);
+    } finally {
+      kx_zero(keys);
     }
-    return Kdbx.#load3(data, offset, header, rawHeader, cipherKey, credentials);
   }
 
   static async #load4(
@@ -332,41 +405,68 @@ export class Kdbx {
     if (!bytesEqual(headerSha, storedHeaderSha)) {
       throw new Error('header SHA-256 mismatch (corrupt file)');
     }
-    const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
-    const headerHmacKey = await deriveHeaderHmacKey(hmacBaseKey);
-    if (!bytesEqualConstantTime(await hmacSha256(headerHmacKey, rawHeader), storedHeaderHmac)) {
-      throw new Error('header HMAC mismatch (wrong credentials or corrupt file)');
+
+    // Keys and decrypted content are zeroed on every path; the stream key and attachments
+    // too if loading fails after the inner header is read (#145).
+    const secrets: Uint8Array[] = [];
+    let inner: InnerHeader | undefined;
+    let db: Kdbx;
+    try {
+      const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
+      secrets.push(hmacBaseKey);
+      const headerHmacKey = await deriveHeaderHmacKey(hmacBaseKey);
+      secrets.push(headerHmacKey);
+      if (!bytesEqualConstantTime(await hmacSha256(headerHmacKey, rawHeader), storedHeaderHmac)) {
+        throw new Error('header HMAC mismatch (wrong credentials or corrupt file)');
+      }
+
+      const encrypted = await readHmacBlockStream(blockStream, hmacBaseKey);
+      let payload = await kx_decryptPayload(
+        header.cipherId,
+        cipherKey,
+        header.encryptionIv,
+        encrypted,
+      );
+      secrets.push(payload);
+      if (header.compression === Compression.GZip) {
+        payload = await gunzip(payload);
+        secrets.push(payload);
+      }
+
+      const parsed = readInnerHeader(payload);
+      inner = parsed.inner;
+      secrets.push(parsed.xml);
+      const root = parseXml(utf8Decode(parsed.xml));
+      kx_checkHeaderHash(root, headerSha);
+      binaryTimesToIso(root);
+      const cipher = await createProtectedStreamCipher(
+        inner.innerRandomStreamId,
+        inner.innerRandomStreamKey,
+      );
+      try {
+        applyInboundProtection(root, cipher);
+      } finally {
+        cipher.wipe();
+      }
+
+      db = new Kdbx({
+        header,
+        root,
+        binaries: inner.binaries,
+        credentials,
+        innerStreamId: inner.innerRandomStreamId,
+        innerStreamKey: inner.innerRandomStreamKey,
+      });
+    } catch (err) {
+      if (inner) {
+        inner.innerRandomStreamKey.fill(0);
+        kx_zeroBinaries(inner.binaries);
+      }
+      throw err;
+    } finally {
+      kx_zero(secrets);
     }
-
-    const encrypted = await readHmacBlockStream(blockStream, hmacBaseKey);
-    let payload = await kx_decryptPayload(
-      header.cipherId,
-      cipherKey,
-      header.encryptionIv,
-      encrypted,
-    );
-    if (header.compression === Compression.GZip) {
-      payload = await gunzip(payload);
-    }
-
-    const { inner, xml } = readInnerHeader(payload);
-    const root = parseXml(utf8Decode(xml));
-    kx_checkHeaderHash(root, headerSha);
-    binaryTimesToIso(root);
-    const cipher = await createProtectedStreamCipher(
-      inner.innerRandomStreamId,
-      inner.innerRandomStreamKey,
-    );
-    applyInboundProtection(root, cipher);
-
-    return new Kdbx({
-      header,
-      root,
-      binaries: inner.binaries,
-      credentials,
-      innerStreamId: inner.innerRandomStreamId,
-      innerStreamKey: inner.innerRandomStreamKey,
-    });
+    return db;
   }
 
   static async #load3(
@@ -378,45 +478,67 @@ export class Kdbx {
     credentials: Credentials,
   ): Promise<Kdbx> {
     const ciphertext = data.subarray(offset);
-    const plaintext = await aesCbcDecrypt(cipherKey, header.encryptionIv, ciphertext);
 
-    if (!header.streamStartBytes) {
-      throw new Error('KDBX 3.1 header is missing stream start bytes');
+    // Decrypted content is zeroed on every path; attachments too if loading fails after them (#145).
+    const secrets: Uint8Array[] = [];
+    let binaries: InnerBinary[] = [];
+    let db: Kdbx;
+    try {
+      const plaintext = await aesCbcDecrypt(cipherKey, header.encryptionIv, ciphertext);
+      secrets.push(plaintext);
+
+      if (!header.streamStartBytes) {
+        throw new Error('KDBX 3.1 header is missing stream start bytes');
+      }
+      if (!bytesEqual(plaintext.subarray(0, 32), header.streamStartBytes)) {
+        throw new Error('stream start bytes mismatch (wrong credentials or corrupt file)');
+      }
+
+      let payload = await readHashedBlockStream(plaintext.subarray(32));
+      secrets.push(payload);
+      if (header.compression === Compression.GZip) {
+        payload = await gunzip(payload);
+        secrets.push(payload);
+      }
+
+      const root = parseXml(utf8Decode(payload));
+      kx_checkHeaderHash(root, await sha256(rawHeader));
+      const parsed = await readMetaBinaries(root);
+      binaries = parsed.binaries;
+      remapEntryBinaryRefs(root, parsed.idToIndex);
+      removeMetaBinariesElement(root);
+
+      if (!header.protectedStreamKey) {
+        throw new Error('KDBX 3.1 header is missing the protected stream key');
+      }
+      const streamId = header.innerRandomStreamId ?? InnerStreamCipher.Salsa20;
+      const cipher = await createProtectedStreamCipher(streamId, header.protectedStreamKey);
+      try {
+        applyInboundProtection(root, cipher);
+      } finally {
+        cipher.wipe();
+      }
+
+      db = new Kdbx({
+        header,
+        root,
+        binaries,
+        credentials,
+        innerStreamId: streamId,
+        innerStreamKey: header.protectedStreamKey,
+      });
+    } catch (err) {
+      kx_zeroBinaries(binaries);
+      throw err;
+    } finally {
+      kx_zero(secrets);
     }
-    if (!bytesEqual(plaintext.subarray(0, 32), header.streamStartBytes)) {
-      throw new Error('stream start bytes mismatch (wrong credentials or corrupt file)');
-    }
-
-    let payload = await readHashedBlockStream(plaintext.subarray(32));
-    if (header.compression === Compression.GZip) {
-      payload = await gunzip(payload);
-    }
-
-    const root = parseXml(utf8Decode(payload));
-    kx_checkHeaderHash(root, await sha256(rawHeader));
-    const { binaries, idToIndex } = await readMetaBinaries(root);
-    remapEntryBinaryRefs(root, idToIndex);
-    removeMetaBinariesElement(root);
-
-    if (!header.protectedStreamKey) {
-      throw new Error('KDBX 3.1 header is missing the protected stream key');
-    }
-    const streamId = header.innerRandomStreamId ?? InnerStreamCipher.Salsa20;
-    const cipher = await createProtectedStreamCipher(streamId, header.protectedStreamKey);
-    applyInboundProtection(root, cipher);
-
-    return new Kdbx({
-      header,
-      root,
-      binaries,
-      credentials,
-      innerStreamId: streamId,
-      innerStreamKey: header.protectedStreamKey,
-    });
+    return db;
   }
 
   // Serialize the database to KDBX bytes (regenerating all random material).
   async save(): Promise<Uint8Array> {
+    this.#assertNotWiped();
     return this.header.version.major >= 4 ? this.#save4() : this.#save3();
   }
 
@@ -424,6 +546,7 @@ export class Kdbx {
   export and import, so it moves into either without loss (#137). Attachments go
   in Meta, as KDBX 3.1 keeps them, and protected values in the clear. */
   exportXml(): string {
+    this.#assertNotWiped();
     const root = cloneElement(this.root);
     writeMetaBinaries(root, this.binaries);
     markProtectedInMemory(root);
@@ -453,7 +576,8 @@ export class Kdbx {
     const rawHeader = writeOuterHeader(header);
     const headerSha = await sha256(rawHeader);
 
-    // Fresh inner random stream key (64 bytes for ChaCha20, 32 for Salsa20).
+    // Fresh inner random stream key (64 bytes for ChaCha20, 32 for Salsa20); the old one is zeroed.
+    this.#innerStreamKey.fill(0);
     this.#innerStreamKey = getRandomBytes(
       this.#innerStreamId === InnerStreamCipher.ChaCha20 ? 64 : 32,
     );
@@ -463,35 +587,52 @@ export class Kdbx {
       binaries: this.binaries,
     };
 
+    // Keys and plaintext copies are zeroed on every path (#145).
+    const secrets: Uint8Array[] = [];
     const cipher = await createProtectedStreamCipher(this.#innerStreamId, this.#innerStreamKey);
-    const clonedRoot = cloneElement(this.root);
-    isoTimesToBinary(clonedRoot);
-    setGenerator(clonedRoot);
-    kx_refreshHeaderHash(clonedRoot, headerSha);
-    applyOutboundProtection(clonedRoot, cipher);
-    const xmlBytes = utf8Encode(serializeXml(clonedRoot));
+    try {
+      const clonedRoot = cloneElement(this.root);
+      isoTimesToBinary(clonedRoot);
+      setGenerator(clonedRoot);
+      kx_refreshHeaderHash(clonedRoot, headerSha);
+      applyOutboundProtection(clonedRoot, cipher);
+      const xmlBytes = utf8Encode(serializeXml(clonedRoot));
+      secrets.push(xmlBytes);
+      const innerBytes = writeInnerHeader(innerHeader);
+      secrets.push(innerBytes);
 
-    let payload = concatBytes(writeInnerHeader(innerHeader), xmlBytes);
-    if (header.compression === Compression.GZip) {
-      payload = await gzip(payload);
+      let payload = concatBytes(innerBytes, xmlBytes);
+      secrets.push(payload);
+      if (header.compression === Compression.GZip) {
+        payload = await gzip(payload);
+        secrets.push(payload);
+      }
+
+      const compositeKey = await this.#credentials.getCompositeKey();
+      secrets.push(compositeKey);
+      const transformedKey = await transformWithKdfParameters(compositeKey, header.kdfParameters);
+      secrets.push(transformedKey);
+      const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+      secrets.push(cipherKey);
+      const encrypted = await kx_encryptPayload(
+        header.cipherId,
+        cipherKey,
+        header.encryptionIv,
+        payload,
+      );
+
+      const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
+      secrets.push(hmacBaseKey);
+      const headerHmacKey = await deriveHeaderHmacKey(hmacBaseKey);
+      secrets.push(headerHmacKey);
+      const headerHmac = await hmacSha256(headerHmacKey, rawHeader);
+      const blockStream = await writeHmacBlockStream(encrypted, hmacBaseKey);
+
+      return concatBytes(rawHeader, headerSha, headerHmac, blockStream);
+    } finally {
+      cipher.wipe();
+      kx_zero(secrets);
     }
-
-    const compositeKey = await this.#credentials.getCompositeKey();
-    const transformedKey = await transformWithKdfParameters(compositeKey, header.kdfParameters);
-    const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
-    const encrypted = await kx_encryptPayload(
-      header.cipherId,
-      cipherKey,
-      header.encryptionIv,
-      payload,
-    );
-
-    const hmacBaseKey = await deriveHmacBaseKey(header.masterSeed, transformedKey);
-    const headerHmacKey = await deriveHeaderHmacKey(hmacBaseKey);
-    const headerHmac = await hmacSha256(headerHmacKey, rawHeader);
-    const blockStream = await writeHmacBlockStream(encrypted, hmacBaseKey);
-
-    return concatBytes(rawHeader, headerSha, headerHmac, blockStream);
   }
 
   async #save3(): Promise<Uint8Array> {
@@ -501,6 +642,7 @@ export class Kdbx {
     header.masterSeed = getRandomBytes(32);
     header.transformSeed = getRandomBytes(32);
     header.encryptionIv = getRandomBytes(16);
+    this.#innerStreamKey.fill(0); // the old stream key, which is also the header's old one
     header.protectedStreamKey = getRandomBytes(32);
     header.streamStartBytes = getRandomBytes(32);
     header.innerRandomStreamId = InnerStreamCipher.Salsa20;
@@ -511,30 +653,48 @@ export class Kdbx {
     }
     const rawHeader = writeOuterHeader(header);
 
+    // Keys and plaintext copies are zeroed on every path (#145).
+    const secrets: Uint8Array[] = [];
     const cipher = await createProtectedStreamCipher(
       InnerStreamCipher.Salsa20,
       header.protectedStreamKey,
     );
-    const clonedRoot = cloneElement(this.root);
-    writeMetaBinaries(clonedRoot, this.binaries);
-    kx_removePreviousParentGroups(clonedRoot);
-    setGenerator(clonedRoot);
-    kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
-    applyOutboundProtection(clonedRoot, cipher);
-    let xmlBytes = utf8Encode(serializeXml(clonedRoot));
-    if (header.compression === Compression.GZip) {
-      xmlBytes = await gzip(xmlBytes);
+    try {
+      const clonedRoot = cloneElement(this.root);
+      writeMetaBinaries(clonedRoot, this.binaries);
+      kx_removePreviousParentGroups(clonedRoot);
+      setGenerator(clonedRoot);
+      kx_refreshHeaderHash(clonedRoot, await sha256(rawHeader));
+      applyOutboundProtection(clonedRoot, cipher);
+      let xmlBytes = utf8Encode(serializeXml(clonedRoot));
+      secrets.push(xmlBytes);
+      if (header.compression === Compression.GZip) {
+        xmlBytes = await gzip(xmlBytes);
+        secrets.push(xmlBytes);
+      }
+
+      const hashedStream = await writeHashedBlockStream(xmlBytes);
+      secrets.push(hashedStream);
+      const plaintext = concatBytes(header.streamStartBytes, hashedStream);
+      secrets.push(plaintext);
+
+      const compositeKey = await this.#credentials.getCompositeKey();
+      secrets.push(compositeKey);
+      const transformedKey = await aesKdf(
+        compositeKey,
+        header.transformSeed,
+        header.transformRounds,
+      );
+      secrets.push(transformedKey);
+      const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
+      secrets.push(cipherKey);
+      const encrypted = await aesCbcEncrypt(cipherKey, header.encryptionIv, plaintext);
+
+      return concatBytes(rawHeader, encrypted);
+    } finally {
+      cipher.wipe();
+      kx_zero(secrets);
     }
-
-    const hashedStream = await writeHashedBlockStream(xmlBytes);
-    const plaintext = concatBytes(header.streamStartBytes, hashedStream);
-
-    const compositeKey = await this.#credentials.getCompositeKey();
-    const transformedKey = await aesKdf(compositeKey, header.transformSeed, header.transformRounds);
-    const cipherKey = await deriveCipherKey(header.masterSeed, transformedKey);
-    const encrypted = await aesCbcEncrypt(cipherKey, header.encryptionIv, plaintext);
-
-    return concatBytes(rawHeader, encrypted);
   }
 
   // Create a new, empty database with the given credentials.
