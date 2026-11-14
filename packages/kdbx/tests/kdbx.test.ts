@@ -123,8 +123,8 @@ test('wrong credentials are rejected, with a message the UI can show', async () 
 test('wrong credentials are rejected, with a message the UI can show (KDBX 3.1)', async () => {
   // Regression test: KDBX 3.1 decrypts the outer AES-CBC payload before any
   // "wrong credentials" check runs, and WebCrypto throws an empty-message
-  // DOMException on the resulting padding failure — page.ts's unlock screen
-  // was rendering that empty message as a blank error bar.
+  // DOMException on the padding failure a wrong key usually causes — page.ts's
+  // unlock screen was rendering that empty message as a blank error bar.
   const kdbx = await Kdbx.create(Credentials.fromPassword('right'), options({ version: 3 }));
   const saved = await kdbx.save();
   await assert.rejects(
