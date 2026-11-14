@@ -158,6 +158,7 @@ declare class Kdbx {
   setCredentials(credentials: Credentials): void;
   usesCredentials(credentials: Credentials): boolean;
   wipe(): void;
+  wipeContent(): void;
   static load(data: Uint8Array, credentials: Credentials): Promise<Kdbx>;
   static create(credentials: Credentials, options?: KdbxCreateOptions): Promise<Kdbx>;
 }

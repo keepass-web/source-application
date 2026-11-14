@@ -441,6 +441,21 @@ test("wipe zeroes a database's attachments and credentials (#145)", async () => 
   );
 });
 
+test('wipeContent zeroes the attachments but leaves the credentials, which a caller may still need (#145)', async () => {
+  const credentials = Credentials.fromPassword('pw');
+  const kdbx = await Kdbx.create(credentials, options({ version: 4 }));
+  const saved = await kdbx.save();
+  const key = await credentials.getCompositeKey();
+  const pooled = kdbx.getBinaryData(kdbx.addBinary(new Uint8Array([5, 6, 7]))) as Uint8Array;
+
+  kdbx.wipeContent();
+
+  assert.deepEqual(pooled, new Uint8Array(3), 'the attachment bytes are zeroed');
+  assert.equal(kdbx.binaries.length, 0);
+  assert.deepEqual(await credentials.getCompositeKey(), key, 'the credentials are as they were');
+  await Kdbx.load(saved, credentials); // and still open what they opened
+});
+
 test('setCredentials wipes the credentials it replaces, unless handed the same ones (#145)', async () => {
   const old = Credentials.fromPassword('old');
   const kdbx = await Kdbx.create(old, options({ version: 4 }));

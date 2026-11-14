@@ -2731,7 +2731,7 @@ async function openHeld(attempts: Credentials[], gone: boolean): Promise<Notice 
 
 async function opens(bytes: Uint8Array, attempts: Credentials[]): Promise<boolean> {
   try {
-    (await loadWithAny(bytes, attempts)).wipe(); // opened only to find out (#145)
+    (await loadWithAny(bytes, attempts)).wipeContent(); // opened only to find out; the attempts stay usable (#145)
     return true;
   } catch {
     return false;

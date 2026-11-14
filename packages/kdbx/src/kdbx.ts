@@ -272,11 +272,12 @@ export class Kdbx {
   or replaced; it can't be used afterwards. Its XML text is left to the garbage collector,
   since JavaScript strings can't be overwritten (#145). */
   wipe(): void {
-    this.#wipeContent();
+    this.wipeContent();
     this.#credentials.wipe();
   }
 
-  #wipeContent(): void {
+  // As wipe(), but leaving the credentials, for a copy opened with someone else's (#145).
+  wipeContent(): void {
     this.#innerStreamKey.fill(0);
     kx_zeroBinaries(this.binaries);
     this.binaries = [];
@@ -297,7 +298,7 @@ export class Kdbx {
         this.binaries,
       );
     } finally {
-      other.#wipeContent(); // its credentials are this database's own, so they stay
+      other.wipeContent(); // its credentials are this database's own, so they stay
     }
   }
 
