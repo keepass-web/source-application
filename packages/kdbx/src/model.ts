@@ -345,6 +345,34 @@ export function moveToGroup(element: XmlElement, from: XmlElement, to: XmlElemen
   if (fromUuid) setChildText(element, 'PreviousParentGroup', getText(fromUuid));
 }
 
+/** Move an entry or group from `from` to just above or below `target`, a child of `to`, returning
+whether it moved. KeePass's merge orders siblings by the newer LocationChanged, so a move stamps it,
+as KeePass's reordering does, and one already in place doesn't, so it can't win a merge (#182). */
+export function moveNextTo(
+  element: XmlElement,
+  from: XmlElement,
+  to: XmlElement,
+  target: XmlElement,
+  side: 'above' | 'below',
+): boolean {
+  const siblings = getChildren(to, element.name);
+  if (siblings[siblings.indexOf(target) + (side === 'above' ? -1 : 1)] === element) return false;
+  if (from !== to) moveToGroup(element, from, to);
+  const others = siblings.filter((sibling) => sibling !== element);
+  others.splice(others.indexOf(target) + (side === 'below' ? 1 : 0), 0, element);
+  setChildOrder(to, element.name, others);
+  kx_setTime(element, 'LocationChanged', kx_nowIso());
+  return true;
+}
+
+// Put `ordered` where `parent`'s children named `name` sit, leaving every other child in place.
+export function setChildOrder(parent: XmlElement, name: string, ordered: XmlElement[]): void {
+  const queue = [...ordered];
+  parent.children = parent.children.map((child) =>
+    child.type === 'element' && child.name === name ? (queue.shift() as XmlElement) : child,
+  );
+}
+
 /** Remove an entry or group for good, recording it and every group and entry
 under it in DeletedObjects so a merge elsewhere doesn't bring them back (#108). */
 export function deletePermanently(

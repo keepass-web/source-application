@@ -136,7 +136,23 @@ test('at phone width the rail is a drawer: no resize handle, and ⋯ still reach
   const labels = await phoneApp.$$eval('.group-menu-item', (items) =>
     items.map((i) => i.textContent),
   );
-  assert.deepEqual(labels, ['Rename', 'Move'], 'the menu opens with rename and move');
+  assert.deepEqual(
+    labels,
+    ['Rename', 'Move into…', 'Move above…', 'Move below…'],
+    'the menu opens with rename and the moves',
+  );
+  // A list, one item per row (#182): each a WCAG 2.2 minimum target, none cut off by the drawer.
+  const fit = await phoneApp.$$eval('.group-menu-item', (items) => {
+    const drawer = (document.querySelector('#sidebar') as HTMLElement).getBoundingClientRect();
+    return items.map((item) => {
+      const box = item.getBoundingClientRect();
+      return { label: item.textContent, height: box.height, overflow: box.right - drawer.right };
+    });
+  });
+  for (const { label, height, overflow } of fit) {
+    assert.ok(height >= 24, `"${label}" is at least 24px tall (${height}px)`);
+    assert.ok(overflow <= 0, `"${label}" fits inside the drawer (${overflow}px past its edge)`);
+  }
 
   assert.ok(await phoneApp.$('#sidebar.sidebar-open'), 'opening the menu left the drawer open');
   await phone.close();

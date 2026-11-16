@@ -78,6 +78,7 @@ export {
   getText,
   isInRecycleBin,
   isRecycleBinEnabled,
+  moveNextTo,
   moveToGroup,
   ProtectedValue,
   pushHistorySnapshot,

@@ -372,6 +372,163 @@ test('a later move to the same group only takes the time, and a group is never m
   assert.equal(summary.changed, 0);
 });
 
+/* Sibling order follows KeePass's synchronization (#182): runs of groups that sit together in
+both copies keep together, and the run moved last is placed as the copy that moved it has it. */
+
+function nameOf(group: XmlElement): string {
+  return getText(getChild(group, 'Name') as XmlElement);
+}
+
+function namesUnder(document: XmlElement, parent: XmlElement): string[] {
+  return getChildren(find(document, uuidOf(parent)), 'Group').map(nameOf);
+}
+
+// Put a copy's subgroups of `parent` in the given order, as a reorder there leaves them.
+function arrange(document: XmlElement, parent: XmlElement, order: XmlElement[]): void {
+  const there = find(document, uuidOf(parent));
+  there.children = [
+    ...there.children.filter((c) => !(c.type === 'element' && c.name === 'Group')),
+    ...order.map((group) => find(document, uuidOf(group))),
+  ];
+}
+
+function groups(...names: string[]): XmlElement[] {
+  return names.map((name) => createGroup(name));
+}
+
+test('a reorder made there comes in, counted as one change', () => {
+  const [a, b, c, d] = groups('A', 'B', 'C', 'D') as [
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+  ];
+  let root = a;
+  const { local, other } = diverge((r) => {
+    root = r;
+    for (const group of [a, b, c, d]) appendChild(r, group);
+  });
+  arrange(other, root, [d, a, b, c]);
+  setTime(find(other, uuidOf(d)), 'LocationChanged', T2);
+
+  const summary = mergeDocuments(local, other, identity, []);
+
+  assert.deepEqual(namesUnder(local, root), ['D', 'A', 'B', 'C']);
+  assert.equal(timeOf(find(local, uuidOf(d)), 'LocationChanged'), T2);
+  assert.equal(summary.changed, 1);
+});
+
+test('a later reorder here keeps its order, and so does one made here in the same second', () => {
+  const [a, b, c, p, q] = groups('A', 'B', 'C', 'P', 'Q') as [
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+  ];
+  let root = a;
+  const { local, other } = diverge((r) => {
+    root = r;
+    for (const group of [a, b, c, p, q]) appendChild(r, group);
+  });
+  // Here A went below B at T3; there C went to the top earlier, at T2.
+  arrange(local, root, [b, a, c, p, q]);
+  setTime(find(local, uuidOf(a)), 'LocationChanged', T3);
+  arrange(other, root, [c, a, b, p, q]);
+  setTime(find(other, uuidOf(c)), 'LocationChanged', T2);
+  // Q went above P in both copies' orders differently, in the same second.
+  arrange(local, root, [b, a, c, q, p]);
+  setTime(find(local, uuidOf(q)), 'LocationChanged', T2);
+  setTime(find(other, uuidOf(q)), 'LocationChanged', T2);
+
+  const summary = mergeDocuments(local, other, identity, []);
+
+  assert.deepEqual(namesUnder(local, root), ['B', 'A', 'C', 'Q', 'P']);
+  assert.equal(summary.changed, 0);
+});
+
+test('a run of groups keeps the time of its latest move', () => {
+  const [a, b, c] = groups('A', 'B', 'C') as [XmlElement, XmlElement, XmlElement];
+  let root = a;
+  const { local, other } = diverge((r) => {
+    root = r;
+    for (const group of [a, b, c]) appendChild(r, group);
+  });
+  // There, C went to the top at T2, then B was moved at T3 to where it already sat after A.
+  arrange(other, root, [c, a, b]);
+  setTime(find(other, uuidOf(c)), 'LocationChanged', T2);
+  setTime(find(other, uuidOf(b)), 'LocationChanged', T3);
+
+  mergeDocuments(local, other, identity, []);
+
+  assert.deepEqual(namesUnder(local, root), ['C', 'A', 'B']);
+});
+
+test('a group only one copy has keeps its side of the latest move; one added there lands as placed there', () => {
+  const [p, a, b, q, c, e] = groups('P', 'A', 'B', 'Q', 'C', 'E') as XmlElement[] as [
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+  ];
+  const { local, other } = diverge((root) => {
+    appendChild(p, a);
+    appendChild(p, b);
+    appendChild(q, c);
+    appendChild(q, e);
+    appendChild(root, p);
+    appendChild(root, q);
+  });
+  const add = (document: XmlElement, parent: XmlElement, name: string, iso: string): XmlElement => {
+    const group = createGroup(name);
+    setTime(group, 'LocationChanged', iso);
+    appendChild(find(document, uuidOf(parent)), group);
+    return group;
+  };
+  // Under P: Y added at the top here before X was added between A and B there.
+  const y = add(local, p, 'Y', T1);
+  arrange(local, p, [y, a, b]);
+  const x = add(other, p, 'X', T2);
+  arrange(other, p, [a, x, b]);
+  // Under Q: W added at the top there before Z was added at the bottom here.
+  const w = add(other, q, 'W', T2);
+  arrange(other, q, [w, c, e]);
+  add(local, q, 'Z', T3);
+
+  const summary = mergeDocuments(local, other, identity, []);
+
+  assert.deepEqual(namesUnder(local, p), ['Y', 'A', 'X', 'B']);
+  assert.deepEqual(namesUnder(local, q), ['C', 'E', 'Z', 'W']);
+  assert.equal(summary.changed, 2, 'X and W are added; nothing here was reordered');
+});
+
+test('a group moved into another there lands where that copy put it, counted once', () => {
+  const [p, a, b, q, c] = groups('P', 'A', 'B', 'Q', 'C') as [
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+    XmlElement,
+  ];
+  const { local, other } = diverge((root) => {
+    appendChild(p, a);
+    appendChild(p, b);
+    appendChild(q, c);
+    appendChild(root, p);
+    appendChild(root, q);
+  });
+  move(other, uuidOf(c), find(other, uuidOf(p)), T2);
+  arrange(other, p, [a, c, b]);
+
+  const summary = mergeDocuments(local, other, identity, []);
+
+  assert.deepEqual(namesUnder(local, p), ['A', 'C', 'B']);
+  assert.deepEqual(namesUnder(local, q), []);
+  assert.equal(summary.changed, 1);
+});
+
 test('a deletion from either copy removes what was not edited after it, and the records combine', () => {
   const doomed = createEntry({ title: 'Doomed' });
   const revived = createEntry({ title: 'Edited after' });
