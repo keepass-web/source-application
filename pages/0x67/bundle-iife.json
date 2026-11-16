@@ -53,6 +53,7 @@
     "setEntryExpiry",
     "touchLastModified",
     "moveToGroup",
+    "moveNextTo",
     "deletePermanently",
     "getEntryAttachments",
     "addEntryAttachment",

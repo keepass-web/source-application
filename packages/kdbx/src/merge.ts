@@ -14,6 +14,7 @@ import {
   getEntryHistory,
   getText,
   setAttribute,
+  setChildOrder,
   setChildText,
   trimHistory,
 } from './model.ts';
@@ -258,6 +259,136 @@ function kx_rootGroup(document: XmlElement): XmlElement {
   return group;
 }
 
+/* Where one copy had each group, keyed by this database's group: its siblings, its subgroups,
+its LocationChanged, and a number ordering it as KeePass does, by parent list then position. */
+interface KX_Layout {
+  id: Map<XmlElement, number>;
+  siblings: Map<XmlElement, XmlElement[]>;
+  subgroups: Map<XmlElement, XmlElement[]>;
+  moved: Map<XmlElement, number>;
+}
+
+function kx_layout(root: XmlElement, here: (group: XmlElement) => XmlElement): KX_Layout {
+  const layout: KX_Layout = {
+    id: new Map(),
+    siblings: new Map(),
+    subgroups: new Map(),
+    moved: new Map(),
+  };
+  const add = (group: XmlElement, siblings: XmlElement[]): void => {
+    layout.id.set(here(group), layout.id.size);
+    layout.siblings.set(here(group), siblings);
+    layout.moved.set(here(group), kx_seconds(group, 'LocationChanged'));
+  };
+  const visit = (group: XmlElement): void => {
+    const subgroups = getChildren(group, 'Group');
+    const siblings = subgroups.map(here);
+    layout.subgroups.set(here(group), siblings);
+    for (const sub of subgroups) add(sub, siblings);
+    for (const sub of subgroups) visit(sub);
+  };
+  add(root, [here(root)]);
+  visit(root);
+  return layout;
+}
+
+// Groups that sit together, in this order, in both copies, with the time and copy of their latest move.
+interface KX_Run {
+  groups: XmlElement[];
+  moved: number;
+  layout: KX_Layout;
+}
+
+// The copy that moved `group` last, and when; this copy wins a tie, as in KeePass.
+function kx_lastMove(
+  group: XmlElement,
+  local: KX_Layout,
+  other: KX_Layout,
+): Omit<KX_Run, 'groups'> {
+  const here = local.moved.get(group);
+  const there = other.moved.get(group);
+  if (there !== undefined && (here === undefined || there > here)) {
+    return { moved: there, layout: other };
+  }
+  return { moved: here as number, layout: local }; // every group is in at least one copy
+}
+
+// Whether `next` follows `group` in `layout` with nothing from `list` between them.
+function kx_follows(
+  layout: KX_Layout,
+  group: XmlElement,
+  next: XmlElement,
+  list: Set<XmlElement>,
+): boolean {
+  const siblings = layout.siblings.get(group) ?? [];
+  for (const sibling of siblings.slice(siblings.indexOf(group) + 1)) {
+    if (sibling === next) return true;
+    if (list.has(sibling)) return false;
+  }
+  return false;
+}
+
+function kx_runs(groups: XmlElement[], local: KX_Layout, other: KX_Layout): KX_Run[] {
+  const list = new Set(groups);
+  const runs: KX_Run[] = [];
+  let previous: XmlElement | undefined;
+  for (const group of groups) {
+    const move = kx_lastMove(group, local, other);
+    const run = runs.at(-1);
+    if (
+      run &&
+      previous &&
+      kx_follows(local, previous, group, list) &&
+      kx_follows(other, previous, group, list)
+    ) {
+      run.groups.push(group);
+      if (move.moved > run.moved) {
+        run.moved = move.moved;
+        run.layout = move.layout;
+      }
+    } else {
+      runs.push({ groups: [group], ...move });
+    }
+    previous = group;
+  }
+  return runs;
+}
+
+/* KeePass's order: the run moved last stays where the copy that moved it has it relative to
+the others, and each side of it is then ordered the same way. */
+function kx_orderRuns(runs: KX_Run[]): KX_Run[] {
+  if (runs.length < 2) return runs;
+  const pivot = runs.reduce((latest, run) => (run.moved > latest.moved ? run : latest));
+  const id = (run: KX_Run): number | undefined => pivot.layout.id.get(run.groups[0] as XmlElement);
+  const pivotId = id(pivot) as number; // a run's groups are all in the copy that moved it last
+  const pivotAt = runs.indexOf(pivot);
+  const before: KX_Run[] = [];
+  const after: KX_Run[] = [];
+  for (const [at, run] of runs.entries()) {
+    if (run === pivot) continue;
+    const runId = id(run);
+    // A run the pivot's copy lacks keeps its side of the pivot.
+    if (runId === undefined ? at < pivotAt : runId < pivotId) {
+      before.push(run);
+    } else {
+      after.push(run);
+    }
+  }
+  return [...kx_orderRuns(before), pivot, ...kx_orderRuns(after)];
+}
+
+/* Order every group's subgroups as KeePass's merge does (#182). Returns how many lists now order
+the groups this copy already had there differently. */
+function kx_reorder(group: XmlElement, local: KX_Layout, other: KX_Layout): number {
+  const subgroups = getChildren(group, 'Group');
+  const ordered = kx_orderRuns(kx_runs(subgroups, local, other)).flatMap((run) => run.groups);
+  setChildOrder(group, 'Group', ordered);
+  const had = new Set(local.subgroups.get(group));
+  const before = subgroups.filter((sub) => had.has(sub));
+  const changed = ordered.filter((sub) => had.has(sub)).some((sub, at) => sub !== before[at]);
+  return subgroups.reduce((count, sub) => count + kx_reorder(sub, local, other), changed ? 1 : 0);
+}
+
 /** Merge `other` into `local`, both whole `<KeePassFile>` documents of the same
 database. `other` is consumed: its attachment references are rewritten through
 `adoptBinary`, which maps one of its pool indexes to one in `local`'s pool, and
@@ -271,6 +402,7 @@ export function mergeDocuments(
   const localRoot = kx_rootGroup(local);
   const otherRoot = kx_rootGroup(other);
   const index = kx_index(localRoot, null, new Map());
+  const localLayout = kx_layout(localRoot, (group) => group); // before anything here moves
   const added = new Set<XmlElement>();
   // Each of the other copy's groups by its counterpart here, so children land under the right parent.
   const counterpart = new Map<XmlElement, XmlElement>();
@@ -381,6 +513,10 @@ export function mergeDocuments(
   };
 
   mergeGroup(otherRoot, null);
+
+  // Sibling order after placement and before deletions, as KeePass orders its steps.
+  const otherLayout = kx_layout(otherRoot, (group) => counterpart.get(group) as XmlElement);
+  summary.changed += kx_reorder(localRoot, localLayout, otherLayout);
 
   // Deletions from either copy, the later of two records for the same object winning.
   const records = new Map<string, XmlElement>();

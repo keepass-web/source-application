@@ -722,14 +722,27 @@ function buildGroupMenu(group: XmlElement): HTMLDivElement {
   );
 
   menu.appendChild(
-    makeMenuItem('Move', () => {
+    makeMenuItem('Move into…', () => {
       openMoveToDialog(
-        'Move group to…',
+        'Move group into…',
         (candidate) => !isDescendantGroup(group, candidate),
         (destination) => moveGroupTo(group, destination),
       );
     }),
   );
+
+  for (const side of ['above', 'below'] as const) {
+    menu.appendChild(
+      makeMenuItem(`Move ${side}…`, () => {
+        const rootGroup = must(app.db).getRootGroup();
+        openMoveToDialog(
+          `Move group ${side}…`,
+          (candidate) => candidate !== rootGroup && !isDescendantGroup(group, candidate),
+          (target) => moveGroupNextTo(group, target, side),
+        );
+      }),
+    );
+  }
 
   if (isTrashedGroup(group)) {
     menu.appendChild(makeMenuItem('Undelete', () => undeleteGroup(group)));
@@ -776,6 +789,15 @@ function moveGroupTo(group: XmlElement, destination: XmlElement): void {
     moveToGroup(group, parent, destination);
     setDirty(true);
   }
+  renderGroupTree();
+  renderEntryPanel();
+}
+
+function moveGroupNextTo(group: XmlElement, target: XmlElement, side: 'above' | 'below'): void {
+  const rootGroup = must(app.db).getRootGroup();
+  const from = must(findGroupParent(rootGroup, group));
+  const to = must(findGroupParent(rootGroup, target));
+  if (moveNextTo(group, from, to, target, side)) setDirty(true);
   renderGroupTree();
   renderEntryPanel();
 }
@@ -1512,7 +1534,7 @@ function showEntryDetail(): void {
 
   qs('[data-action="move-entry"]').addEventListener('click', () => {
     openMoveToDialog(
-      'Move entry to…',
+      'Move entry into…',
       () => true,
       (destination) => {
         const parent = findEntryParent(db.getRootGroup(), entry);

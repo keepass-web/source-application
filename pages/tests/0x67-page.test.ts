@@ -50,6 +50,7 @@ import {
   isInRecycleBin,
   isRecycleBinEnabled,
   Kdbx,
+  moveNextTo,
   moveToGroup,
   pushHistorySnapshot,
   removeEntryAttachment,
@@ -190,6 +191,7 @@ Object.assign(globalThis, {
   setEntryExpiry,
   touchLastModified,
   moveToGroup,
+  moveNextTo,
   deletePermanently,
   getEntryAttachments,
   addEntryAttachment,
@@ -772,10 +774,10 @@ test('0x67 app', async (t) => {
       );
 
       // --- move: a group cannot be moved into itself ---
-      click(menuItem('Move Target', 'Move'));
+      click(menuItem('Move Target', 'Move into…'));
       const moveDlg = byId<HTMLDialogElement>('dlg-move-to');
       assert.equal(moveDlg.open, true);
-      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group to…');
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group into…');
       const destBtn = (name: string): HTMLButtonElement =>
         Array.from(
           byId<HTMLElement>('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn'),
@@ -798,13 +800,13 @@ test('0x67 app', async (t) => {
       click(q('[data-action="back"]'));
 
       // --- move: a descendant is also an invalid target, and cancel/close both leave it in place ---
-      click(menuItem('Renamed Group', 'Move'));
+      click(menuItem('Renamed Group', 'Move into…'));
       assert.equal(destBtn('Renamed Group').disabled, true, 'self is not a valid target');
       assert.equal(destBtn('Move Target').disabled, true, 'own descendant is not a valid target');
       click(dq('#dlg-move-to [data-action="close"]'));
       assert.equal(moveDlg.open, false);
 
-      click(menuItem('Renamed Group', 'Move'));
+      click(menuItem('Renamed Group', 'Move into…'));
       click(dq('#dlg-move-to [data-action="cancel-move"]'));
       assert.equal(moveDlg.open, false);
       assert.equal(
@@ -850,9 +852,23 @@ test('0x67 app', async (t) => {
       );
 
       // --- undelete: offered only for a trashed group, and restores to root ---
-      assert.deepEqual(menuLabels('Personal'), ['Rename', 'Move'], 'a live group has no undelete');
-      assert.deepEqual(menuLabels('Renamed Group'), ['Rename', 'Move', 'Undelete']);
-      assert.deepEqual(menuLabels('Recycle Bin'), ['Rename', 'Move'], 'the bin is not in itself');
+      assert.deepEqual(
+        menuLabels('Personal'),
+        ['Rename', 'Move into…', 'Move above…', 'Move below…'],
+        'a live group has no undelete',
+      );
+      assert.deepEqual(menuLabels('Renamed Group'), [
+        'Rename',
+        'Move into…',
+        'Move above…',
+        'Move below…',
+        'Undelete',
+      ]);
+      assert.deepEqual(
+        menuLabels('Recycle Bin'),
+        ['Rename', 'Move into…', 'Move above…', 'Move below…'],
+        'the bin is not in itself',
+      );
       assert.equal(
         q<HTMLButtonElement>('[data-action="delete-group"]').disabled,
         true,
@@ -1660,7 +1676,7 @@ test('0x67 app', async (t) => {
       );
       const dlg = byId<HTMLDialogElement>('dlg-move-to');
       assert.equal(dlg.open, true);
-      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move entry to…');
+      assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move entry into…');
       destBtn('Work').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       assert.equal(dlg.open, false);
 
@@ -3554,7 +3570,7 @@ test('every group, the top level included, furls and unfurls its subgroups (#183
       (groupBtnFor('Travel').closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
         ':scope > .group-menu .group-menu-item',
       ),
-    ).find((b) => b.textContent === 'Move') as HTMLButtonElement,
+    ).find((b) => b.textContent === 'Move into…') as HTMLButtonElement,
   );
   click(
     Array.from(byId('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn')).find((b) =>
@@ -3570,6 +3586,104 @@ test('every group, the top level included, furls and unfurls its subgroups (#183
   assert.ok(q('#sidebar').classList.contains('sidebar-open'), 'the drawer stays open');
   click(groupBtnFor('Personal'));
   assert.equal(q('#sidebar').classList.contains('sidebar-open'), false);
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
+test('a group moves above or below one picked from the tree, under that group’s parent (#182)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Vault',
+  });
+  for (const name of ['Banking', 'Email', 'Shopping']) {
+    appendChild(kdbx.getRootGroup(), createGroup(name));
+  }
+  const work = createGroup('Work');
+  appendChild(work, createGroup('Servers'));
+  appendChild(kdbx.getRootGroup(), work);
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('order.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const rowFor = (name: string): HTMLElement =>
+    (
+      Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+        b.textContent?.endsWith(name),
+      ) as HTMLButtonElement
+    ).closest('.group-row') as HTMLElement;
+  const menuItems = (name: string): HTMLButtonElement[] => {
+    click(rowFor(name).querySelector('.group-menu-btn') as HTMLButtonElement);
+    return Array.from(
+      (rowFor(name).closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        ':scope > .group-menu .group-menu-item',
+      ),
+    );
+  };
+  const destBtn = (name: string): HTMLButtonElement =>
+    Array.from(byId('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn')).find((b) =>
+      b.textContent?.endsWith(name),
+    ) as HTMLButtonElement;
+  const openPicker = (name: string, label: string): void => {
+    click(menuItems(name).find((b) => b.textContent === label) as HTMLButtonElement);
+  };
+  const shown = (): string[] =>
+    Array.from(q('#group-tree').querySelectorAll('.group-btn'), (b) => b.textContent ?? '');
+  const unsaved = (): boolean => !q<HTMLButtonElement>('[data-action="save-database"]').disabled;
+
+  assert.deepEqual(
+    menuItems('Shopping').map((b) => b.textContent),
+    ['Rename', 'Move into…', 'Move above…', 'Move below…'],
+  );
+  click(rowFor('Shopping').querySelector('.group-menu-btn') as HTMLButtonElement);
+
+  // Picking the group it already sits beside changes nothing, so nothing is marked unsaved.
+  openPicker('Banking', 'Move above…');
+  click(destBtn('Email'));
+  openPicker('Email', 'Move below…');
+  click(destBtn('Banking'));
+  assert.deepEqual(shown(), ['Vault', 'Banking', 'Email', 'Shopping', 'Work', 'Servers']);
+  assert.equal(unsaved(), false);
+
+  // The top level has no siblings to sit beside, and a group cannot sit beside itself.
+  openPicker('Shopping', 'Move above…');
+  assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group above…');
+  assert.equal(destBtn('Vault').disabled, true);
+  assert.equal(destBtn('Shopping').disabled, true);
+  click(destBtn('Banking'));
+  assert.equal(byId<HTMLDialogElement>('dlg-move-to').open, false);
+  assert.deepEqual(shown(), ['Vault', 'Shopping', 'Banking', 'Email', 'Work', 'Servers']);
+  assert.equal(q('#group-tree .group-btn.active').textContent, 'Shopping', 'still the selection');
+  assert.equal(unsaved(), true, 'a reorder is an edit');
+
+  // Beside a group under another parent, it moves under that parent.
+  openPicker('Email', 'Move below…');
+  assert.equal(byId<HTMLElement>('move-to-title').textContent, 'Move group below…');
+  click(destBtn('Servers'));
+  assert.deepEqual(shown(), ['Vault', 'Shopping', 'Banking', 'Work', 'Servers', 'Email']);
+
+  // Nor can a group sit beside anything inside it.
+  openPicker('Work', 'Move below…');
+  assert.equal(destBtn('Servers').disabled, true);
+  assert.equal(destBtn('Email').disabled, true);
+  click(dq('#dlg-move-to [data-action="cancel-move"]'));
 
   click(q('[data-action="close"]'));
   click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));

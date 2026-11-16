@@ -21,6 +21,7 @@ import {
   type InnerBinary,
   isInRecycleBin,
   isRecycleBinEnabled,
+  moveNextTo,
   moveToGroup,
   ProtectedValue,
   pushHistorySnapshot,
@@ -228,6 +229,55 @@ test('moveToGroup reparents an entry or group and stamps its LocationChanged, no
   assert.deepEqual(getChildren(entry, 'PreviousParentGroup').map(getText), [
     getText(getChild(from, 'UUID') as XmlElement),
   ]);
+});
+
+test('moveNextTo places a group above or below another, stamping LocationChanged as KeePass does (#182)', () => {
+  const parent = createGroup('Parent');
+  const [a, b, c] = ['A', 'B', 'C'].map((name) => createGroup(name)) as [
+    XmlElement,
+    XmlElement,
+    XmlElement,
+  ];
+  const entry = createEntry({ title: 'Stays first' });
+  appendChild(parent, entry);
+  for (const group of [a, b, c]) {
+    appendChild(parent, group);
+    setTimeOf(group, 'LocationChanged', LONG_AGO);
+    setTimeOf(group, 'LastModificationTime', LONG_AGO);
+  }
+  const names = (group: XmlElement): string[] =>
+    getChildren(group, 'Group').map((g) => getText(getChild(g, 'Name') as XmlElement));
+  const entryAt = parent.children.indexOf(entry);
+
+  assert.equal(moveNextTo(c, parent, parent, a, 'above'), true);
+  assert.deepEqual(names(parent), ['C', 'A', 'B']);
+  assert.equal(parent.children.indexOf(entry), entryAt, 'other children keep their places');
+  assertJustNow(timeOf(c, 'LocationChanged'));
+  assert.equal(timeOf(c, 'LastModificationTime'), LONG_AGO, 'a move is not an edit');
+  assert.equal(timeOf(a, 'LocationChanged'), LONG_AGO, 'only the moved group is stamped');
+  assert.deepEqual(getChildren(c, 'PreviousParentGroup'), [], 'it has not left its group');
+
+  // Already in place, nothing moves or is stamped, so it can't win a later merge.
+  assert.equal(moveNextTo(a, parent, parent, b, 'above'), false);
+  assert.equal(moveNextTo(b, parent, parent, a, 'below'), false);
+  assert.deepEqual(names(parent), ['C', 'A', 'B']);
+  assert.equal(timeOf(a, 'LocationChanged'), LONG_AGO);
+  assert.equal(timeOf(b, 'LocationChanged'), LONG_AGO);
+
+  moveNextTo(c, parent, parent, b, 'below');
+  assert.deepEqual(names(parent), ['A', 'B', 'C']);
+
+  // Beside a group under another parent, it moves there too, recording where it came from.
+  const elsewhere = createGroup('Elsewhere');
+  const d = createGroup('D');
+  appendChild(elsewhere, d);
+  moveNextTo(b, parent, elsewhere, d, 'above');
+  assert.deepEqual(names(parent), ['A', 'C']);
+  assert.deepEqual(names(elsewhere), ['B', 'D']);
+  assert.equal(
+    getText(getChild(b, 'PreviousParentGroup') as XmlElement),
+    getText(getChild(parent, 'UUID') as XmlElement),
+  );
 });
 
 test('findPreviousParentGroup finds the group an item left, unless it is gone or in the bin (#133)', () => {

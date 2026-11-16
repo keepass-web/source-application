@@ -208,6 +208,13 @@ declare function getEntryTimes(entry: XmlElement): EntryTimes;
 declare function setEntryExpiry(entry: XmlElement, expires: boolean, expiryTimeIso: string): void;
 declare function touchLastModified(element: XmlElement): void;
 declare function moveToGroup(element: XmlElement, from: XmlElement, to: XmlElement): void;
+declare function moveNextTo(
+  element: XmlElement,
+  from: XmlElement,
+  to: XmlElement,
+  target: XmlElement,
+  side: 'above' | 'below',
+): boolean;
 declare function deletePermanently(
   document: XmlElement,
   element: XmlElement,
