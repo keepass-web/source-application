@@ -69,6 +69,8 @@
     "isDescendantGroup",
     "collectAllEntries",
     "groupPathTo",
+    "isGroupFurled",
+    "setGroupFurled",
     "collectSearchableEntries",
     "filterEntriesByQuery",
     "sortEntries",

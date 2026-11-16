@@ -580,18 +580,41 @@ function wireSidebarResize(): void {
 row, so the menu belongs to a row rather than to the selection. */
 let groupMenuFor: XmlElement | null = null;
 
+const furlToggles = new WeakMap<XmlElement, HTMLButtonElement>(); // each render's, to keep focus (#183)
+
 function renderGroupTree(): void {
   const container = qs('#group-tree');
   container.innerHTML = '';
   const rootGroup = must(app.db).getRootGroup();
+  const selected = must(app.currentGroup);
+  /* The header's delete acts on the selection, so it is never out of sight (#183): a group
+  created or moved under a furled one unfurls the way to it. */
+  for (let at = findGroupParent(rootGroup, selected); at; at = findGroupParent(rootGroup, at)) {
+    if (isGroupFurled(at)) setGroupFurled(at, false);
+  }
   const ul = document.createElement('ul');
   ul.className = 'group-list';
   ul.appendChild(buildGroupNode(rootGroup, true));
   container.appendChild(ul);
   // Deleting acts on the selection (#63); the root group is the database itself.
-  const selected = must(app.currentGroup);
   qs<HTMLButtonElement>('#delete-group-btn').disabled =
     selected === rootGroup || isRecycleBinGroup(selected);
+}
+
+// Furling around the selection moves it to the furled group, or the tree would unfurl again (#183).
+function toggleFurl(group: XmlElement): void {
+  const furling = !isGroupFurled(group);
+  setGroupFurled(group, furling);
+  if (furling) {
+    const selected = must(app.currentGroup);
+    if (selected !== group && isDescendantGroup(group, selected)) {
+      groupMenuFor = null;
+      app.currentGroup = group;
+      renderEntryPanel();
+    }
+  }
+  renderGroupTree();
+  must(furlToggles.get(group)).focus();
 }
 
 /* Opening ⋯ selects the row too (#63); the drawer shows ⋯ on every row, so
@@ -611,6 +634,24 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
   const row = document.createElement('div');
   const isActive = group === app.currentGroup;
   row.className = `group-row${isActive ? ' group-row-active' : ''}`;
+
+  const subgroups = getChildren(group, 'Group');
+  const unfurled = !isGroupFurled(group);
+  if (subgroups.length > 0) {
+    const toggle = makeIconButton(
+      'icon-btn group-toggle',
+      unfurled ? 'Hide subgroups' : 'Show subgroups',
+      'chevron',
+      () => toggleFurl(group),
+    );
+    toggle.setAttribute('aria-expanded', String(unfurled));
+    furlToggles.set(group, toggle);
+    row.appendChild(toggle);
+  } else {
+    const slot = document.createElement('span');
+    slot.className = 'group-toggle';
+    row.appendChild(slot);
+  }
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -642,8 +683,7 @@ function buildGroupNode(group: XmlElement, isRoot: boolean): HTMLLIElement {
     li.appendChild(buildGroupMenu(group));
   }
 
-  const subgroups = getChildren(group, 'Group');
-  if (subgroups.length > 0) {
+  if (unfurled && subgroups.length > 0) {
     const ul = document.createElement('ul');
     for (const sub of subgroups) {
       ul.appendChild(buildGroupNode(sub, false));

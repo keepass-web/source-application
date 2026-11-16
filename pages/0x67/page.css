@@ -38,7 +38,7 @@
   --warning-bg: #fbf0e7;
   --warning-border: #ead7c2;
   --success: #0e7c5a;
-  /* 25 chars of a first-level sub-group (#63) at .group-btn's size, plus icon, padding, nesting, and the ⋯ slot. */
+  /* 25 chars of a first-level sub-group (#63) at .group-btn's size, plus icon, padding, nesting, and the toggle (#183) and ⋯ slots. */
   --sidebar-width: 280px;
 }
 
@@ -565,6 +565,24 @@ an overlaid handle would sit on top of its scrollbar. */
   gap: 0.1rem;
 }
 
+/* Every row keeps the slot (#183), so a group without subgroups lines up with its siblings;
+never under 24px square, the smallest target WCAG allows, whatever the reader's font size. */
+.group-toggle {
+  flex: 0 0 1.5rem;
+  min-width: 24px;
+  min-height: 24px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.75rem;
+}
+
+.group-toggle[aria-expanded="true"] .icon {
+  transform: rotate(90deg);
+}
+
 /* Reserved on every row, shown only on the active one (#63), so selecting a
 group doesn't reflow its name. */
 .group-menu-btn {
@@ -632,6 +650,7 @@ so an absolutely positioned menu would be cut off. */
 .group-row .group-btn {
   flex: 1;
   min-width: 0;
+  padding-left: 0.25rem; /* the toggle's slot already sets the name off from the edge (#183) */
 }
 
 /* Entry panel */

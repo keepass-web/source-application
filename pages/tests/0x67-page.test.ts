@@ -691,8 +691,8 @@ test('0x67 app', async (t) => {
       const rowFor = (name: string): HTMLElement =>
         groupBtnFor(name).closest('.group-row') as HTMLElement;
       const liFor = (name: string): HTMLElement => rowFor(name).closest('li') as HTMLElement;
-      // The tree is always fully expanded, so a trashed/moved group's button
-      // never disappears from #group-tree — it just relocates. Check its new
+      // Nothing here is furled, so a trashed/moved group's button never
+      // disappears from #group-tree — it just relocates. Check its new
       // position (is it inside this parent's own subtree?) rather than mere
       // presence/absence.
       const isInSubtreeOf = (parentName: string, childName: string): boolean =>
@@ -3407,6 +3407,169 @@ test('restoring from the bin returns an entry or group to the group it came from
     ).find((b) => b.textContent === 'Undelete') as HTMLButtonElement,
   );
   assert.match(parentNameOf('Projects'), /Vault$/, 'and so is the group');
+
+  click(q('[data-action="close"]'));
+  click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));
+});
+
+test('every group, the top level included, furls and unfurls its subgroups (#183)', async () => {
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+    databaseName: 'Vault',
+  });
+  const work = createGroup('Work');
+  const projects = createGroup('Projects');
+  appendChild(work, createEntry({ title: 'Laptop' }));
+  appendChild(projects, createGroup('Archive'));
+  appendChild(projects, createElement('IsExpanded', 'False')); // furled, as KeePass saves it
+  appendChild(work, projects);
+  appendChild(kdbx.getRootGroup(), work);
+  appendChild(kdbx.getRootGroup(), createGroup('Personal'));
+
+  const unlock = async (): Promise<void> => {
+    await waitFor(() => q('#master-password') !== null);
+    q<HTMLInputElement>('#master-password').value = PASSWORD;
+    const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+    setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+    dispatch(keyfileInput, 'change');
+    await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+    dispatch(q('#unlock-form'), 'submit');
+    await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  };
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('furl.kdbx', await kdbx.save())]);
+  dispatch(fileInput, 'change');
+  await unlock();
+
+  const click = (el: EventTarget): void => {
+    el.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  };
+  const groupBtnFor = (name: string): HTMLButtonElement =>
+    Array.from(q('#group-tree').querySelectorAll<HTMLButtonElement>('.group-btn')).find((b) =>
+      b.textContent?.endsWith(name),
+    ) as HTMLButtonElement;
+  const rowFor = (name: string): HTMLElement =>
+    groupBtnFor(name).closest('.group-row') as HTMLElement;
+  const toggleFor = (name: string): HTMLButtonElement =>
+    rowFor(name).querySelector('button.group-toggle') as HTMLButtonElement;
+  const shown = (): string[] =>
+    Array.from(q('#group-tree').querySelectorAll('.group-btn'), (b) => b.textContent ?? '');
+  const active = (): string => q('#group-tree .group-btn.active').textContent ?? '';
+  const everyGroup = ['Vault', 'Work', 'Projects', 'Archive', 'Personal'];
+
+  // A group with subgroups gets a toggle, the top level too; one without keeps the slot empty.
+  // The file opens as it was saved: Projects furled, everything else unfurled.
+  assert.deepEqual(shown(), ['Vault', 'Work', 'Projects', 'Personal']);
+  for (const name of ['Vault', 'Work']) {
+    assert.equal(toggleFor(name).getAttribute('aria-expanded'), 'true', name);
+    assert.equal(toggleFor(name).title, 'Hide subgroups', name);
+  }
+  assert.equal(toggleFor('Projects').getAttribute('aria-expanded'), 'false');
+  const leafKeepsSlot = (name: string): void => {
+    assert.equal(toggleFor(name), null, `${name} has nothing to furl`);
+    assert.ok(rowFor(name).querySelector('span.group-toggle'), `${name} keeps the slot`);
+  };
+  leafKeepsSlot('Personal');
+
+  // Furling hides only that group's subgroups, and each group keeps its own state.
+  click(toggleFor('Work'));
+  assert.deepEqual(shown(), ['Vault', 'Work', 'Personal']);
+  assert.equal(toggleFor('Work').getAttribute('aria-expanded'), 'false');
+  assert.equal(toggleFor('Work').title, 'Show subgroups');
+  assert.equal(
+    dom.window.document.activeElement,
+    toggleFor('Work'),
+    'the redrawn toggle keeps focus, so a keyboard user carries on from it',
+  );
+  click(toggleFor('Work'));
+  assert.deepEqual(shown(), ['Vault', 'Work', 'Projects', 'Personal'], 'Projects is still furled');
+  click(toggleFor('Projects'));
+  assert.deepEqual(shown(), everyGroup);
+  leafKeepsSlot('Archive');
+  assert.equal(
+    q<HTMLButtonElement>('[data-action="save-database"]').disabled,
+    true,
+    'furling is not an edit, so it waits for the next save',
+  );
+
+  // Locking re-encrypts the database, and furling with it.
+  click(toggleFor('Work'));
+  click(q('[data-action="lock"]'));
+  await unlock();
+  assert.deepEqual(shown(), ['Vault', 'Work', 'Personal'], 'Work is still furled after a lock');
+  click(toggleFor('Work'));
+  assert.deepEqual(shown(), everyGroup);
+
+  // A selection outside the furled group, or on it, stays where it is.
+  click(groupBtnFor('Personal'));
+  click(toggleFor('Work'));
+  assert.equal(active(), 'Personal');
+  click(toggleFor('Work'));
+  click(groupBtnFor('Work'));
+  click(toggleFor('Work'));
+  assert.equal(active(), 'Work');
+  click(toggleFor('Work'));
+
+  // A selection inside it moves up to it, so the header's delete never acts on a hidden row.
+  click(groupBtnFor('Archive'));
+  click(rowFor('Archive').querySelector('.group-menu-btn') as HTMLButtonElement);
+  assert.ok(q('#group-tree .group-menu'), 'the menu is open on Archive');
+  click(toggleFor('Work'));
+  assert.equal(active(), 'Work');
+  assert.equal(q<HTMLElement>('#panel-title').textContent, 'Work');
+  assert.equal(q('#group-tree .group-menu'), null, 'its menu went with it');
+  click(toggleFor('Work'));
+  assert.equal(q('#group-tree .group-menu'), null, 'and does not come back');
+
+  // A search in progress is left alone when the selection moves.
+  click(groupBtnFor('Archive'));
+  const search = q<HTMLInputElement>('#search-input');
+  search.value = 'Laptop';
+  dispatch(search, 'input');
+  click(toggleFor('Work'));
+  assert.equal(active(), 'Work');
+  assert.equal(q<HTMLElement>('#panel-title').textContent, '"Laptop"');
+  click(toggleFor('Work'));
+  click(groupBtnFor('Vault'));
+
+  // The top level furls like any other group.
+  click(toggleFor('Vault'));
+  assert.deepEqual(shown(), ['Vault']);
+
+  // A group made or moved under a furled one is the selection, so the way to it unfurls.
+  click(q('[data-action="add-group"]'));
+  byId<HTMLInputElement>('new-group-name').value = 'Travel';
+  click(dq('#dlg-new-group [data-action="create-group"]'));
+  assert.equal(active(), 'Travel');
+  assert.deepEqual(shown(), [...everyGroup, 'Travel']);
+  click(toggleFor('Work'));
+  click(rowFor('Travel').querySelector('.group-menu-btn') as HTMLButtonElement);
+  click(
+    Array.from(
+      (groupBtnFor('Travel').closest('li') as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        ':scope > .group-menu .group-menu-item',
+      ),
+    ).find((b) => b.textContent === 'Move') as HTMLButtonElement,
+  );
+  click(
+    Array.from(byId('move-to-tree').querySelectorAll<HTMLButtonElement>('.move-to-btn')).find((b) =>
+      b.textContent?.endsWith('Projects'),
+    ) as HTMLButtonElement,
+  );
+  assert.equal(active(), 'Travel');
+  assert.deepEqual(shown(), ['Vault', 'Work', 'Projects', 'Archive', 'Travel', 'Personal']);
+
+  // In the phone drawer, furling leaves the drawer open, where picking a group closes it.
+  click(q('[data-action="toggle-sidebar"]'));
+  click(toggleFor('Work'));
+  assert.ok(q('#sidebar').classList.contains('sidebar-open'), 'the drawer stays open');
+  click(groupBtnFor('Personal'));
+  assert.equal(q('#sidebar').classList.contains('sidebar-open'), false);
 
   click(q('[data-action="close"]'));
   click(dq('#dlg-confirm-discard [data-action="confirm-discard"]'));

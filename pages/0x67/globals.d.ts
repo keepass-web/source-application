@@ -247,6 +247,8 @@ declare function groupPathTo(
   target: XmlElement,
   path?: string[],
 ): string[] | null;
+declare function isGroupFurled(group: XmlElement): boolean;
+declare function setGroupFurled(group: XmlElement, furled: boolean): void;
 declare function collectSearchableEntries(
   document: XmlElement,
   group: XmlElement,

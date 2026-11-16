@@ -21,6 +21,7 @@ import {
   getText,
   isInRecycleBin,
   setAttribute,
+  setText,
 } from '../../build/packages/kdbx/src/model.js';
 import type { XmlElement } from '../../build/packages/kdbx/src/xml.js';
 
@@ -187,6 +188,24 @@ export function groupPathTo(
     if (found) return found;
   }
   return null;
+}
+
+// Furled only when the group's IsExpanded says false; KeePass reads anything else as expanded (#183).
+export function isGroupFurled(group: XmlElement): boolean {
+  const setting = getChild(group, 'IsExpanded');
+  return setting !== undefined && getText(setting).trim().toLowerCase() === 'false';
+}
+
+/* Written to IsExpanded, as KeePass does, leaving the group's modification time alone,
+so a merge never takes furling for an edit (#183). */
+export function setGroupFurled(group: XmlElement, furled: boolean): void {
+  const value = furled ? 'False' : 'True';
+  const setting = getChild(group, 'IsExpanded');
+  if (setting) {
+    setText(setting, value);
+  } else {
+    appendChild(group, createElement('IsExpanded', value));
+  }
 }
 
 /** Every entry search looks through: none in the recycle bin or in a group with
