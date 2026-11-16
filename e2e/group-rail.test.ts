@@ -142,6 +142,52 @@ test('at phone width the rail is a drawer: no resize handle, and ⋯ still reach
   await phone.close();
 });
 
+test('at phone width, a group toggle is a 24px target that furls without closing the drawer (#183)', async () => {
+  const phone = await browser.newPage();
+  await phone.setViewport({ width: 375, height: 812 });
+  const phoneApp = await openApp(phone, server.origin, fixture);
+
+  await phoneApp.click('[data-action="toggle-sidebar"]');
+  await phoneApp.waitForFunction(() => {
+    const drawer = document.querySelector('#sidebar');
+    return drawer !== null && getComputedStyle(drawer).transform === 'matrix(1, 0, 0, 1, 0, 0)';
+  });
+
+  // The fixture's top level holds one sub-group, so its row is the only one with a toggle.
+  const toggle = await phoneApp.$('#group-tree button.group-toggle');
+  assert.ok(toggle, 'the top level has a toggle');
+  const box = await toggle.boundingBox();
+  assert.ok(box, 'the toggle is laid out');
+  // WCAG 2.2's minimum target size.
+  assert.ok(
+    box.width >= 24 && box.height >= 24,
+    `the toggle is at least 24px square (${box.width}x${box.height}px)`,
+  );
+
+  // It holds for a reader whose browser's default font size is smaller than 16px.
+  await phoneApp.evaluate(() => {
+    document.documentElement.style.fontSize = '12px';
+  });
+  const small = await toggle.boundingBox();
+  assert.ok(small, 'the toggle is laid out at a 12px root font size');
+  assert.ok(
+    small.width >= 24 && small.height >= 24,
+    `the toggle stays at least 24px square at a 12px root font size (${small.width}x${small.height}px)`,
+  );
+  await phoneApp.evaluate(() => {
+    document.documentElement.style.removeProperty('font-size');
+  });
+
+  await toggle.click();
+  assert.deepEqual(
+    await phoneApp.$$eval('#group-tree .group-btn', (buttons) => buttons.length),
+    1,
+    'furling the top level hides the sub-group',
+  );
+  assert.ok(await phoneApp.$('#sidebar.sidebar-open'), 'furling left the drawer open');
+  await phone.close();
+});
+
 test('a rail widened on desktop does not follow the user into the phone drawer', async () => {
   const handle = await app.$('#sidebar-resize');
   assert.ok(handle, 'the rail has a resize handle');

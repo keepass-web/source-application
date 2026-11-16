@@ -38,6 +38,7 @@ import {
   iconName,
   isCustomField,
   isDescendantGroup,
+  isGroupFurled,
   isoToLocalInputValue,
   isValidAutoLockTimeout,
   isValidClipboardTimeout,
@@ -45,6 +46,7 @@ import {
   type LockedEdit,
   localInputValueToIso,
   openableUrl,
+  setGroupFurled,
   sortEntries,
   takeLockedEdit,
   toCsv,
@@ -256,6 +258,36 @@ test('collectSearchableEntries skips the recycle bin and groups with searching o
     entryTitle(entry),
   );
   assert.deepEqual(titles, ['Top', 'In shown again', 'In null']);
+});
+
+test('a group is furled through its IsExpanded, read and written as KeePass does (#183)', () => {
+  const group = createGroup('Work');
+  const modified = (): string =>
+    getText(getChild(getChild(group, 'Times') as XmlElement, 'LastModificationTime') as XmlElement);
+  const before = modified();
+  const settings = (): string[] => getChildren(group, 'IsExpanded').map(getText);
+
+  // A group this app made has no IsExpanded, which KeePass reads as expanded.
+  assert.equal(isGroupFurled(group), false);
+
+  setGroupFurled(group, true);
+  assert.deepEqual(settings(), ['False'], 'written as KeePass writes it');
+  assert.equal(isGroupFurled(group), true);
+  setGroupFurled(group, false);
+  assert.deepEqual(settings(), ['True'], 'the one setting is rewritten, never repeated');
+  assert.equal(isGroupFurled(group), false);
+  assert.equal(modified(), before, 'furling is not a modification, so merges ignore it');
+
+  // As KeePass and KeePassXC write it, and as KeePassXC also reads lowercase; anything else is expanded.
+  const read = (value: string): boolean => {
+    const other = createGroup('Other');
+    appendChild(other, createElement('IsExpanded', value));
+    return isGroupFurled(other);
+  };
+  assert.equal(read('False'), true);
+  assert.equal(read('false'), true);
+  assert.equal(read('True'), false);
+  assert.equal(read(''), false);
 });
 
 test('filterEntriesByQuery also matches against tags', () => {
