@@ -3143,6 +3143,123 @@ test("Save keeps every field's line breaks, touched or not, and masks a protecte
   );
 });
 
+test('a custom field can be protected or unprotected while editing, and Save keeps that (#141)', async () => {
+  // KeePass and KeePassXC offer this on every custom field, for PINs, answers and codes.
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const entry = createEntry({
+    title: 'Bank',
+    password: 'hunter2',
+    fields: [
+      { key: 'Recovery codes', value: '7KQ2-99XD\n4MZP-1TRA', protect: true },
+      { key: 'PIN', value: '4921' },
+    ],
+  });
+  appendChild(kdbx.getRootGroup(), entry);
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('protect.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+
+  (q('.entry-row') as HTMLElement).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const editRow = (key: string): HTMLElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('.edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === key,
+    ) as HTMLElement;
+  const control = (key: string, title: string) =>
+    editRow(key).querySelector<HTMLButtonElement>(`[title="${title}"]`) as HTMLButtonElement;
+  const valueBox = (key: string) =>
+    editRow(key).querySelector('.edit-value') as HTMLTextAreaElement;
+
+  // Only a custom field offers the choice; the standard fields keep theirs.
+  assert.equal(control('Title', 'Protect'), null);
+  assert.equal(control('Password', 'Protect'), null);
+
+  // Each custom field opens showing whether it is protected.
+  assert.equal(iconOf(control('Recovery codes', 'Protect')), '#icon-lock');
+  assert.equal(control('Recovery codes', 'Protect').getAttribute('aria-pressed'), 'true');
+  assert.equal(iconOf(control('PIN', 'Protect')), '#icon-lock-open');
+  assert.equal(control('PIN', 'Protect').getAttribute('aria-pressed'), 'false');
+  assert.equal(control('PIN', 'Show / hide').hidden, true, 'nothing to show on a plain value');
+  assert.equal(valueBox('PIN').classList.contains('concealed'), false);
+
+  // Protecting PIN masks it, as a protected field opens, and leaves the caret in it.
+  const pinLock = control('PIN', 'Protect');
+  assert.ok(dispatch(pinLock, 'mousedown').defaultPrevented, 'the press keeps the caret put');
+  pinLock.click();
+  assert.equal(editRow('PIN').dataset.protected, '1');
+  assert.equal(iconOf(pinLock), '#icon-lock');
+  assert.equal(pinLock.getAttribute('aria-pressed'), 'true');
+  assert.equal(valueBox('PIN').classList.contains('concealed'), true);
+  assert.equal(valueBox('PIN').getAttribute('spellcheck'), 'false');
+  assert.equal(valueBox('PIN').getAttribute('autocapitalize'), 'off');
+  assert.equal(valueBox('PIN').getAttribute('autocorrect'), 'off');
+  assert.equal(control('PIN', 'Show / hide').hidden, false);
+  assert.equal(iconOf(control('PIN', 'Show / hide')), '#icon-eye');
+  assert.equal(dom.window.document.activeElement, valueBox('PIN'));
+
+  // Unprotecting the codes shows them, and lets spell checkers back in.
+  control('Recovery codes', 'Protect').click();
+  assert.equal(editRow('Recovery codes').dataset.protected, '0');
+  assert.equal(iconOf(control('Recovery codes', 'Protect')), '#icon-lock-open');
+  assert.equal(valueBox('Recovery codes').classList.contains('concealed'), false);
+  assert.equal(valueBox('Recovery codes').hasAttribute('spellcheck'), false);
+  assert.equal(valueBox('Recovery codes').hasAttribute('autocapitalize'), false);
+  assert.equal(valueBox('Recovery codes').hasAttribute('autocorrect'), false);
+  assert.equal(control('Recovery codes', 'Show / hide').hidden, true);
+
+  // A field added here starts plain, and can be protected before it is saved.
+  q('[data-action="add-field"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const rows = root().querySelectorAll<HTMLElement>('.edit-field');
+  const added = rows[rows.length - 1] as HTMLElement;
+  assert.equal(added.dataset.protected, '0');
+  (added.querySelector('.edit-key') as HTMLInputElement).value = 'Answer';
+  (added.querySelector('.edit-value') as HTMLTextAreaElement).value = 'Rosebud';
+  control('Answer', 'Protect').click();
+
+  // Save keeps each choice, though nothing but the choices changed for two of them.
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const detailValue = (key: string) =>
+    Array.from(root().querySelectorAll('.detail-field'))
+      .find((row) => row.querySelector('.detail-label')?.textContent === key)
+      ?.querySelector('.detail-value') as HTMLElement;
+  assert.equal(detailValue('PIN').textContent, '••••••••');
+  assert.equal(detailValue('Answer').textContent, '••••••••');
+  assert.equal(detailValue('Recovery codes').textContent, '7KQ2-99XD\n4MZP-1TRA');
+
+  // And reopened for editing, each opens as it was saved.
+  q('[data-action="edit"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(control('PIN', 'Protect').getAttribute('aria-pressed'), 'true');
+  assert.equal(control('Answer', 'Protect').getAttribute('aria-pressed'), 'true');
+  assert.equal(control('Recovery codes', 'Protect').getAttribute('aria-pressed'), 'false');
+  q('[data-action="cancel"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+  q('[data-action="back"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+});
+
 test('with the database bin turned off, deleting is permanent and confirmed, and no bin appears (#132)', async () => {
   // KeePass and KeePassXC delete outright when a database has its bin off.
   const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
