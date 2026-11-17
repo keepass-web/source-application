@@ -232,6 +232,39 @@ test('at phone width, a protected value with line breaks is masked until reveale
   }
 });
 
+test('at phone width, protecting a custom field masks it and its buttons still fit (#141)', async () => {
+  // Only a real browser applies the CSS mask, and lays out the extra buttons the row gains.
+  const { page, app } = await newEntryAt(375);
+  try {
+    await app.click('[data-action="add-field"]');
+    await app.type('#edit-fields .edit-field:last-child .edit-key', 'PIN');
+    await app.type('#edit-fields .edit-field:last-child .edit-value', '4921');
+    await app.click('#edit-fields .edit-field:last-child [title="Protect"]');
+
+    const pin = await app.$eval('#edit-fields .edit-field:last-child', (row) => {
+      const box = row.querySelector('.edit-value') as HTMLTextAreaElement;
+      return {
+        mask: getComputedStyle(box).getPropertyValue('-webkit-text-security'),
+        rowRight: row.getBoundingClientRect().right,
+        buttonsRight: Math.max(
+          ...Array.from(row.querySelectorAll('.icon-btn'), (b) => b.getBoundingClientRect().right),
+        ),
+        buttons: Array.from(
+          row.querySelectorAll<HTMLButtonElement>('.icon-btn:not([hidden])'),
+          (b) => b.title,
+        ),
+        pageWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.equal(pin.mask, 'disc', 'masked as a password input would be');
+    assert.deepEqual(pin.buttons, ['Copy', 'Show / hide', 'Protect', 'Remove field']);
+    assert.ok(pin.buttonsRight <= pin.rowRight, 'every button sits inside the row');
+    assert.ok(pin.pageWidth <= 375, `the page does not scroll sideways, ${pin.pageWidth}px`);
+  } finally {
+    await page.close();
+  }
+});
+
 test('a saved entry shows its notes line by line, at full width', async () => {
   const { page, app } = await newEntryAt(1280);
   try {

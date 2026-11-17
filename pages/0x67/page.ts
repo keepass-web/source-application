@@ -1923,12 +1923,6 @@ function buildEditField(
     // Notes opens with room to write; any other box is as tall as its value.
     valueInput.setAttribute('rows', String(Math.max(lines, key === 'Notes' ? 5 : 1)));
   }
-  if (multiLine && isProtected) {
-    // What a password input gets on its own: no spell checker or autocorrect reads it.
-    valueInput.setAttribute('spellcheck', 'false');
-    valueInput.setAttribute('autocapitalize', 'off');
-    valueInput.setAttribute('autocorrect', 'off');
-  }
 
   // Kept apart from the row's own spacing so they sit close together (#89); copy
   // leads the value, as it does everywhere, and the rest follow it (#87).
@@ -1942,22 +1936,47 @@ function buildEditField(
   row.appendChild(valueInput);
   row.appendChild(actions);
 
-  if (isProtected) {
-    let concealed = false;
-    const toggleConcealed = (): void => {
-      concealed = !concealed;
-      // A password input can't hold line breaks, so a multi-line box is masked by CSS (#126).
-      if (multiLine) valueInput.classList.toggle('concealed', concealed);
-      else valueInput.setAttribute('type', concealed ? 'password' : 'text');
-    };
-    toggleConcealed();
-    const toggle = makeIconButton('icon-btn', 'Show / hide', 'eye', () => {
-      toggleConcealed();
-      toggle.replaceChildren(icon(concealed ? 'eye' : 'eye-off'));
-      valueInput.focus(); // the next move is usually to edit the value (#110)
-    });
-    keepFieldFocus(toggle);
-    actions.appendChild(toggle);
+  let concealed = false;
+  const reveal = makeIconButton('icon-btn', 'Show / hide', 'eye', () => {
+    conceal(!concealed);
+    valueInput.focus(); // the next move is usually to edit the value (#110)
+  });
+  keepFieldFocus(reveal);
+  const conceal = (on: boolean): void => {
+    concealed = on;
+    // A password input can't hold line breaks, so a multi-line box is masked by CSS (#126).
+    if (multiLine) valueInput.classList.toggle('concealed', on);
+    else valueInput.setAttribute('type', on ? 'password' : 'text');
+    reveal.replaceChildren(icon(on ? 'eye' : 'eye-off'));
+  };
+
+  // Masked here, and encrypted in the file, as KeePass and KeePassXC let a custom field be (#141).
+  const lock = removable
+    ? makeIconButton('icon-btn', 'Protect', 'lock', () => {
+        protect(row.dataset.protected !== '1');
+        valueInput.focus();
+      })
+    : null;
+  const protect = (on: boolean): void => {
+    row.dataset.protected = on ? '1' : '0';
+    reveal.hidden = !on;
+    conceal(on);
+    lock?.setAttribute('aria-pressed', String(on));
+    lock?.replaceChildren(icon(on ? 'lock' : 'lock-open'));
+    if (!multiLine) return;
+    // What a password input gets on its own: no spell checker or autocorrect reads it.
+    for (const [name, off] of [
+      ['spellcheck', 'false'],
+      ['autocapitalize', 'off'],
+      ['autocorrect', 'off'],
+    ] as const) {
+      if (on) valueInput.setAttribute(name, off);
+      else valueInput.removeAttribute(name);
+    }
+  };
+  if (isProtected || removable) {
+    protect(isProtected);
+    actions.appendChild(reveal);
   }
 
   const copyBtn = makeIconButton('icon-btn', 'Copy', 'copy', () => {
@@ -1978,7 +1997,9 @@ function buildEditField(
     actions.appendChild(generateBtn);
   }
 
-  if (removable) {
+  if (lock) {
+    keepFieldFocus(lock);
+    actions.appendChild(lock);
     const removeBtn = makeIconButton('icon-btn', 'Remove field', 'remove', () => row.remove());
     removeBtn.style.color = 'var(--danger)';
     actions.appendChild(removeBtn);
