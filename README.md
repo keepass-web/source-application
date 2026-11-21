@@ -27,7 +27,7 @@ See [Contributing][contributing] for how to report a bug, propose a change, and 
 
 ## Like it?
 
-KeePass Web is MIT-licensed and free to use. If it's useful to you, [tell someone who'd like it][share], star this repository, and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
+KeePass Web is MIT-licensed and free to use. If it's useful to you, [tell someone who'd like it][share], [star this repository][repo], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
 
 ## License
 
@@ -43,6 +43,7 @@ KeePass Web is MIT-licensed and free to use. If it's useful to you, [tell someon
 [pipeline]: docs/PIPELINE.md
 [contributing]: docs/CONTRIBUTING.md
 [share]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md#how-can-i-help
+[repo]: https://github.com/keepass-web/source-application
 [sponsors]: https://github.com/sponsors/keepass-web
 [licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
 [license]: LICENSE
