@@ -12,7 +12,7 @@ tools/build/  the bundler and inliner that produce the distributables
 
 ## Using it
 
-- **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go.
+- **Local:** download the latest files from [Releases][gh-releases] and open `index.html` in any modern browser. Follow the links. Upload your KeePass database file and go. A cloud connector needs the files served at `http://localhost:57932` instead, because Google refuses sign-in from a page opened from disk; the [FAQ][faq-download-cloud] shows how.
 - **Online:** visit [keepass-web.app][app] — the exact same files, served by GitHub Pages, so you can use them without downloading first (handy on a machine that isn't yours). Every feature is identical to the download, the cloud-storage connectors included.
 
 Refer to [Reproducing a build][reproducing] to verify for yourself how these files are built.
@@ -36,6 +36,7 @@ KeePass Web is MIT-licensed and free to use. If it's useful to you, [tell someon
 [kdbx]: https://keepass.info/help/kb/kdbx.html
 [app]: https://keepass-web.app/
 [gh-releases]: https://github.com/keepass-web/source-application/releases
+[faq-download-cloud]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md#can-i-use-a-cloud-connector-when-running-the-pages-from-a-download
 [webcrypto]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API
 [releases]: docs/RELEASES.md
 [reproducing]: docs/REPRODUCING.md
