@@ -62,12 +62,13 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 
 ## Supporting KeePass Web
 
-Not every contribution is code. Telling someone about KeePass Web, starring [this repository][repo], and [becoming a sponsor][sponsors] all help.
+Not every contribution is code. [Telling someone about KeePass Web][share], starring [this repository][repo], and [becoming a sponsor][sponsors] all help.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
 [security]: https://github.com/keepass-web/.github/blob/main/SECURITY.md
 [rulesets]: RULESETS.md
+[share]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md#how-can-i-help
 [repo]: https://github.com/keepass-web/source-application
 [sponsors]: https://github.com/sponsors/keepass-web
 [agents]: ../AGENTS.md
