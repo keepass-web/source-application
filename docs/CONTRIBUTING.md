@@ -62,14 +62,13 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 
 ## Supporting KeePass Web
 
-KeePass Web is MIT-licensed and free to use. If you find it valuable, we encourage you to [follow our organization][org], [star our repositories][repos], and [become a sponsor][sponsors]. See [Licensing][licensing] for why it's free.
+Not every contribution is code. [Telling someone about KeePass Web][share], starring [this repository][repo], and [becoming a sponsor][sponsors] all help.
 
 [issues]: https://github.com/keepass-web/source-application/issues
 [discussions]: https://github.com/keepass-web/source-application/discussions
 [security]: https://github.com/keepass-web/.github/blob/main/SECURITY.md
 [rulesets]: RULESETS.md
-[org]: https://github.com/keepass-web
-[repos]: https://github.com/orgs/keepass-web/repositories
+[share]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md#how-can-i-help
+[repo]: https://github.com/keepass-web/source-application
 [sponsors]: https://github.com/sponsors/keepass-web
-[licensing]: https://github.com/keepass-web/.github/blob/main/profile/LICENSING.md
 [agents]: ../AGENTS.md
