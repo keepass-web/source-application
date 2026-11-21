@@ -54,7 +54,7 @@ test('the icon tracks the lock state and hands the page its own back', () => {
   assert.notEqual(unlocked, locked, 'and the two states are not the same icon');
 
   // Hue and glyph are what carry at 16px, so the two must differ in both.
-  assert.ok(locked.includes('%230e7c5a') && locked.includes('M6 8.4V7'), 'accent, with a padlock');
+  assert.ok(locked.includes('%235562e0') && locked.includes('M6 8.4V7'), 'accent, with a padlock');
   assert.ok(unlocked.includes('%238a5a1e') && !unlocked.includes('M6 8.4V7'), 'warning, with rows');
 
   applyTabState(doc, 'Base', '', true);

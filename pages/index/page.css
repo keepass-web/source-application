@@ -7,12 +7,30 @@
 }
 
 :root {
-  --bg: #eef2ef;
-  --surface: #ffffff;
-  --border: #d8e2dc;
-  --text: #0e1714;
-  --muted: #5a6a62;
-  --accent: #0e7c5a;
+  color-scheme: light dark;
+  --bg: light-dark(#f9f5f0, #151412);
+  --surface: light-dark(#fffdfa, #201e1a);
+  --border: light-dark(#e2dfda, #383531);
+  --text: light-dark(#201e1a, #f1ede8);
+  --muted: light-dark(#55524e, #a7a49f);
+  --accent: light-dark(#424bbc, #8da0ff);
+  --on-accent: light-dark(#ffffff, #151412);
+}
+
+/* Older browsers keep the light palette (#196). A custom property accepts
+light-dark() even where it can't compute it, so a plain value declared first
+wouldn't survive as a fallback. */
+@supports not (color: light-dark(red, red)) {
+  :root {
+    color-scheme: light;
+    --bg: #f9f5f0;
+    --surface: #fffdfa;
+    --border: #e2dfda;
+    --text: #201e1a;
+    --muted: #55524e;
+    --accent: #424bbc;
+    --on-accent: #ffffff;
+  }
 }
 
 body {
@@ -126,7 +144,7 @@ a:hover {
 
 .open a.primary {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 
 .open a.secondary {
