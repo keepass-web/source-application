@@ -1,0 +1,7 @@
+{
+  "template": "page.html",
+  "styles": ["../shared/footer.css", "../shared/document.css"],
+  "scripts": [],
+  "footer": "../shared/footer.html",
+  "output": "../../dist/privacy.html"
+}
