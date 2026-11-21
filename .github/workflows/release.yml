@@ -104,7 +104,7 @@ jobs:
 
           printf '### Distributable checksums\n| File | SHA-256 |\n|------|---------|\n' >> "$GITHUB_STEP_SUMMARY"
 
-          for page in index local 0x67 cloud-google-drive; do
+          for page in index local 0x67 cloud-google-drive privacy terms; do
             checksum=$(node --experimental-strip-types tools/build/inliner/src/index.ts "pages/${page}/build.json" | awk '{print $1}')
             printf '| `%s.html` | `%s` |\n' "${page}" "${checksum}" >> "$GITHUB_STEP_SUMMARY"
           done
@@ -141,6 +141,8 @@ jobs:
              gh attestation verify dist/local.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/index.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/cloud-google-drive.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/privacy.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
+             gh attestation verify dist/terms.html --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
              gh attestation verify dist/CNAME --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Distributables are already attested for this commit — skipping re-attestation."
@@ -157,6 +159,8 @@ jobs:
             dist/local.html
             dist/index.html
             dist/cloud-google-drive.html
+            dist/privacy.html
+            dist/terms.html
             dist/CNAME
 
       # The changelog leaves out the version-bump PR that "Cutting a release"
@@ -170,7 +174,7 @@ jobs:
           notes="### Distributable checksums"$'\n'
           notes+="| File | SHA-256 |"$'\n'
           notes+="|------|---------|"$'\n'
-          for file in dist/index.html dist/local.html dist/0x67.html dist/cloud-google-drive.html dist/CNAME; do
+          for file in dist/index.html dist/local.html dist/0x67.html dist/cloud-google-drive.html dist/privacy.html dist/terms.html dist/CNAME; do
             notes+="| \`$(basename "${file}")\` | \`sha256:$(sha256sum "${file}" | awk '{print $1}')\` |"$'\n'
           done
           notes+=$'\n'"$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body | grep -v '^\* chore: bump version to ')"
@@ -183,6 +187,8 @@ jobs:
             dist/local.html \
             dist/index.html \
             dist/cloud-google-drive.html \
+            dist/privacy.html \
+            dist/terms.html \
             dist/CNAME
 
       # repositories: and --repo below must match the deploy repo's current
