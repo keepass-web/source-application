@@ -1,6 +1,7 @@
 // Application state
 
 type EntryView = 'tile' | 'table';
+type TableColumnKey = EntryColumnKey | 'otp'; // a code is computed, not stored (#138)
 
 interface AppState {
   file: ArrayBuffer | null;
@@ -17,7 +18,7 @@ interface AppState {
   sortField: EntrySortField;
   sortDir: EntrySortDirection;
   entryView: EntryView;
-  columnVisibility: Record<EntryColumnKey, boolean>;
+  columnVisibility: Record<TableColumnKey, boolean>;
 }
 
 const app: AppState = {
@@ -39,6 +40,7 @@ const app: AppState = {
   columnVisibility: {
     username: true,
     password: true,
+    otp: false,
     url: true,
     notes: false,
     attachments: false,
@@ -125,6 +127,7 @@ function setRoot(fragment: DocumentFragment): void {
   const root = byId('root');
   root.innerHTML = '';
   tableRows = new WeakMap();
+  dropCodes();
   editInProgress = null;
   root.appendChild(fragment);
 }
@@ -854,6 +857,7 @@ function renderEntryPanel(): void {
   const listEl = qs('#entry-list');
   listEl.innerHTML = '';
   tableRows = new WeakMap();
+  dropCodes();
   listEl.classList.toggle('entry-list--tile', app.entryView === 'tile');
   listEl.classList.toggle('entry-list--table', app.entryView === 'table');
 
@@ -940,9 +944,12 @@ function buildEntryRow(entry: XmlElement, group: XmlElement): HTMLDivElement {
 // Entry list: table view
 // ============================================================
 
-const ENTRY_COLUMNS: ReadonlyArray<{ key: EntryColumnKey; label: string }> = [
+const CODE_LABEL = 'One-time code';
+
+const ENTRY_COLUMNS: ReadonlyArray<{ key: TableColumnKey; label: string }> = [
   { key: 'username', label: 'Username' },
   { key: 'password', label: 'Password' },
+  { key: 'otp', label: CODE_LABEL },
   { key: 'url', label: 'URL' },
   { key: 'notes', label: 'Notes' },
   { key: 'attachments', label: 'Attachments' },
@@ -1014,22 +1021,24 @@ browser already decides what counts as a click, so a scroll that starts on a
 cell copies nothing and a secondary button never reaches here at all. */
 function wireCellCopy(
   cell: HTMLTableCellElement,
-  value: string,
+  read: () => string,
   label: string,
   source: TableCell,
 ): void {
   cell.addEventListener('click', (event) => {
     // Anywhere but the cell's own buttons, which run their own handlers (#76, #86).
     if ((event.target as Element).closest('.copy-hint, .open-hint')) return;
+    const value = read();
     if (value) copyToClipboard(value, label, source);
   });
 }
 
 /* A button, not decoration (#67): dim at rest so hover only raises its emphasis,
 and focusable so copying is reachable without a pointer at all. */
-function copyHint(value: string, label: string, source: TableCell): HTMLButtonElement {
+function copyHint(read: () => string, label: string, source: TableCell): HTMLButtonElement {
   return makeIconButton('copy-hint', `Copy ${label.toLowerCase()}`, 'copy', () => {
-    copyToClipboard(value, label, source);
+    const value = read();
+    if (value) copyToClipboard(value, label, source);
   });
 }
 
@@ -1055,14 +1064,14 @@ function buildEntryCell(
   td.dataset.column = source.column;
   const inner = document.createElement('div');
   inner.className = 'entry-cell';
-  if (value) inner.appendChild(copyHint(value, label, source));
+  if (value) inner.appendChild(copyHint(() => value, label, source));
   const text = document.createElement('span');
   text.className = 'entry-cell-text';
   text.textContent = display;
   inner.appendChild(text);
   if (action) inner.appendChild(action);
   td.appendChild(inner);
-  wireCellCopy(td, value, label, source);
+  wireCellCopy(td, () => value, label, source);
   return td;
 }
 
@@ -1193,6 +1202,10 @@ function buildEntryTable(rows: EntryWithGroup[]): HTMLTableElement {
     tr.appendChild(titleTd);
 
     for (const column of visibleColumns) {
+      if (column.key === 'otp') {
+        tr.appendChild(buildCodeCell(entry));
+        continue;
+      }
       const value = entryColumnValue(entry, column.key);
       const href = column.key === 'url' ? openableUrl(value) : null;
       const td = buildEntryCell(
@@ -1319,6 +1332,7 @@ async function lockDatabase(): Promise<void> {
     app.file = bytes.buffer as ArrayBuffer;
     Object.assign(app, { db: null, currentGroup: null, currentEntry: null, searchQuery: '' });
     db.wipe(); // a locked tab keeps only the re-encrypted bytes (#145)
+    totpKeys = new WeakMap(); // nor any key made from its secrets (#138)
     forgetCopiedIfGone(); // one a copy marked while the lock re-encrypted
     showUnlock(true);
     curtain().close(); // only now, so the re-encrypting page never shows through (#84)
@@ -1330,6 +1344,7 @@ async function lockDatabase(): Promise<void> {
 function closeDatabase(): void {
   clearTimeout(idleTimer);
   app.db?.wipe(); // none if it locked while the prompt was open (#145)
+  totpKeys = new WeakMap(); // keys made from its secrets go with it (#138)
   Object.assign(app, {
     db: null,
     file: null,
@@ -1473,6 +1488,184 @@ function startFind(): boolean {
 }
 
 // ============================================================
+// One-time codes (#138)
+// ============================================================
+
+// A code on screen, the note after it, and the control that copies it.
+interface CodeSlot {
+  reading: Promise<Totp | null> | null; // the settings read last, the only ones it shows
+  totp: Totp | null;
+  step: number; // the time step shown, or -1
+  version: number; // bumped whenever what is shown is replaced, so a late code is dropped
+  code: string; // '' until the step's code is ready
+  text: HTMLElement;
+  note: HTMLElement; // the seconds left, or why there is no code
+  control: HTMLElement;
+  cell: TableCell | null; // in the table, for its copied mark (#177)
+}
+
+let codeSlots: CodeSlot[] = [];
+let codeTimer: ReturnType<typeof setTimeout> | undefined;
+/* Each entry's settings as read into a key, kept while they stay the same, so a
+table redrawn on every search keystroke reads none of them again. */
+let totpKeys = new WeakMap<XmlElement, { settings: string; totp: Promise<Totp | null> }>();
+
+function dropCodes(): void {
+  clearTimeout(codeTimer);
+  codeTimer = undefined;
+  codeSlots = [];
+}
+
+function entryTotp(entry: XmlElement): Promise<Totp | null> {
+  const field = (key: string): string => entryField(entry, key);
+  const settings = totpSettings(field);
+  const held = totpKeys.get(entry);
+  if (held?.settings === settings) return held.totp;
+  const totp = readTotp(field);
+  totpKeys.set(entry, { settings, totp });
+  return totp;
+}
+
+function newCodeSlot(textClass: string, control: HTMLElement, cell: TableCell | null): CodeSlot {
+  const text = document.createElement('span');
+  text.className = textClass;
+  const note = document.createElement('span');
+  note.className = 'code-note';
+  return { reading: null, totp: null, step: -1, version: 0, code: '', text, note, control, cell };
+}
+
+// Shows what these settings give, from now until the slot's screen goes.
+function watchCode(slot: CodeSlot, reading: Promise<Totp | null>): void {
+  slot.reading = reading;
+  slot.totp = null;
+  slot.note.textContent = '';
+  replaceCode(slot, -1);
+  if (!codeSlots.includes(slot)) codeSlots.push(slot);
+  codeTimer ??= setTimeout(tickCodes, 1000 - (Date.now() % 1000));
+  const settled = reading.catch(() => null); // a read that fails is as unreadable as bad settings
+  void settled.then((totp) => {
+    if (slot.reading !== reading) return; // the settings changed again meanwhile
+    slot.totp = totp;
+    slot.control.hidden = totp === null;
+    // Unannounced while it counts down, as the toast's countdown is (#88); not when it explains.
+    slot.note.setAttribute('aria-hidden', String(totp !== null));
+    if (totp) showCode(slot, Date.now());
+    else slot.note.textContent = 'Unreadable settings';
+  });
+}
+
+/* One timer for every code on screen, waking on each whole second as the clipboard's
+does, so a code changes the moment its time step does. */
+function tickCodes(): void {
+  const now = Date.now();
+  for (const slot of codeSlots) showCode(slot, now);
+  codeTimer = setTimeout(tickCodes, 1000 - (now % 1000));
+}
+
+function showCode(slot: CodeSlot, now: number): void {
+  const { totp } = slot;
+  if (!totp) return; // still reading, or unreadable
+  slot.note.textContent = `${totpSecondsLeft(totp, now)}s`;
+  const step = totpStep(totp, now);
+  if (step === slot.step) return;
+  replaceCode(slot, step);
+  const { version } = slot;
+  void totpCode(totp, step).then((code) => {
+    if (slot.version !== version) return; // a newer step or newer settings took its place
+    slot.code = code;
+    slot.text.textContent = code;
+  });
+}
+
+/* What was shown, and maybe copied, is no longer the code, so its check comes off. In the
+table its entry alone stays marked, by a column no cell has, since one of that entry's
+values is still on the clipboard (#177). */
+function replaceCode(slot: CodeSlot, step: number): void {
+  slot.step = step;
+  slot.version += 1;
+  slot.code = '';
+  slot.text.textContent = '';
+  if (!slot.control.classList.contains('copied')) return;
+  if (slot.cell) markCopied({ entry: slot.cell.entry, column: '' });
+  else markControl(slot.control, false);
+}
+
+// The card's and the edit screen's code, copied by an icon button as their fields are.
+function codeControls(textClass: string): CodeSlot {
+  const control = makeIconButton('icon-btn', 'Copy', 'copy', () => {
+    if (slot.code) copyToClipboard(slot.code, CODE_LABEL, null, control);
+  });
+  const slot = newCodeSlot(textClass, control, null);
+  return slot;
+}
+
+// Shaped like the card's other fields, copy leading the code (#87).
+function buildCodeField(entry: XmlElement): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'detail-field';
+  const label = document.createElement('div');
+  label.className = 'detail-label';
+  label.textContent = CODE_LABEL;
+  const valueWrap = document.createElement('div');
+  valueWrap.className = 'detail-value-wrap';
+  const slot = codeControls('detail-value');
+  valueWrap.append(slot.control, slot.text, slot.note);
+  row.append(label, valueWrap);
+  watchCode(slot, entryTotp(entry));
+  return row;
+}
+
+/* Built apart from the stored values' cells, since what it copies is the code current at
+the click, not a value taken when the table was drawn. */
+function buildCodeCell(entry: XmlElement): HTMLTableCellElement {
+  const source = { entry, column: 'otp' };
+  if (!hasTotp((key) => entryField(entry, key))) return buildEntryCell(source, '', '', CODE_LABEL);
+  const td = document.createElement('td');
+  td.dataset.column = source.column;
+  const inner = document.createElement('div');
+  inner.className = 'entry-cell';
+  const control = copyHint(() => slot.code, CODE_LABEL, source);
+  const slot = newCodeSlot('entry-cell-text', control, source);
+  inner.append(control, slot.text, slot.note);
+  td.appendChild(inner);
+  wireCellCopy(td, () => slot.code, CODE_LABEL, source);
+  watchCode(slot, entryTotp(entry));
+  return td;
+}
+
+/* The code follows the settings as typed, as this screen's copy controls copy what is
+typed, so a new secret can be checked with its site before it is saved. */
+function wireEditCode(fieldsEl: HTMLElement): void {
+  const row = document.createElement('div');
+  row.className = 'edit-code';
+  const label = document.createElement('span');
+  label.className = 'edit-code-label';
+  label.textContent = CODE_LABEL;
+  const lead = document.createElement('span');
+  lead.className = 'edit-actions';
+  const slot = codeControls('edit-code-value');
+  keepFieldFocus(slot.control);
+  lead.appendChild(slot.control);
+  row.append(label, lead, slot.text, slot.note);
+  fieldsEl.after(row);
+
+  const field = (key: string): string =>
+    editedFields(fieldsEl).find((typed) => typed.key === key)?.value ?? '';
+  let settings: string | null = null;
+  const refresh = (): void => {
+    const typed = totpSettings(field);
+    if (typed === settings) return; // typing elsewhere leaves the code, and its check, alone
+    settings = typed;
+    row.hidden = !hasTotp(field);
+    watchCode(slot, readTotp(field));
+  };
+  refresh();
+  fieldsEl.addEventListener('input', refresh);
+  // A field added or removed changes the settings as surely as typing does.
+  new window.MutationObserver(refresh).observe(fieldsEl, { childList: true });
+}
+
+// ============================================================
 // Screen: Entry Detail
 // ============================================================
 
@@ -1518,6 +1711,7 @@ function showEntryDetail(): void {
 
     fieldsEl.appendChild(buildDetailField(key, value, isProtected));
   }
+  if (hasTotp((key) => entryField(entry, key))) fieldsEl.appendChild(buildCodeField(entry));
 
   const db = must(app.db);
   renderDetailAttachments(db, entry, qs('#detail-attachments'));
@@ -1834,6 +2028,7 @@ function showEntryEdit(isNew: boolean, held: LockedForm | null = null): void {
       if ('data' in attachment) pickedBytes.push(attachment.data);
     renderEditAttachments(attachments, attachmentsList);
   }
+  wireEditCode(fieldsEl);
   if (isNew) must(fieldsEl.querySelector<HTMLElement>('.edit-value')).focus(); // Title, ready to type (#89)
 
   editInProgress = () => ({

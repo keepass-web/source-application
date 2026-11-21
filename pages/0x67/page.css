@@ -1217,6 +1217,7 @@ body:not(.app-mode) .screen-detail {
 
 .detail-value-wrap,
 .edit-field,
+.edit-code,
 .attachment-row,
 .history-row {
   display: flex;
@@ -1248,6 +1249,15 @@ body:not(.app-mode) .screen-detail {
   display: flex;
   gap: 0.25rem;
   flex-shrink: 0;
+}
+
+/* After a one-time code: its seconds left, in figures of one width so it holds still (#138). */
+.code-note {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ============================================================
@@ -1306,12 +1316,14 @@ body:not(.app-mode) .screen-edit {
 }
 
 .edit-field,
+.edit-code,
 .attachment-row,
 .history-row {
   padding: 0.4rem 0.5rem;
 }
 
-.edit-key {
+.edit-key,
+.edit-code-label {
   background: none;
   border: none;
   color: var(--muted);
@@ -1374,13 +1386,19 @@ textarea.edit-value.concealed {
   padding-inline: 0.25rem;
 }
 
+.edit-code-value {
+  font-size: 0.9rem;
+}
+
 /* The label takes a line of its own so the value gets the row's full width (#89). */
 @media (max-width: 700px) {
-  .edit-field {
+  .edit-field,
+  .edit-code {
     flex-wrap: wrap;
   }
 
-  .edit-key {
+  .edit-key,
+  .edit-code-label {
     width: 100%;
   }
 }

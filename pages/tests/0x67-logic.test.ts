@@ -27,12 +27,14 @@ import {
   entryField,
   entryTitle,
   entryUuid,
+  type FieldReader,
   filterEntriesByQuery,
   findEntryParent,
   findGroupParent,
   generatePassword,
   groupName,
   groupPathTo,
+  hasTotp,
   holdLockedEdit,
   ICON_PALETTE,
   iconName,
@@ -46,10 +48,15 @@ import {
   type LockedEdit,
   localInputValueToIso,
   openableUrl,
+  readTotp,
   setGroupFurled,
   sortEntries,
   takeLockedEdit,
   toCsv,
+  totpCode,
+  totpSecondsLeft,
+  totpSettings,
+  totpStep,
   unlockAttempts,
 } from '../0x67/logic.ts';
 
@@ -817,4 +824,319 @@ test('a database with no Meta has nowhere to carry a locked edit, and holds none
   holdLockedEdit(document, { uuid: 'abc', isNew: false, modified: '', form: null });
   assert.deepEqual(document.children, []);
   assert.equal(takeLockedEdit(document), null);
+});
+
+// ============================================================
+// One-time codes (#138)
+// ============================================================
+
+// RFC 6238 Appendix B's secrets (ASCII, one per hash) and times, in Unix seconds.
+const RFC_SHA1 = '12345678901234567890';
+const RFC_SHA256 = '12345678901234567890123456789012';
+const RFC_SHA512 = '1234567890123456789012345678901234567890123456789012345678901234';
+const RFC_TIMES = [59, 1111111109, 1111111111, 1234567890, 2000000000, 20000000000];
+// KeePassXC's own example secret (Base32 of RFC_SHA1) and its Steam test secret.
+const RFC_SHA1_BASE32 = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+const STEAM_SECRET = '63BEDWCQZKTQWPESARIERL5DTTQFCJTK';
+
+/** A test's own Base32 encoder (RFC 4648, unpadded), independent of the one under test. */
+function toBase32(text: string): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const byte of new TextEncoder().encode(text)) bits += byte.toString(2).padStart(8, '0');
+  let out = '';
+  for (let i = 0; i < bits.length; i += 5) {
+    out += alphabet.charAt(Number.parseInt(bits.slice(i, i + 5).padEnd(5, '0'), 2));
+  }
+  return out;
+}
+
+const fields =
+  (values: Record<string, string>): FieldReader =>
+  (key) =>
+    values[key] ?? '';
+
+/** The code these fields give at a Unix time in seconds, or null when they can't be read. */
+async function codeAt(values: Record<string, string>, seconds: number): Promise<string | null> {
+  const totp = await readTotp(fields(values));
+  return totp && totpCode(totp, totpStep(totp, seconds * 1000));
+}
+
+const link = (query: string): string => `otpauth://totp/ACME%20Co:john@example.com?${query}`;
+
+test("TOTP codes match RFC 6238's own test vectors, for each of its three hashes (#138)", async () => {
+  const vectors: Array<[string, string, string[]]> = [
+    [
+      'HMAC-SHA-1',
+      RFC_SHA1,
+      ['94287082', '07081804', '14050471', '89005924', '69279037', '65353130'],
+    ],
+    [
+      'HMAC-SHA-256',
+      RFC_SHA256,
+      ['46119246', '68084774', '67062674', '91819424', '90698825', '77737706'],
+    ],
+    [
+      'HMAC-SHA-512',
+      RFC_SHA512,
+      ['90693936', '25091201', '99943326', '93441116', '38618901', '47863826'],
+    ],
+  ];
+  for (const [algorithm, secret, expected] of vectors) {
+    const values = {
+      'TimeOtp-Secret': secret,
+      'TimeOtp-Algorithm': algorithm,
+      'TimeOtp-Length': '8',
+    };
+    const codes = await Promise.all(RFC_TIMES.map((seconds) => codeAt(values, seconds)));
+    assert.deepEqual(codes, expected, algorithm);
+  }
+});
+
+test("a KeePassXC otp link gives the codes KeePassXC's own tests expect (#138)", async () => {
+  assert.equal(toBase32(RFC_SHA1), RFC_SHA1_BASE32, 'the test encoder agrees with KeePassXC');
+  const otp = link(`secret=${RFC_SHA1_BASE32}&issuer=ACME%20Co&algorithm=SHA1&digits=6&period=30`);
+  assert.equal(await codeAt({ otp }, 1234567890), '005924');
+  assert.equal(await codeAt({ otp }, 1111111109), '081804');
+  const eight = link(`secret=${RFC_SHA1_BASE32}&digits=8`);
+  assert.equal(await codeAt({ otp: eight }, 1111111111), '14050471');
+  assert.equal(await codeAt({ otp: eight }, 2000000000), '69279037');
+
+  // Only the secret is needed: six digits, every 30 seconds, by SHA-1.
+  assert.equal(await codeAt({ otp: link(`secret=${RFC_SHA1_BASE32}`) }, 1234567890), '005924');
+  // The rest are read as given, the hash in either case, and so is the link's scheme.
+  assert.equal(
+    await codeAt({ otp: link(`secret=${RFC_SHA1_BASE32}&period=60`) }, 1234567890),
+    '713351',
+  );
+  assert.equal(
+    await codeAt(
+      { otp: link(`secret=${toBase32(RFC_SHA256)}&algorithm=sha256&digits=8`) },
+      1234567890,
+    ),
+    '91819424',
+  );
+  assert.equal(
+    await codeAt(
+      { otp: link(`secret=${toBase32(RFC_SHA512)}&algorithm=SHA512&digits=8`) },
+      20000000000,
+    ),
+    '47863826',
+  );
+  assert.equal(
+    await codeAt({ otp: `OTPAUTH://TOTP/x?secret=${RFC_SHA1_BASE32}` }, 1234567890),
+    '005924',
+  );
+  assert.equal(
+    await codeAt({ otp: `otpauth://totp?secret=${RFC_SHA1_BASE32}` }, 1234567890),
+    '005924',
+  );
+});
+
+test("a Steam link gives Steam's five-character codes, as KeePassXC's tests expect (#138)", async () => {
+  const otp = `otpauth://totp/test:test@example.com?secret=${STEAM_SECRET}&issuer=Valve&algorithm=SHA1&digits=5&period=30&encoder=steam`;
+  assert.equal(await codeAt({ otp }, 1511200518), 'FR8RV');
+  assert.equal(await codeAt({ otp }, 1511200714), '9P3VP');
+  // Five characters whatever digits the link names.
+  const six = `otpauth://totp/Steam?secret=${STEAM_SECRET}&digits=6&encoder=steam`;
+  assert.equal(await codeAt({ otp: six }, 1511200518), 'FR8RV');
+});
+
+test("each of KeePass's secret encodings gives the same code, spacing, case and padding aside (#138)", async () => {
+  const expected = '005924'; // RFC_SHA1 at 1234567890, by KeePass's defaults
+  const secrets: Record<string, string[]> = {
+    'TimeOtp-Secret': [RFC_SHA1],
+    'TimeOtp-Secret-Hex': [
+      '3132333435363738393031323334353637383930',
+      '31 32 33 34 35 36 37 38 39 30 31 32 33 34 35 36 37 38 39 30',
+      '3132333435363738393031323334353637383930'.toUpperCase(),
+    ],
+    'TimeOtp-Secret-Base32': [
+      RFC_SHA1_BASE32,
+      'gezd gnbv gy3t qojq gezd gnbv gy3t qojq',
+      `${RFC_SHA1_BASE32}====`,
+    ],
+    'TimeOtp-Secret-Base64': ['MTIzNDU2Nzg5MDEyMzQ1Njc4OTA=', 'MTIzNDU2Nzg5 MDEyMzQ1Njc4OTA='],
+  };
+  for (const [key, values] of Object.entries(secrets)) {
+    for (const value of values) {
+      assert.equal(await codeAt({ [key]: value }, 1234567890), expected, `${key}: ${value}`);
+    }
+  }
+  // Length, period and hash are read as KeePass names them, the hash in either case.
+  assert.equal(
+    await codeAt(
+      {
+        'TimeOtp-Secret': RFC_SHA256,
+        'TimeOtp-Algorithm': 'hmac-sha-256',
+        'TimeOtp-Length': '8',
+        'TimeOtp-Period': '30',
+      },
+      1234567890,
+    ),
+    '91819424',
+  );
+  assert.equal(
+    await codeAt({ 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Period': '60' }, 1234567890),
+    '713351',
+  );
+});
+
+test("the otp link is read first, as KeePassXC reads it, and anything else in otp isn't TOTP (#138)", async () => {
+  const other = 'JBSWY3DPEHPK3PXP';
+  // The link's secret, not the TimeOtp one beside it.
+  assert.equal(
+    await codeAt({ otp: link(`secret=${other}`), 'TimeOtp-Secret': RFC_SHA1 }, 1234567890),
+    '742275',
+  );
+  // A counter-based link, or KeeOTP's settings, are not TOTP links, so TimeOtp fields still count.
+  for (const otp of [`otpauth://hotp/x?secret=${other}&counter=0`, `key=${other}&step=30&size=6`]) {
+    assert.equal(hasTotp(fields({ otp })), false, otp);
+    assert.equal(await readTotp(fields({ otp })), null, otp);
+    assert.equal(await codeAt({ otp, 'TimeOtp-Secret': RFC_SHA1 }, 1234567890), '005924', otp);
+  }
+  assert.equal(hasTotp(fields({})), false);
+  assert.equal(await readTotp(fields({})), null);
+  assert.equal(hasTotp(fields({ 'TimeOtp-Length': '8', 'TimeOtp-Period': '60' })), false);
+  for (const key of [
+    'TimeOtp-Secret',
+    'TimeOtp-Secret-Hex',
+    'TimeOtp-Secret-Base32',
+    'TimeOtp-Secret-Base64',
+  ]) {
+    assert.equal(hasTotp(fields({ [key]: 'x' })), true, key);
+  }
+  // Settings it carries, readable or not.
+  assert.equal(hasTotp(fields({ otp: link('secret=1') })), true);
+});
+
+test("settings that can't be read give no code, rather than a guess at one (#138)", async () => {
+  const otpLinks = [
+    link(''), // no secret
+    link('secret='),
+    link('secret=A'), // fewer bits than a byte
+    link('secret=GEZDGNBV1Y3TQOJQ'), // 1 is no Base32 character
+    link(`secret=${RFC_SHA1_BASE32}&algorithm=MD5`),
+    link(`secret=${RFC_SHA1_BASE32}&algorithm=SHA-256`),
+    link(`secret=${RFC_SHA1_BASE32}&digits=0`),
+    link(`secret=${RFC_SHA1_BASE32}&digits=11`),
+    link(`secret=${RFC_SHA1_BASE32}&digits=6x`),
+    link(`secret=${RFC_SHA1_BASE32}&period=0`),
+    link(`secret=${RFC_SHA1_BASE32}&period=-30`),
+    link(`secret=${RFC_SHA1_BASE32}&period=thirty`),
+  ];
+  for (const otp of otpLinks) assert.equal(await readTotp(fields({ otp })), null, otp);
+
+  const timeOtp: Array<Record<string, string>> = [
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Secret-Base32': RFC_SHA1_BASE32 }, // KeePass wants one
+    { 'TimeOtp-Secret-Hex': 'abc' },
+    { 'TimeOtp-Secret-Hex': 'zz' },
+    { 'TimeOtp-Secret-Base32': '8888' },
+    { 'TimeOtp-Secret-Base64': '!!!!' },
+    { 'TimeOtp-Secret-Base64': 'A' },
+    { 'TimeOtp-Secret-Base64': 'MT=IzNDU2' },
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Algorithm': 'SHA-256' },
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Length': '0' },
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Length': '11' },
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Length': 'six' },
+    { 'TimeOtp-Secret': RFC_SHA1, 'TimeOtp-Period': '0' },
+  ];
+  for (const values of timeOtp) {
+    assert.equal(await readTotp(fields(values)), null, JSON.stringify(values));
+  }
+});
+
+test('a link the URL parser refuses gives no code, rather than an error (#138)', async () => {
+  // Spaces left unescaped in the label, as some exporters write them, still parse.
+  const spaced = `otpauth://totp/ACME Co:john@example.com?secret=${RFC_SHA1_BASE32}`;
+  assert.equal(await codeAt({ otp: spaced }, 1234567890), '005924');
+  // No link the otpauth pattern accepts is known to make URL throw, so a stand-in refuses it.
+  const RealURL = globalThis.URL;
+  globalThis.URL = class {
+    constructor() {
+      throw new TypeError('Invalid URL');
+    }
+  } as unknown as typeof URL;
+  try {
+    assert.equal(await readTotp(fields({ otp: spaced })), null);
+  } finally {
+    globalThis.URL = RealURL;
+  }
+});
+
+test('a time step lasts its period, counted in whole Unix seconds (#138)', async () => {
+  const totp = await readTotp(fields({ 'TimeOtp-Secret': RFC_SHA1 }));
+  assert.ok(totp);
+  const step = 1234567890 / 30;
+  assert.equal(totpStep(totp, 1234567890_000), step);
+  assert.equal(totpSecondsLeft(totp, 1234567890_000), 30);
+  assert.equal(totpStep(totp, 1234567919_999), step);
+  assert.equal(totpSecondsLeft(totp, 1234567919_999), 1);
+  assert.equal(totpStep(totp, 1234567920_000), step + 1);
+  assert.equal(totpSecondsLeft(totp, 1234567920_000), 30);
+});
+
+test('totpSettings changes with each field TOTP reads, and with nothing else (#138)', () => {
+  const base = {
+    otp: 'a',
+    'TimeOtp-Secret': 'b',
+    'TimeOtp-Secret-Hex': 'c',
+    'TimeOtp-Secret-Base32': 'd',
+    'TimeOtp-Secret-Base64': 'e',
+    'TimeOtp-Length': 'f',
+    'TimeOtp-Period': 'g',
+    'TimeOtp-Algorithm': 'h',
+  };
+  const seen = totpSettings(fields(base));
+  for (const key of Object.keys(base)) {
+    assert.notEqual(totpSettings(fields({ ...base, [key]: 'changed' })), seen, key);
+  }
+  assert.equal(totpSettings(fields({ ...base, Notes: 'changed' })), seen);
+  // A line break can't make two different sets of values read the same.
+  assert.notEqual(
+    totpSettings(fields({ otp: 'a\n', 'TimeOtp-Secret': 'b' })),
+    totpSettings(fields({ otp: 'a', 'TimeOtp-Secret': '\nb' })),
+  );
+});
+
+test('the decoded secret and each HMAC are zeroed once used, whether the key is made or not (#138)', async (t) => {
+  const subtle = crypto.subtle as unknown as {
+    importKey(...args: unknown[]): Promise<CryptoKey>;
+    sign(...args: unknown[]): Promise<ArrayBuffer>;
+  };
+  const realImport = subtle.importKey.bind(crypto.subtle);
+  const realSign = subtle.sign.bind(crypto.subtle);
+  const imported: Uint8Array[] = [];
+  const signed: ArrayBuffer[] = [];
+  let refuse = false;
+  t.mock.method(subtle, 'importKey', (...args: unknown[]) => {
+    imported.push(args[1] as Uint8Array);
+    return refuse ? Promise.reject(new Error('simulated refusal')) : realImport(...args);
+  });
+  t.mock.method(subtle, 'sign', async (...args: unknown[]) => {
+    const mac = await realSign(...args);
+    signed.push(mac);
+    return mac;
+  });
+  const zeroed = (bytes: ArrayBufferLike | Uint8Array): boolean =>
+    new Uint8Array(bytes instanceof Uint8Array ? bytes.buffer : bytes).every((byte) => byte === 0);
+
+  const values: Array<Record<string, string>> = [
+    { otp: link(`secret=${RFC_SHA1_BASE32}`) },
+    { 'TimeOtp-Secret': RFC_SHA1 },
+    { 'TimeOtp-Secret-Hex': '3132333435363738393031323334353637383930' },
+    { 'TimeOtp-Secret-Base32': RFC_SHA1_BASE32 },
+    { 'TimeOtp-Secret-Base64': 'MTIzNDU2Nzg5MDEyMzQ1Njc4OTA=' },
+  ];
+  for (const value of values) {
+    assert.equal(await codeAt(value, 1234567890), '005924', 'the key still works');
+  }
+  assert.equal(imported.length, values.length);
+  assert.ok(imported.every((bytes) => bytes.length === 20 && zeroed(bytes)));
+  assert.equal(signed.length, values.length);
+  assert.ok(signed.every((mac) => mac.byteLength === 20 && zeroed(mac)));
+
+  refuse = true;
+  await assert.rejects(readTotp(fields({ 'TimeOtp-Secret': RFC_SHA1 })), /simulated refusal/);
+  assert.ok(zeroed(imported[imported.length - 1] as Uint8Array), 'zeroed when refused too');
 });

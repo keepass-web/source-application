@@ -22,8 +22,12 @@ export interface KdbxFixture {
   groupName: string;
 }
 
-/** `url` is the entry's URL field; a test that opens it passes one it serves itself. */
-export async function writeKdbxFixture(url = ''): Promise<KdbxFixture> {
+/** `url` is the entry's URL field; a test that opens it passes one it serves itself.
+ * `fields` go on the same entry, after its own custom field. */
+export async function writeKdbxFixture(
+  url = '',
+  fields: Array<{ key: string; value: string; protect: boolean }> = [],
+): Promise<KdbxFixture> {
   const password = 'e2e-test-password';
   const entryTitle = 'Example Entry';
   // Exactly 25 characters, the floor issue #63 sets for the group rail.
@@ -46,7 +50,7 @@ export async function writeKdbxFixture(url = ''): Promise<KdbxFixture> {
       password: 'hunter2',
       url,
       // A protected value with line breaks, as KeePass and KeePassXC write them (#126).
-      fields: [{ key: 'SSH key', value: 'first line\nsecond line', protect: true }],
+      fields: [{ key: 'SSH key', value: 'first line\nsecond line', protect: true }, ...fields],
     }),
   );
   appendChild(kdbx.getRootGroup(), createGroup(groupName));
