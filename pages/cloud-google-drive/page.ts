@@ -297,13 +297,7 @@ function handleTokenResponse(response: TokenResponse): void {
 function handleTokenError(error: TokenErrorResponse): void {
   const pending = settleToken;
   settleToken = null;
-  pending?.reject(
-    new Error(
-      error.type === 'popup_failed_to_open'
-        ? 'The sign-in popup was blocked. Allow popups for this site, then try again.'
-        : 'Google sign-in was cancelled.',
-    ),
-  );
+  pending?.reject(new Error(signInErrorText(error.type, window.location.protocol)));
 }
 
 // ============================================================

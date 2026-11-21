@@ -2,8 +2,8 @@
  * Unit tests for cloud-google-drive/logic.ts — the connector's pure Drive-URL
  * and DOM-lookup helpers. All DOM-free, so exercised directly here (contrast
  * cloud-google-drive-page.test.ts, which drives page.ts through jsdom).
- * Sign-in and file browsing live in Google's SDKs, so there is no OAuth logic
- * to test here. Format detection (packages/router) and the embedded-app
+ * Sign-in and file browsing live in Google's SDKs; only what a failed sign-in
+ * tells the user is tested here. Format detection (packages/router) and the embedded-app
  * message protocol (packages/embed-protocol) have their own test suites.
  */
 
@@ -22,6 +22,7 @@ import {
   must,
   readDriveRevision,
   sha256Hex,
+  signInErrorText,
 } from '../cloud-google-drive/logic.ts';
 
 test('must returns a present value and throws on null/undefined', () => {
@@ -172,4 +173,23 @@ test('backoffDelayMs grows the window exponentially and jitters within it', () =
 
 test('MAX_DRIVE_ATTEMPTS leaves room to retry without hammering Drive', () => {
   assert.ok(MAX_DRIVE_ATTEMPTS > 1 && MAX_DRIVE_ATTEMPTS <= 5);
+});
+
+// Google refuses a file:// page outright, and GIS reports it as popup_closed (#113).
+test('a failed sign-in from disk names the way around it, whatever GIS called it', () => {
+  for (const type of ['popup_closed', 'popup_failed_to_open', undefined]) {
+    const text = signInErrorText(type, 'file:');
+    assert.match(text, /opened from disk/);
+    assert.match(text, /keepass-web\.app/);
+    assert.match(text, /http:\/\/localhost:57932/);
+  }
+});
+
+test('a failed sign-in on a served page tells a blocked popup from a closed one', () => {
+  assert.equal(
+    signInErrorText('popup_failed_to_open', 'https:'),
+    'The sign-in popup was blocked. Allow popups for this site, then try again.',
+  );
+  assert.equal(signInErrorText('popup_closed', 'https:'), 'Google sign-in was cancelled.');
+  assert.equal(signInErrorText(undefined, 'http:'), 'Google sign-in was cancelled.');
 });
