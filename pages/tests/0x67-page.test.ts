@@ -23,6 +23,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -4961,6 +4962,355 @@ test('the table marks the row and cell whose value is on the clipboard, for as l
   assert.equal(clipboardText, 'fox', 'though the value waits for its own clear');
 
   dispatch(q('[data-action="view-tile"]'), 'click');
+  q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  await settle();
+  assert.equal(clipboardText, '', 'closing clears it');
+});
+
+/** A six- or eight-digit SHA-1 code by node:crypto alone, independent of the app's own (#138). */
+function expectedCode(secret: Buffer, ms: number, digits = 6): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(ms / 1000 / 30)));
+  const mac = createHmac('sha1', secret).update(counter).digest();
+  const value = mac.readUInt32BE((mac[mac.length - 1] as number) & 0xf) & 0x7fffffff;
+  return String(value % 10 ** digits).padStart(digits, '0');
+}
+
+test('a one-time code is shown and copied on the card, in the table and on the edit screen (#138)', async (t) => {
+  // Base32 secrets with their bytes: RFC 6238's SHA-1 secret, and "Hello!" then 0xDEADBEEF.
+  const MAIL = {
+    base32: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+    bytes: Buffer.from('12345678901234567890'),
+  };
+  const BANK = { base32: 'JBSWY3DPEHPK3PXP', bytes: Buffer.from('48656c6c6f21deadbeef', 'hex') };
+  const otpLink = (secret: string): string => `otpauth://totp/Example:me?secret=${secret}`;
+
+  const credentials = new Credentials({ password: PASSWORD, keyFile: KEYFILE });
+  const kdbx = await Kdbx.create(credentials, {
+    version: 4,
+    cipher: 'chacha20',
+    kdf: 'argon2id',
+    argon2: FAST_ARGON2,
+    aesKdfRounds: 1000n,
+  });
+  const rootGroup = kdbx.getRootGroup();
+  // As KeePassXC writes it, and as KeePass 2.47+ does.
+  appendChild(
+    rootGroup,
+    createEntry({
+      title: 'Mail',
+      username: 'me',
+      fields: [{ key: 'otp', value: otpLink(MAIL.base32), protect: true }],
+    }),
+  );
+  appendChild(
+    rootGroup,
+    createEntry({
+      title: 'Bank',
+      fields: [
+        { key: 'TimeOtp-Secret-Base32', value: BANK.base32, protect: true },
+        { key: 'TimeOtp-Length', value: '8' },
+      ],
+    }),
+  );
+  appendChild(
+    rootGroup,
+    createEntry({ title: 'Broken', fields: [{ key: 'otp', value: otpLink('1') }] }),
+  );
+  appendChild(rootGroup, createEntry({ title: 'Plain', username: 'plain' }));
+  appendChild(
+    rootGroup,
+    createEntry({ title: 'Refused', fields: [{ key: 'otp', value: otpLink(BANK.base32) }] }),
+  );
+  const bytes = await kdbx.save();
+
+  const fileInput = q<HTMLInputElement>('#file-input');
+  setFiles(fileInput, [makeFile('codes.kdbx', bytes)]);
+  dispatch(fileInput, 'change');
+  await waitFor(() => q('#master-password') !== null);
+  q<HTMLInputElement>('#master-password').value = PASSWORD;
+  const keyfileInput = q<HTMLInputElement>('#keyfile-input');
+  setFiles(keyfileInput, [makeFile('keyfile.bin', KEYFILE)]);
+  dispatch(keyfileInput, 'change');
+  await waitFor(() => q<HTMLElement>('#keyfile-label').textContent === 'keyfile.bin');
+  dispatch(q('#unlock-form'), 'submit');
+  await waitFor(() => dom.window.document.body.classList.contains('app-mode'));
+  dispatch(q('[data-action="view-tile"]'), 'click');
+
+  /* Earlier tests leave their own delays set. This one counts on the 30-second clipboard
+  clear and on no curtain or lock while its clock runs, then puts theirs back. Saving
+  re-arms the idle watch, whose real timer only a real clearTimeout can cancel, so both
+  saves happen on real timers: before the clock is mocked, and after it is reset. */
+  const swapTimeouts = (values: string[]): string[] => {
+    dispatch(q('[data-action="settings"]'), 'click');
+    const inputs = ['clipboard-timeout', 'curtain-timeout', 'auto-lock-timeout'].map((id) =>
+      byId<HTMLInputElement>(id),
+    );
+    const previous = inputs.map((input) => input.value);
+    for (const [i, input] of inputs.entries()) input.value = values[i] as string;
+    dispatch(dq('#dlg-settings [data-action="save-settings"]'), 'click');
+    return previous;
+  };
+  const theirTimeouts = swapTimeouts(['30', '3600', '3600']);
+
+  // RFC 6238's 1234567890 falls on a step boundary, so its code has 30 seconds to run.
+  const T0 = 1234567890_000;
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 });
+  clipboardText = '';
+  clipboardWritesShouldFail = false;
+  /* Codes come from WebCrypto, which settles on real time while these timers are mocked,
+  so this waits on setImmediate, which they leave alone, and on real time to give up. */
+  const until = async (predicate: () => boolean): Promise<void> => {
+    const start = performance.now();
+    while (!predicate()) {
+      assert.ok(performance.now() - start < 4000, 'until: timed out');
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  const openTile = (title: string): void => {
+    dispatch(
+      Array.from(root().querySelectorAll('.entry-row')).find(
+        (row) => row.querySelector('.entry-row-title')?.textContent === title,
+      ) as Element,
+      'click',
+    );
+  };
+  const cardRow = (): HTMLElement | undefined =>
+    Array.from(root().querySelectorAll<HTMLElement>('.detail-field')).find(
+      (row) => row.querySelector('.detail-label')?.textContent === 'One-time code',
+    );
+  const parts = (container: Element): string[] =>
+    Array.from(container.children, (child) => child.className || child.tagName.toLowerCase());
+
+  // --- The card ---
+  openTile('Mail');
+  const wrap = cardRow()?.querySelector('.detail-value-wrap') as HTMLElement;
+  assert.deepEqual(parts(wrap), ['icon-btn', 'detail-value', 'code-note'], 'copy leads the code');
+  const [cardCopy, cardCode, cardNote] = Array.from(wrap.children) as HTMLElement[];
+  // Nothing to copy until the code is ready.
+  (cardCopy as HTMLElement).click();
+  await settle();
+  assert.equal(clipboardText, '');
+  await until(() => cardCode?.textContent !== '');
+  assert.equal(cardCode?.textContent, '005924');
+  assert.equal(cardNote?.textContent, '30s');
+  assert.equal(cardNote?.getAttribute('aria-hidden'), 'true', 'the countdown is not announced');
+  assert.equal(cardCopy?.hidden, false);
+  assert.equal(cardCopy?.title, 'Copy');
+
+  t.mock.timers.tick(1_000);
+  assert.equal(cardNote?.textContent, '29s');
+  assert.equal(cardCode?.textContent, '005924');
+  (cardCopy as HTMLElement).click();
+  await settle();
+  assert.equal(clipboardText, '005924');
+  assert.equal(byId('toast-message').textContent, 'One-time code copied to clipboard');
+  assert.equal(iconOf(cardCopy as HTMLElement), '#icon-checked');
+
+  // The step rolls over: a new code, and the check comes off, though the old code is still copied.
+  t.mock.timers.tick(29_000);
+  assert.equal(iconOf(cardCopy as HTMLElement), '#icon-copy');
+  assert.equal(cardNote?.textContent, '30s');
+  await until(() => cardCode?.textContent !== '');
+  assert.equal(cardCode?.textContent, expectedCode(MAIL.bytes, T0 + 30_000));
+  assert.equal(clipboardText, '005924');
+
+  // Unreadable settings say so instead, with nothing to copy, and no settings show nothing.
+  dispatch(q('[data-action="back"]'), 'click');
+  openTile('Broken');
+  const brokenNote = cardRow()?.querySelector('.code-note') as HTMLElement;
+  await until(() => brokenNote.textContent !== '');
+  assert.equal(brokenNote.textContent, 'Unreadable settings');
+  assert.equal(brokenNote.getAttribute('aria-hidden'), 'false', 'announced, unlike a countdown');
+  assert.equal(cardRow()?.querySelector<HTMLElement>('.icon-btn')?.hidden, true);
+  assert.equal(cardRow()?.querySelector('.detail-value')?.textContent, '');
+  dispatch(q('[data-action="back"]'), 'click');
+  openTile('Plain');
+  assert.equal(cardRow(), undefined);
+  dispatch(q('[data-action="back"]'), 'click');
+
+  // Settings WebCrypto refuses to make a key from read as unreadable too, never as a blank.
+  const subtle = crypto.subtle as unknown as { importKey(...args: unknown[]): Promise<CryptoKey> };
+  const refusal = t.mock.method(subtle, 'importKey', () =>
+    Promise.reject(new Error('simulated refusal')),
+  );
+  openTile('Refused');
+  const refusedNote = cardRow()?.querySelector('.code-note') as HTMLElement;
+  await until(() => refusedNote.textContent !== '');
+  refusal.mock.restore();
+  assert.equal(refusedNote.textContent, 'Unreadable settings');
+  assert.equal(cardRow()?.querySelector<HTMLElement>('.icon-btn')?.hidden, true);
+  dispatch(q('[data-action="back"]'), 'click');
+
+  // --- The table ---
+  dispatch(q('[data-action="view-table"]'), 'click');
+  const headers = (): string[] =>
+    Array.from(root().querySelectorAll('.entry-table thead th'), (th) =>
+      (th.textContent ?? '').trim(),
+    );
+  assert.ok(!headers().includes('One-time code'), 'off until picked');
+  const pickCodes = (shown: boolean): void => {
+    const checkbox = Array.from(
+      root().querySelectorAll<HTMLInputElement>('.column-picker-item input'),
+    ).find(
+      (input) => input.closest('.column-picker-item')?.textContent?.trim() === 'One-time code',
+    ) as HTMLInputElement;
+    checkbox.checked = shown;
+    dispatch(checkbox, 'change');
+  };
+  pickCodes(true);
+  const shown = headers();
+  assert.equal(shown.indexOf('One-time code'), shown.indexOf('Password') + 1, 'after Password');
+  const rowOf = (title: string): HTMLElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('.entry-table tbody tr')).find(
+      (tr) => tr.querySelector('.entry-table-title .entry-cell-text')?.textContent === title,
+    ) as HTMLElement;
+  const codeCell = (title: string): HTMLElement =>
+    rowOf(title).querySelector('td[data-column="otp"]') as HTMLElement;
+  const cellText = (title: string): string =>
+    codeCell(title).querySelector('.entry-cell-text')?.textContent ?? '';
+  await until(() => cellText('Mail') !== '' && cellText('Bank') !== '');
+  assert.deepEqual(
+    parts(codeCell('Mail').querySelector('.entry-cell') as Element),
+    ['copy-hint', 'entry-cell-text', 'code-note'],
+    'copy leads the code here too',
+  );
+  assert.equal(cellText('Mail'), expectedCode(MAIL.bytes, T0 + 30_000));
+  assert.equal(cellText('Bank'), expectedCode(BANK.bytes, T0 + 30_000, 8));
+  assert.equal(codeCell('Bank').querySelector('.code-note')?.textContent, '30s');
+  assert.equal(
+    codeCell('Bank').querySelector('.copy-hint')?.getAttribute('title'),
+    'Copy one-time code',
+  );
+  await until(() => codeCell('Broken').textContent === 'Unreadable settings');
+  assert.equal(codeCell('Broken').querySelector<HTMLElement>('.copy-hint')?.hidden, true);
+  assert.equal(codeCell('Plain').querySelector('.copy-hint'), null);
+  assert.equal(codeCell('Plain').textContent, '');
+
+  // The card's copy clears, and a click in the cell copies its code and marks it.
+  t.mock.timers.tick(1_000);
+  await settle();
+  assert.equal(clipboardText, '');
+  const bankCode = cellText('Bank');
+  dispatch(codeCell('Bank'), 'click');
+  await settle();
+  assert.equal(clipboardText, bankCode);
+  assert.ok(rowOf('Bank').classList.contains('copied'));
+  assert.ok(codeCell('Bank').classList.contains('copied'));
+
+  // Once it rolls over, the cell loses its mark, but its entry keeps one, through a redraw too.
+  t.mock.timers.tick(29_000);
+  assert.ok(!codeCell('Bank').classList.contains('copied'));
+  assert.equal(iconOf(codeCell('Bank').querySelector('.copy-hint') as Element), '#icon-copy');
+  assert.ok(rowOf('Bank').classList.contains('copied'));
+  await until(() => cellText('Bank') !== '');
+  assert.equal(cellText('Bank'), expectedCode(BANK.bytes, T0 + 60_000, 8));
+  assert.equal(clipboardText, bankCode);
+  const search = q<HTMLInputElement>('#search-input');
+  search.value = 'a';
+  dispatch(search, 'input');
+  assert.ok(rowOf('Bank').classList.contains('copied'));
+  assert.ok(!codeCell('Bank').classList.contains('copied'));
+  // A redrawn cell has nothing to copy until its code is ready.
+  dispatch(codeCell('Mail').querySelector('.copy-hint') as Element, 'click');
+  await settle();
+  assert.equal(clipboardText, bankCode);
+  search.value = '';
+  dispatch(search, 'input');
+  await until(() => cellText('Mail') !== '');
+
+  /* Two steps before the first one's code is ready: only the newer code lands. A mocked
+  tick sets the clock to its end before running timers, so it takes two of them. */
+  t.mock.timers.tick(30_000);
+  t.mock.timers.tick(30_000);
+  await until(() => cellText('Mail') !== '' && cellText('Bank') !== '');
+  for (let i = 0; i < 20; i += 1) await settle();
+  assert.equal(cellText('Mail'), expectedCode(MAIL.bytes, T0 + 120_000));
+  assert.equal(cellText('Bank'), expectedCode(BANK.bytes, T0 + 120_000, 8));
+  pickCodes(false);
+  dispatch(q('[data-action="view-tile"]'), 'click');
+
+  // --- The edit screen ---
+  openTile('Mail');
+  dispatch(q('[data-action="edit"]'), 'click');
+  const codeRow = q<HTMLElement>('.edit-code');
+  assert.equal(codeRow.hidden, false);
+  assert.deepEqual(
+    parts(codeRow),
+    ['edit-code-label', 'edit-actions', 'edit-code-value', 'code-note'],
+    'labeled like a field, copy leading the code',
+  );
+  assert.ok(!q('#edit-fields').contains(codeRow), 'never one of the fields Save writes');
+  const editCopy = codeRow.querySelector('.icon-btn') as HTMLButtonElement;
+  const editCode = codeRow.querySelector('.edit-code-value') as HTMLElement;
+  assert.ok(dispatch(editCopy, 'mousedown').defaultPrevented, 'the caret stays put');
+  await until(() => editCode.textContent !== '');
+  assert.equal(editCode.textContent, expectedCode(MAIL.bytes, T0 + 120_000));
+  editCopy.click();
+  await settle();
+  assert.equal(clipboardText, editCode.textContent);
+  assert.equal(iconOf(editCopy), '#icon-checked');
+
+  const editRow = (key: string): HTMLElement =>
+    Array.from(root().querySelectorAll<HTMLElement>('#edit-fields .edit-field')).find(
+      (row) => row.querySelector<HTMLInputElement>('.edit-key')?.value === key,
+    ) as HTMLElement;
+  const type = (key: string, value: string): void => {
+    const box = editRow(key).querySelector('.edit-value') as HTMLTextAreaElement;
+    box.value = value;
+    dispatch(box, 'input');
+  };
+  // Typing anything else leaves the code, and its check, alone.
+  type('Notes', 'remember the backup codes');
+  assert.equal(editCode.textContent, expectedCode(MAIL.bytes, T0 + 120_000));
+  assert.equal(iconOf(editCopy), '#icon-checked');
+
+  // A new secret gives its code at once, before Save, and only the latest one typed counts.
+  type('otp', otpLink(MAIL.base32.toLowerCase()));
+  assert.equal(iconOf(editCopy), '#icon-copy', 'the copied code is not this one');
+  type('otp', otpLink(BANK.base32));
+  await until(() => editCode.textContent !== '');
+  for (let i = 0; i < 20; i += 1) await settle();
+  assert.equal(editCode.textContent, expectedCode(BANK.bytes, T0 + 120_000));
+
+  type('otp', otpLink('1'));
+  await until(() => codeRow.querySelector('.code-note')?.textContent === 'Unreadable settings');
+  assert.equal(editCopy.hidden, true);
+  type('otp', 'not a link');
+  assert.equal(codeRow.hidden, true);
+
+  // Fields added or removed count too.
+  dispatch(q('[data-action="add-field"]'), 'click');
+  await settle();
+  assert.equal(codeRow.hidden, true, 'a blank field changes nothing');
+  const rows = root().querySelectorAll<HTMLElement>('#edit-fields .edit-field');
+  const added = rows[rows.length - 1] as HTMLElement;
+  (added.querySelector('.edit-key') as HTMLInputElement).value = 'TimeOtp-Secret-Base32';
+  type('TimeOtp-Secret-Base32', BANK.base32);
+  assert.equal(codeRow.hidden, false);
+  await until(() => editCode.textContent !== '');
+  assert.equal(editCode.textContent, expectedCode(BANK.bytes, T0 + 120_000));
+  (added.querySelector('[title="Remove field"]') as HTMLElement).click();
+  await settle();
+  assert.equal(codeRow.hidden, true);
+
+  // Saved, the card shows the new settings' code.
+  type('otp', otpLink(BANK.base32));
+  q('[data-action="save"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  dq('#dlg-save [data-action="close"]').dispatchEvent(
+    new dom.window.Event('click', { bubbles: true }),
+  );
+  const savedCode = cardRow()?.querySelector('.detail-value') as HTMLElement;
+  await until(() => savedCode.textContent !== '');
+  assert.equal(savedCode.textContent, expectedCode(BANK.bytes, T0 + 120_000));
+
+  t.mock.timers.reset();
+  dispatch(q('[data-action="back"]'), 'click');
+  swapTimeouts(theirTimeouts);
   q('[data-action="close"]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   dq('#dlg-confirm-discard [data-action="confirm-discard"]').dispatchEvent(
     new dom.window.Event('click', { bubbles: true }),

@@ -578,3 +578,181 @@ export function defaultExpiryLocalInputValue(): string {
   d.setFullYear(d.getFullYear() + 1);
   return isoToLocalInputValue(d.toISOString());
 }
+
+// One-time codes (#138)
+
+/** A field's value by name: an entry's as stored, or the edit form's as typed. */
+export type FieldReader = (key: string) => string;
+
+export interface Totp {
+  key: CryptoKey;
+  digits: number;
+  period: number; // seconds
+  steam: boolean;
+}
+
+interface TotpSettings {
+  secret: Uint8Array<ArrayBuffer>;
+  hash: string;
+  digits: number;
+  period: number;
+  steam: boolean;
+}
+
+type SecretDecoder = (text: string) => Uint8Array<ArrayBuffer> | null;
+
+const OTP_LINK = /^otpauth:\/\/totp(?:[/?]|$)/i;
+const OTP_LINK_HASHES: Record<string, string> = {
+  SHA1: 'SHA-1',
+  SHA256: 'SHA-256',
+  SHA512: 'SHA-512',
+};
+const TIME_OTP_HASHES: Record<string, string> = {
+  'HMAC-SHA-1': 'SHA-1',
+  'HMAC-SHA-256': 'SHA-256',
+  'HMAC-SHA-512': 'SHA-512',
+};
+const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const STEAM_CHARS = '23456789BCDFGHJKMNPQRTVWXY';
+
+/* Spacing, padding and case vary with where a secret was copied from, so all three
+are ignored; two characters are the fewest that hold a byte. */
+function fromBase32(text: string): Uint8Array<ArrayBuffer> | null {
+  const chars = text.replace(/[\s=]+/g, '').toUpperCase();
+  if (!/^[A-Z2-7]{2,}$/.test(chars)) return null;
+  const out = new Uint8Array(Math.floor((chars.length * 5) / 8));
+  let bits = 0;
+  let value = 0;
+  let index = 0;
+  for (const char of chars) {
+    value = (value << 5) | BASE32_CHARS.indexOf(char);
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      out[index] = value >> bits;
+      index += 1;
+      value &= (1 << bits) - 1;
+    }
+  }
+  return out;
+}
+
+function fromHex(text: string): Uint8Array<ArrayBuffer> | null {
+  const digits = text.replace(/\s+/g, '');
+  if (!/^(?:[\da-f]{2})+$/i.test(digits)) return null;
+  const out = new Uint8Array(digits.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = Number.parseInt(digits.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+// Checked first, so fromBase64 never throws with part of the secret decoded where nothing can zero it.
+function fromBase64Secret(text: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[A-Za-z\d+/]{2,}={0,2}$/.test(text.replace(/\s+/g, ''))) return null;
+  return fromBase64(text) as Uint8Array<ArrayBuffer>; // a buffer of its own
+}
+
+// KeePass's secret fields, one per encoding, of which it requires exactly one.
+const TIME_OTP_SECRETS: Record<string, SecretDecoder> = {
+  'TimeOtp-Secret': (text) => new TextEncoder().encode(text),
+  'TimeOtp-Secret-Hex': fromHex,
+  'TimeOtp-Secret-Base32': fromBase32,
+  'TimeOtp-Secret-Base64': fromBase64Secret,
+};
+const TOTP_FIELDS = [
+  'otp',
+  ...Object.keys(TIME_OTP_SECRETS),
+  'TimeOtp-Length',
+  'TimeOtp-Period',
+  'TimeOtp-Algorithm',
+];
+
+function wholeNumber(text: string): number {
+  return /^\d+$/.test(text) ? Number(text) : Number.NaN;
+}
+
+// Up to 10 digits, all that RFC 4226's 31-bit value holds, over any whole period of seconds.
+function validSettings(hash: string | undefined, digits: number, period: number): hash is string {
+  return hash !== undefined && digits >= 1 && digits <= 10 && period >= 1;
+}
+
+function readOtpLink(link: string): TotpSettings | null {
+  let query: URLSearchParams;
+  try {
+    query = new URL(link).searchParams;
+  } catch {
+    return null; // a link the parser refuses is unreadable, not an error
+  }
+  const steam = query.get('encoder') === 'steam';
+  const hash = OTP_LINK_HASHES[(query.get('algorithm') ?? 'SHA1').toUpperCase()];
+  const digits = steam ? 5 : wholeNumber(query.get('digits') ?? '6'); // a Steam code is always five
+  const period = wholeNumber(query.get('period') ?? '30');
+  if (!validSettings(hash, digits, period)) return null;
+  const secret = fromBase32(query.get('secret') ?? '');
+  return secret && { secret, hash, digits, period, steam };
+}
+
+function readTimeOtp(field: FieldReader): TotpSettings | null {
+  const [found, ...more] = Object.entries(TIME_OTP_SECRETS).filter(([key]) => field(key) !== '');
+  const hash = TIME_OTP_HASHES[(field('TimeOtp-Algorithm') || 'HMAC-SHA-1').toUpperCase()];
+  const digits = wholeNumber(field('TimeOtp-Length') || '6');
+  const period = wholeNumber(field('TimeOtp-Period') || '30');
+  if (!found || more.length > 0 || !validSettings(hash, digits, period)) return null;
+  const [key, decode] = found;
+  const secret = decode(field(key));
+  return secret && { secret, hash, digits, period, steam: false };
+}
+
+/** Whether an entry carries TOTP settings: an otpauth link in "otp", as KeePassXC
+keeps them, or a TimeOtp secret, as KeePass 2.47+ does. */
+export function hasTotp(field: FieldReader): boolean {
+  return (
+    OTP_LINK.test(field('otp')) || Object.keys(TIME_OTP_SECRETS).some((key) => field(key) !== '')
+  );
+}
+
+// Every value those settings are read from, so a change to any of them shows.
+export function totpSettings(field: FieldReader): string {
+  return JSON.stringify(TOTP_FIELDS.map((key) => field(key)));
+}
+
+/** The settings read into a key, the "otp" link first as KeePassXC reads it, or null
+when they can't be read. */
+export async function readTotp(field: FieldReader): Promise<Totp | null> {
+  const link = field('otp');
+  const settings = OTP_LINK.test(link) ? readOtpLink(link) : readTimeOtp(field);
+  if (!settings) return null;
+  const { secret, hash, digits, period, steam } = settings;
+  const key = await crypto.subtle
+    .importKey('raw', secret, { name: 'HMAC', hash }, false, ['sign'])
+    .finally(() => secret.fill(0)); // the key holds its own copy
+  return { key, digits, period, steam };
+}
+
+// RFC 6238's time step: whole periods of Unix seconds.
+export function totpStep(totp: Totp, now: number): number {
+  return Math.floor(Math.floor(now / 1000) / totp.period);
+}
+
+export function totpSecondsLeft(totp: Totp, now: number): number {
+  return totp.period - (Math.floor(now / 1000) % totp.period);
+}
+
+/** A time step's code: its HMAC cut to 31 bits by RFC 4226's dynamic truncation, then
+written in decimal digits, or in Steam's letters and digits. */
+export async function totpCode(totp: Totp, step: number): Promise<string> {
+  const counter = new Uint8Array(8);
+  new DataView(counter.buffer).setBigUint64(0, BigInt(step));
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', totp.key, counter));
+  const offset = (mac[mac.length - 1] as number) & 0xf;
+  let value = new DataView(mac.buffer).getUint32(offset) & 0x7fffffff;
+  mac.fill(0);
+  if (!totp.steam) return String(value % 10 ** totp.digits).padStart(totp.digits, '0');
+  let code = '';
+  for (let i = 0; i < totp.digits; i += 1) {
+    code += STEAM_CHARS.charAt(value % STEAM_CHARS.length);
+    value = Math.floor(value / STEAM_CHARS.length);
+  }
+  return code;
+}

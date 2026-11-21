@@ -334,4 +334,20 @@ declare function isoToLocalInputValue(iso: string): string;
 declare function localInputValueToIso(value: string): string;
 declare function defaultExpiryLocalInputValue(): string;
 
+type FieldReader = (key: string) => string;
+
+interface Totp {
+  key: CryptoKey;
+  digits: number;
+  period: number;
+  steam: boolean;
+}
+
+declare function hasTotp(field: FieldReader): boolean;
+declare function totpSettings(field: FieldReader): string;
+declare function readTotp(field: FieldReader): Promise<Totp | null>;
+declare function totpStep(totp: Totp, now: number): number;
+declare function totpSecondsLeft(totp: Totp, now: number): number;
+declare function totpCode(totp: Totp, step: number): Promise<string>;
+
 declare function peerOrigin(protocol: string, origin: string): { target: string; accept: string };
