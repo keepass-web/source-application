@@ -21,25 +21,60 @@
 }
 
 :root {
-  --bg: #eef2ef;
-  --surface: #ffffff;
-  --surface-2: #eaefec;
-  --border: #d8e2dc;
-  --text: #0e1714;
-  --muted: #5a6a62;
-  --accent: #0e7c5a;
-  --accent-dim: #eaf1ee;
-  --copied-row: #d8eae5;
-  --copied-cell: #b2d5ca;
-  --danger: #9a2b2b;
-  --danger-dim: #f2dada;
-  --danger-border: #e6c2c2;
-  --warning: #8a5a1e;
-  --warning-bg: #fbf0e7;
-  --warning-border: #ead7c2;
-  --success: #0e7c5a;
+  color-scheme: light dark;
+  --bg: light-dark(#f9f5f0, #151412);
+  --surface: light-dark(#fffdfa, #201e1a);
+  --surface-2: light-dark(#e7ecff, #24293e);
+  --border: light-dark(#e2dfda, #383531);
+  --control-border: #83807b;
+  --text: light-dark(#201e1a, #f1ede8);
+  --muted: light-dark(#55524e, #a7a49f);
+  --accent: light-dark(#424bbc, #8da0ff);
+  --on-accent: light-dark(#ffffff, #151412);
+  --accent-dim: light-dark(#cfd9ff, #252b4c);
+  --copied-row: light-dark(#e0efff, #1c3249);
+  --copied-cell: light-dark(#c1defe, #144877);
+  --danger: light-dark(#cc2553, #ffa8b2);
+  --danger-dim: light-dark(#fff4f4, #3f181f);
+  --danger-border: light-dark(#ffccd0, #86002f);
+  --warning: light-dark(#623d00, #f7d4aa);
+  --warning-bg: light-dark(#fff5ea, #34230b);
+  --warning-border: light-dark(#f7d4aa, #623d00);
+  --success: light-dark(#00702a, #67bf76);
   /* 25 chars of a first-level sub-group (#63) at .group-btn's size, plus icon, padding, nesting, and the toggle (#183) and ⋯ slots. */
   --sidebar-width: 280px;
+}
+
+/* Older browsers keep the light palette (#196). A custom property accepts
+light-dark() even where it can't compute it, so a plain value declared first
+wouldn't survive as a fallback. */
+@supports not (color: light-dark(red, red)) {
+  :root {
+    color-scheme: light;
+    --bg: #f9f5f0;
+    --surface: #fffdfa;
+    --surface-2: #e7ecff;
+    --border: #e2dfda;
+    --text: #201e1a;
+    --muted: #55524e;
+    --accent: #424bbc;
+    --on-accent: #ffffff;
+    --accent-dim: #cfd9ff;
+    --copied-row: #e0efff;
+    --copied-cell: #c1defe;
+    --danger: #cc2553;
+    --danger-dim: #fff4f4;
+    --danger-border: #ffccd0;
+    --warning: #623d00;
+    --warning-bg: #fff5ea;
+    --warning-border: #f7d4aa;
+    --success: #00702a;
+  }
+
+  .sidebar-backdrop,
+  .kw-dialog::backdrop {
+    background: rgba(32, 30, 26, 0.45);
+  }
 }
 
 body {
@@ -150,7 +185,7 @@ body:not(.app-mode) {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -174,7 +209,7 @@ body:not(.app-mode) {
 
 .btn-danger:hover:not(:disabled) {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-block {
@@ -281,7 +316,7 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
 .field input[type="search"],
 .field input[type="datetime-local"] {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   color: var(--text);
   font-size: 0.9rem;
@@ -405,7 +440,7 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
   display: flex;
   align-items: center;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
 }
 
@@ -471,7 +506,7 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
 
 .search-input {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   color: var(--text);
   font-size: 0.875rem;
@@ -700,7 +735,7 @@ so an absolutely positioned menu would be cut off. */
 
 .sort-select {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 4px;
   color: var(--text);
   font-size: 0.8rem;
@@ -1067,7 +1102,7 @@ heavier weight and a check for a copy control, so the mark never rests on color 
   .sidebar-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(14, 23, 20, 0.45);
+    background: light-dark(rgba(32, 30, 26, 0.45), rgba(0, 0, 0, 0.6));
     z-index: 15;
   }
 
@@ -1532,7 +1567,7 @@ input.attachment-name:focus {
 }
 
 .kw-dialog::backdrop {
-  background: rgba(14, 23, 20, 0.45);
+  background: light-dark(rgba(32, 30, 26, 0.45), rgba(0, 0, 0, 0.6));
 }
 
 .dialog-header {
@@ -1588,7 +1623,7 @@ input.attachment-name:focus {
 
 .dialog-body .field input {
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   color: var(--text);
   font-size: 0.9rem;

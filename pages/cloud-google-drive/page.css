@@ -21,16 +21,38 @@
 }
 
 :root {
-  --bg: #eef2ef;
-  --surface: #ffffff;
-  --surface-2: #eaefec;
-  --border: #d8e2dc;
-  --text: #0e1714;
-  --muted: #5a6a62;
-  --accent: #0e7c5a;
-  --accent-dim: #eaf1ee;
-  --danger: #9a2b2b;
-  --success: #0e7c5a;
+  color-scheme: light dark;
+  --bg: light-dark(#f9f5f0, #151412);
+  --surface: light-dark(#fffdfa, #201e1a);
+  --surface-2: light-dark(#e7ecff, #24293e);
+  --border: light-dark(#e2dfda, #383531);
+  --text: light-dark(#201e1a, #f1ede8);
+  --muted: light-dark(#55524e, #a7a49f);
+  --accent: light-dark(#424bbc, #8da0ff);
+  --on-accent: light-dark(#ffffff, #151412);
+  --accent-dim: light-dark(#cfd9ff, #252b4c);
+  --danger: light-dark(#cc2553, #ffa8b2);
+  --success: light-dark(#00702a, #67bf76);
+}
+
+/* Older browsers keep the light palette (#196). A custom property accepts
+light-dark() even where it can't compute it, so a plain value declared first
+wouldn't survive as a fallback. */
+@supports not (color: light-dark(red, red)) {
+  :root {
+    color-scheme: light;
+    --bg: #f9f5f0;
+    --surface: #fffdfa;
+    --surface-2: #e7ecff;
+    --border: #e2dfda;
+    --text: #201e1a;
+    --muted: #55524e;
+    --accent: #424bbc;
+    --on-accent: #ffffff;
+    --accent-dim: #cfd9ff;
+    --danger: #cc2553;
+    --success: #00702a;
+  }
 }
 
 /* `height`, not `min-height`: the embedded-app screen's `.app-frame` iframe
@@ -120,7 +142,7 @@ body {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
