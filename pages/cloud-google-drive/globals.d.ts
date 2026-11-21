@@ -109,6 +109,7 @@ declare function driveErrorReason(body: unknown): string | undefined;
 declare function classifyDriveResponse(status: number, reason?: string): DriveOutcome;
 declare const MAX_DRIVE_ATTEMPTS: number;
 declare function backoffDelayMs(retry: number, random?: () => number): number;
+declare function signInErrorText(type: string | undefined, protocol: string): string;
 declare function isReadyMessage(data: unknown): data is ReadyMessage;
 declare function isSaveMessage(data: unknown): data is SaveMessage;
 declare function isTitleMessage(data: unknown): data is TitleMessage;

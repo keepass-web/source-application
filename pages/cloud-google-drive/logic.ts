@@ -1,6 +1,6 @@
 /** Pure logic for the Drive connector: URL/request-body construction and the
 must() guard — no DOM/network state, so unit-tested directly. Sign-in and
-browsing live in Google's own SDKs, not here. */
+browsing themselves live in Google's own SDKs. */
 
 // A Drive file, reduced to the fields the connector needs; the Picker supplies both.
 export interface DriveFile {
@@ -126,4 +126,15 @@ const MAX_RETRY_DELAY_MS = 8000;
 tabs spread out instead of landing together (#85). */
 export function backoffDelayMs(retry: number, random: () => number = Math.random): number {
   return Math.round(random() * Math.min(BASE_RETRY_DELAY_MS * 2 ** retry, MAX_RETRY_DELAY_MS));
+}
+
+/** A failed sign-in's message. From disk, Google refuses every attempt and GIS calls
+it a closed popup, so the only useful answer there is the way around it (#113). */
+export function signInErrorText(type: string | undefined, protocol: string): string {
+  if (protocol === 'file:') {
+    return 'Google blocks sign-in from a page opened from disk. Open it from keepass-web.app instead, or serve these files at http://localhost:57932; the FAQ shows how.';
+  }
+  return type === 'popup_failed_to_open'
+    ? 'The sign-in popup was blocked. Allow popups for this site, then try again.'
+    : 'Google sign-in was cancelled.';
 }
