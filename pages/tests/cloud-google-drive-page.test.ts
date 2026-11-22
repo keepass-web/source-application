@@ -86,6 +86,18 @@ let requestCount = 0;
 
 let lastPickerCallback: ((data: Record<string, unknown>) => void) | null = null;
 let pickerShownCount = 0;
+let lastPickerView: DocsViewMock | null = null;
+class DocsViewMock {
+  viewId: string;
+  query: string | null = null;
+  constructor(viewId: string) {
+    this.viewId = viewId;
+  }
+  setQuery(query: string): this {
+    this.query = query;
+    return this;
+  }
+}
 class PickerBuilderMock {
   setAppId(): this {
     return this;
@@ -96,7 +108,8 @@ class PickerBuilderMock {
   setDeveloperKey(): this {
     return this;
   }
-  addView(): this {
+  addView(view: DocsViewMock): this {
+    lastPickerView = view;
     return this;
   }
   setCallback(cb: (data: Record<string, unknown>) => void): this {
@@ -130,6 +143,7 @@ const googleMock = {
   },
   picker: {
     ViewId: { DOCS: 'docs' },
+    DocsView: DocsViewMock,
     Action: { PICKED: 'picked' },
     Response: { ACTION: 'action', DOCUMENTS: 'documents' },
     Document: { ID: 'id', NAME: 'name' },
@@ -303,6 +317,11 @@ test('Google Drive connector', async (t) => {
   await t.test('loading the Picker, then cancelling, changes nothing', async () => {
     await pick(null, { load: true }); // first successful api.js load
     assert.ok(q('[data-action="pick"]'), 'still on the chooser');
+  });
+
+  await t.test('the Picker opens on all of Drive, searching for kdbx', () => {
+    assert.equal(lastPickerView?.viewId, 'docs');
+    assert.equal(lastPickerView?.query, 'kdbx');
   });
 
   await t.test('picking a file whose download fails by HTTP is reported', async () => {

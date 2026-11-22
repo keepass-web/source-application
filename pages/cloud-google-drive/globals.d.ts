@@ -170,17 +170,22 @@ interface PickerInstance {
   setVisible(visible: boolean): void;
 }
 
+interface DocsViewInstance {
+  setQuery(query: string): DocsViewInstance;
+}
+
 interface PickerBuilderInstance {
   setAppId(appId: string): PickerBuilderInstance;
   setOAuthToken(token: string): PickerBuilderInstance;
   setDeveloperKey(key: string): PickerBuilderInstance;
-  addView(viewId: string): PickerBuilderInstance;
+  addView(view: DocsViewInstance): PickerBuilderInstance;
   setCallback(callback: (data: PickerResponse) => void): PickerBuilderInstance;
   build(): PickerInstance;
 }
 
 interface GooglePicker {
   ViewId: { DOCS: string };
+  DocsView: new (viewId: string) => DocsViewInstance;
   Action: { PICKED: string };
   Response: { ACTION: string; DOCUMENTS: string };
   Document: { ID: string; NAME: string };
