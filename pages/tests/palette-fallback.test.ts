@@ -11,9 +11,15 @@ import { test } from 'node:test';
 
 const FALLBACK = /@supports not \(color: light-dark\(red, red\)\) \{\s*:root \{([^}]*)\}/;
 
-for (const page of ['0x67', 'local', 'cloud-google-drive', 'index']) {
-  test(`${page}: a browser without light-dark() gets the light palette, token for token`, () => {
-    const css = readFileSync(new URL(`../${page}/page.css`, import.meta.url), 'utf8');
+for (const sheet of [
+  '0x67/page.css',
+  'local/page.css',
+  'cloud-google-drive/page.css',
+  'index/page.css',
+  'shared/document.css',
+]) {
+  test(`${sheet}: a browser without light-dark() gets the light palette, token for token`, () => {
+    const css = readFileSync(new URL(`../${sheet}`, import.meta.url), 'utf8');
     const light = new Map(
       [...css.matchAll(/^ {2}(--[\w-]+): light-dark\((#[0-9a-f]{6}), #[0-9a-f]{6}\);$/gm)].map(
         (match) => [match[1], match[2]],

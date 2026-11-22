@@ -10,6 +10,8 @@ This document maps `pages/` — what each page does and how a visitor moves betw
 | `local.html` | GA | Local-file connector: reads a dropped file, detects its KDBX format, and embeds the matching app page in an iframe — or embeds it straight on a create-database screen instead, for a brand-new file. |
 | `0x67.html` | GA | The app — parses, decrypts, creates, and edits KDBX 3.1 and 4.x databases. |
 | `cloud-google-drive.html` | GA | Connector for Google Drive. |
+| `privacy.html` | GA | Privacy policy, linked from every page's footer. |
+| `terms.html` | GA | Terms of use, linked from every page's footer. |
 
 ## User flow
 
