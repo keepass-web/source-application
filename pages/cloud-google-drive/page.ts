@@ -344,7 +344,7 @@ function openPicker(): void {
     .setAppId(APP_ID)
     .setOAuthToken(must(accessToken))
     .setDeveloperKey(DEVELOPER_KEY)
-    .addView(google.picker.ViewId.DOCS)
+    .addView(new google.picker.DocsView(google.picker.ViewId.DOCS).setQuery('kdbx'))
     .setCallback(handlePickerResult)
     .build();
   picker.setVisible(true);
