@@ -22,7 +22,7 @@ With a screen reader:
 - Every box on the edit screen is named for what it holds, and a key file picker for its field.
 - Icons are hidden, so each button is read by its own name.
 - Status messages are announced once, politely. A countdown, like the clipboard's, isn't read out every second.
-- The group tree says whether a group is expanded, and a field's lock says whether it's protected.
+- The group tree says whether a group is expanded, a field's lock whether it's protected, and the tile and table buttons which view is on.
 - The table's icon-only columns still have names, for table navigation.
 
 On screen:
@@ -64,7 +64,6 @@ The Google Drive connector hands sign-in and file picking to Google's own popup 
 
 Let's be honest: there are gaps.
 
-- The tile and table buttons don't tell a screen reader which view is on.
 - There's no switch for light or dark; pages follow your system only ([#115][i115]).
 - Timer settings last until you reload, because KeePass Web stores nothing. Set them again each time.
 
