@@ -2,7 +2,7 @@
 
 ## Reporting bugs and proposing changes
 
-For bugs, [open an issue][issues]. For questions, ideas, or anything not yet a concrete bug, [start a discussion][discussions] first — especially before a large change, so the approach can be agreed on before code gets written.
+For bugs, [open an issue][issues]. An accessibility barrier is a bug too; [Accessibility][accessibility] says what to tell us. For questions, ideas, or anything not yet a concrete bug, [start a discussion][discussions] first — especially before a large change, so the approach can be agreed on before code gets written.
 
 Found a security vulnerability? Please report it privately rather than in a public issue; the org's [security policy][security] explains how.
 
@@ -35,7 +35,7 @@ packages/chacha20/   ChaCha20/Salsa20 stream ciphers — see its README.md and S
 packages/kdbx/       KDBX 3.1/4.x parser and serializer — see its README.md and SPEC.md
 pages/               the browser app — index, local, and the KDBX 0x67 app itself
 tools/build/         the bundler and inliner that assemble each page into its own self-contained distributable, plus the ruleset and dependency policy CI checks
-docs/                this document, plus the pipeline, release, and reproducibility docs
+docs/                this document, plus the accessibility, pipeline, release, and reproducibility docs
 ```
 
 Each package under `packages/` is a separate npm workspace with its own `build`/`typecheck`/`test` scripts; the root scripts above run across all of them.
@@ -65,6 +65,7 @@ Pull requests are required on `main`; direct pushes are blocked. See [Branch pro
 Not every contribution is code. [Telling someone about KeePass Web][share], starring [this repository][repo], and [becoming a sponsor][sponsors] all help.
 
 [issues]: https://github.com/keepass-web/source-application/issues
+[accessibility]: ACCESSIBILITY.md
 [discussions]: https://github.com/keepass-web/source-application/discussions
 [security]: https://github.com/keepass-web/.github/blob/main/SECURITY.md
 [rulesets]: RULESETS.md

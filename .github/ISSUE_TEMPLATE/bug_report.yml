@@ -14,7 +14,7 @@ body:
   - type: input
     id: environment
     attributes:
-      label: Browser and OS
-      placeholder: e.g. Firefox 131 on macOS 15
+      label: Browser and OS, plus any assistive technology
+      placeholder: e.g. Firefox 131 on macOS 15, with VoiceOver
     validations:
       required: true
