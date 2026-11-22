@@ -1260,6 +1260,7 @@ test('0x67 app', async (t) => {
       dispatch(attachmentInput, 'change');
       await waitFor(() => q('#edit-attachments').children.length === 1);
       assert.equal(q<HTMLInputElement>('.attachment-name').value, 'notes.txt');
+      assert.equal(q('.attachment-name').getAttribute('aria-label'), 'Attachment name'); // #210
 
       // Rename it; a blank rename is a no-op that keeps the old name.
       q<HTMLInputElement>('.attachment-name').value = 'renamed.txt';
@@ -3191,6 +3192,15 @@ test('a custom field can be protected or unprotected while editing, and Save kee
   // Only a custom field offers the choice; the standard fields keep theirs.
   assert.equal(control('Title', 'Protect'), null);
   assert.equal(control('Password', 'Protect'), null);
+
+  // Each value box is named by its own key box, not by its placeholder (#210).
+  for (const key of ['Title', 'Password', 'Recovery codes', 'PIN']) {
+    const namedBy = valueBox(key).getAttribute('aria-labelledby') ?? '';
+    assert.equal(
+      dom.window.document.getElementById(namedBy),
+      editRow(key).querySelector('.edit-key'),
+    );
+  }
 
   // Each custom field opens showing whether it is protected.
   assert.equal(iconOf(control('Recovery codes', 'Protect')), '#icon-lock');

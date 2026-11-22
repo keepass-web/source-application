@@ -81,7 +81,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: ui-monospace, monospace;
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1.5;
   min-height: 100vh;
 }
@@ -1085,6 +1085,12 @@ heavier weight and a check for a copy control, so the mark never rests on color 
     transition: transform 0.2s ease;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar {
+      transition: none;
+    }
+  }
+
   .sidebar-resize {
     display: none;
   }
@@ -1796,7 +1802,8 @@ body.embedded footer {
   font-variant-numeric: tabular-nums;
 }
 
-/* Announced but not drawn: gives the open column a name for table navigation. */
+/* Announced but not drawn: the open column's name for table navigation, and a file picker's
+own input, which Tab still reaches (#210). */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -1806,4 +1813,45 @@ body.embedded footer {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* The focused input isn't drawn, so its label draws the ring (#210). */
+:is(label.btn, .file-pick):has(:focus-visible) {
+  outline: auto;
+}
+
+@supports not selector(:has(*)) {
+  :is(label.btn, .file-pick):focus-within {
+    outline: auto;
+  }
+}
+
+/* Forced colors paint every border and background alike, so a focus or selection shown by
+color alone needs a system color (#210). */
+@media (forced-colors: active) {
+  .field input:focus,
+  .password-field-wrap:focus-within,
+  .search-input:focus,
+  .edit-key:focus,
+  .edit-value:focus,
+  input.attachment-name:focus,
+  .dialog-body .field input:focus {
+    outline: 2px solid Highlight;
+  }
+
+  /* Out of forced adjustment, or the backplate drawn behind text hides the name (#210). */
+  .group-btn.active,
+  .view-toggle-btn.active {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .drop-zone.drag-over {
+    border-color: Highlight;
+  }
+
+  .mark::after {
+    background: CanvasText;
+  }
 }

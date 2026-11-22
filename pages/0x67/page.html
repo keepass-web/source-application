@@ -114,7 +114,7 @@
         <p class="drop-zone-label">Drop your .kdbx file here</p>
         <label class="btn btn-primary">
           Choose a database…
-          <input type="file" id="file-input" accept=".kdbx,.kdb" hidden>
+          <input type="file" id="file-input" accept=".kdbx,.kdb" class="visually-hidden">
         </label>
         <button type="button" class="btn btn-secondary" data-action="create-database">Create a new database</button>
       </div>
@@ -138,10 +138,10 @@
           </div>
         </div>
         <div class="field">
-          <span class="field-label">Key file <span class="optional">(optional)</span></span>
+          <label class="field-label" for="keyfile-input">Key file <span class="optional">(optional)</span></label>
           <label class="file-pick">
             <span id="keyfile-label">No file chosen</span>
-            <input type="file" id="keyfile-input" hidden>
+            <input type="file" id="keyfile-input" class="visually-hidden">
           </label>
         </div>
         <div id="unlock-error" class="error-msg" hidden></div>
@@ -172,10 +172,10 @@
           <input type="password" id="create-password-confirm" autocomplete="new-password">
         </div>
         <div class="field">
-          <span class="field-label">Key file <span class="optional">(optional)</span></span>
+          <label class="field-label" for="create-keyfile-input">Key file <span class="optional">(optional)</span></label>
           <label class="file-pick">
             <span id="create-keyfile-label">No file chosen</span>
-            <input type="file" id="create-keyfile-input" hidden>
+            <input type="file" id="create-keyfile-input" class="visually-hidden">
           </label>
         </div>
         <div id="create-error" class="error-msg" hidden></div>
@@ -307,7 +307,7 @@
             <span class="field-label">Attachments</span>
             <label class="btn btn-secondary">
               + Add attachment
-              <input type="file" id="edit-attachment-input" hidden>
+              <input type="file" id="edit-attachment-input" class="visually-hidden">
             </label>
           </div>
           <div id="edit-attachments" class="attachment-list"></div>
@@ -348,10 +348,10 @@
         <input type="password" id="settings-new-password-confirm" autocomplete="new-password">
       </div>
       <div class="field">
-        <span class="field-label">Key file <span class="optional">(optional)</span></span>
+        <label class="field-label" for="settings-keyfile-input">Key file <span class="optional">(optional)</span></label>
         <label class="file-pick">
           <span id="settings-keyfile-label">No file chosen</span>
-          <input type="file" id="settings-keyfile-input" hidden>
+          <input type="file" id="settings-keyfile-input" class="visually-hidden">
         </label>
       </div>
       <div id="settings-security-error" class="error-msg" hidden></div>

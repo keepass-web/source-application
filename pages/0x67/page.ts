@@ -2071,6 +2071,7 @@ function renderEditAttachments(attachments: EditAttachment[], container: HTMLEle
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.className = 'attachment-name';
+    nameInput.setAttribute('aria-label', 'Attachment name');
     nameInput.value = attachment.name;
     nameInput.addEventListener('change', () => {
       const newName = nameInput.value.trim();
@@ -2089,6 +2090,8 @@ function renderEditAttachments(attachments: EditAttachment[], container: HTMLEle
   }
 }
 
+let editFieldCount = 0;
+
 function buildEditField(
   key: string,
   value: string,
@@ -2101,6 +2104,7 @@ function buildEditField(
 
   const keyInput = document.createElement('input');
   keyInput.className = 'edit-key';
+  keyInput.id = `edit-key-${++editFieldCount}`;
   keyInput.type = 'text';
   keyInput.value = key;
   keyInput.placeholder = 'Field name';
@@ -2112,6 +2116,8 @@ function buildEditField(
   const multiLine = key === 'Notes' || isCustomField(key) || lines > 1;
   const valueInput = document.createElement(multiLine ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
+  // Named by the key box's text, so a renamed custom field is heard by its new name (#210).
+  valueInput.setAttribute('aria-labelledby', keyInput.id);
   valueInput.value = value;
   valueInput.placeholder = 'Value';
   if (multiLine) {
