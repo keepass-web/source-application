@@ -1253,8 +1253,11 @@ function buildColumnPickerMenu(): void {
 }
 
 function updateViewToggleUI(): void {
-  qs('[data-action="view-tile"]').classList.toggle('active', app.entryView === 'tile');
-  qs('[data-action="view-table"]').classList.toggle('active', app.entryView === 'table');
+  for (const view of ['tile', 'table'] as const) {
+    const toggle = qs(`[data-action="view-${view}"]`);
+    toggle.classList.toggle('active', app.entryView === view);
+    toggle.setAttribute('aria-pressed', String(app.entryView === view));
+  }
   qs<HTMLButtonElement>('#column-picker-btn').hidden = app.entryView !== 'table';
   qs<HTMLElement>('#column-picker-menu').hidden = true;
   qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
@@ -2116,8 +2119,14 @@ function buildEditField(
   const multiLine = key === 'Notes' || isCustomField(key) || lines > 1;
   const valueInput = document.createElement(multiLine ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
-  // Named by the key box's text, so a renamed custom field is heard by its new name (#210).
-  valueInput.setAttribute('aria-labelledby', keyInput.id);
+  /* Named by the key box's text, so a renamed custom field is heard by its new name; while the
+  key is blank, the box keeps its own placeholder rather than borrow the key's (#210). */
+  const nameByKey = (): void => {
+    if (keyInput.value.trim()) valueInput.setAttribute('aria-labelledby', keyInput.id);
+    else valueInput.removeAttribute('aria-labelledby');
+  };
+  nameByKey();
+  keyInput.addEventListener('input', nameByKey);
   valueInput.value = value;
   valueInput.placeholder = 'Value';
   if (multiLine) {

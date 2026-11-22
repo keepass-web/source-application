@@ -97,6 +97,9 @@ test('every box on the edit screen is named for what it holds', async () => {
     for (const field of ['Title', 'UserName', 'Password', 'URL', 'Notes']) {
       assert.ok(await app.$(`aria/${field}[role="textbox"]`), `a box named ${field}`);
     }
+    // A field with no name yet keeps "Value", rather than borrowing its name box's placeholder.
+    await app.click('[data-action="add-field"]');
+    assert.ok(await app.$('aria/Value[role="textbox"]'), "an unnamed field's box is called Value");
 
     const attach = (await app.$('#edit-attachment-input')) as ElementHandle<HTMLInputElement>;
     await attach.uploadFile(fixture.path);

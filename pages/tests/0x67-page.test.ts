@@ -237,6 +237,10 @@ const dq = <T extends Element = Element>(selector: string): T =>
   dom.window.document.querySelector<T>(selector) as T;
 const byId = <T extends Element = Element>(id: string): T =>
   dom.window.document.getElementById(id) as unknown as T;
+// What every <label> of a control says, in document order; together they name it (#210).
+const labelsOf = (id: string): (string | undefined)[] =>
+  Array.from(byId<HTMLInputElement>(id).labels ?? [], (label) => label.textContent?.trim());
+const KEY_FILE_LABELS = ['Key file (optional)', 'No file chosen'];
 
 /** Poll a real Node timer (never mocked in this file except inside its own
  * narrowly-scoped subtests) until `predicate` is true, for async work
@@ -402,6 +406,7 @@ test('0x67 app', async (t) => {
       q<HTMLInputElement>('#create-name').value = 'Fresh Vault';
       q<HTMLInputElement>('#create-password-confirm').value = 'new-db-password';
 
+      assert.deepEqual(labelsOf('create-keyfile-input'), KEY_FILE_LABELS);
       const createKeyfileInput = q<HTMLInputElement>('#create-keyfile-input');
       setFiles(createKeyfileInput, [makeFile('create-keyfile.bin', KEYFILE)]);
       dispatch(createKeyfileInput, 'change');
@@ -484,6 +489,8 @@ test('0x67 app', async (t) => {
   // With the caret somewhere else entirely, the reveal brings it to the field,
   // since typing is what comes next (#110).
   await t.test('revealing the master password puts the caret in the field', () => {
+    // The key file picker below is named by its field, then by the file it holds (#210).
+    assert.deepEqual(labelsOf('keyfile-input'), ['Key file (optional)', 'keyfile.bin']);
     const passwordInput = q<HTMLInputElement>('#master-password');
     passwordInput.blur();
     assert.notEqual(dom.window.document.activeElement, passwordInput);
@@ -505,9 +512,15 @@ test('0x67 app', async (t) => {
     assert.equal(dom.window.document.title, 'real.kdbx - Unlocked - KeePass Web');
     // Table view is the default.
     assert.equal(root().querySelectorAll('.entry-table').length, 1);
+    const pressed = () =>
+      ['tile', 'table'].map((view) =>
+        q(`[data-action="view-${view}"]`).getAttribute('aria-pressed'),
+      );
+    assert.deepEqual(pressed(), ['false', 'true'], 'the view that is on says so (#210)');
     // Switch to tile view, which the rest of this suite's entry-list
     // assertions are written against.
     dispatch(q('[data-action="view-tile"]'), 'click');
+    assert.deepEqual(pressed(), ['true', 'false']);
     // Root group is selected by default: four entries at the root.
     assert.equal(root().querySelectorAll('.entry-row').length, 4);
   });
@@ -1016,6 +1029,17 @@ test('0x67 app', async (t) => {
     assert.equal(rows.length, before + 1);
     const newRow = rows[rows.length - 1] as HTMLElement;
     assert.ok(newRow.querySelector('[title="Remove field"]'));
+
+    // Unnamed, its value box keeps "Value"; once named, it takes the name, and loses it if cleared (#210).
+    const key = newRow.querySelector('.edit-key') as HTMLInputElement;
+    const value = newRow.querySelector('.edit-value') as HTMLElement;
+    assert.equal(value.getAttribute('aria-labelledby'), null);
+    key.value = 'PIN';
+    dispatch(key, 'input');
+    assert.equal(value.getAttribute('aria-labelledby'), key.id);
+    key.value = '  ';
+    dispatch(key, 'input');
+    assert.equal(value.getAttribute('aria-labelledby'), null);
 
     // The remove button actually removes the row.
     newRow.querySelector<HTMLButtonElement>('[title="Remove field"]')?.click();
@@ -1851,6 +1875,7 @@ test('0x67 app', async (t) => {
       const dlg = byId<HTMLDialogElement>('dlg-settings');
       assert.equal(byId<HTMLInputElement>('settings-new-password').value, '');
       assert.equal(byId<HTMLElement>('settings-keyfile-label').textContent, 'No file chosen');
+      assert.deepEqual(labelsOf('settings-keyfile-input'), KEY_FILE_LABELS);
 
       // Mismatched passwords: rejected, dialog stays open.
       byId<HTMLInputElement>('settings-new-password').value = 'new-pass';
