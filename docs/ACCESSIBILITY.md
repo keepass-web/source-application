@@ -50,7 +50,7 @@ Every change to a page follows these rules:
 
 - Meet WCAG 2.2 level AA.
 - Reach for a native element before ARIA.
-- Give every control a name, and hide icons that only decorate.
+- Give every control a name: a visible label where there is one, a `title` on an icon-only button, ARIA only where neither fits. Hide icons that only decorate.
 - Test the name, state and focus your change adds, in `pages/tests/` or `e2e/`.
 - Check new UI at phone width, as [AGENTS.md][agents] requires.
 
