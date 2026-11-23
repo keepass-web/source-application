@@ -40,7 +40,7 @@ Over time:
 
 ## How do we check it?
 
-With tests, like everything else. The page tests check each control's name and state, and where focus lands. The browser tests run the built pages in Chrome for what only a real browser shows: the Tab order, the names Chrome gives each control, target sizes at phone width, and the pages under reduced motion and forced colors. Every new screen is checked at phone width before it's done.
+With tests, like everything else. The page tests check controls' names and states, and where focus lands. The browser tests run the built pages in Chrome for what only a real browser shows: the Tab order, the names Chrome computes, target sizes at phone width, and the pages under reduced motion and forced colors. Every new screen is checked at phone width before it's done.
 
 What we don't have: an automated accessibility checker in CI, or an audit by anyone outside the project.
 
