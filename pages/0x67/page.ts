@@ -2120,7 +2120,8 @@ function buildEditField(
   const valueInput = document.createElement(multiLine ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
   /* Named by the key box's text, so a renamed custom field is heard by its new name; while the
-  key is blank, the box keeps its own placeholder rather than borrow the key's (#210). */
+  key is blank, aria-label names it instead (#210). */
+  valueInput.setAttribute('aria-label', 'Value');
   const nameByKey = (): void => {
     if (keyInput.value.trim()) valueInput.setAttribute('aria-labelledby', keyInput.id);
     else valueInput.removeAttribute('aria-labelledby');

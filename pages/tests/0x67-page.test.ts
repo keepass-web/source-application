@@ -1033,6 +1033,7 @@ test('0x67 app', async (t) => {
     // Unnamed, its value box keeps "Value"; once named, it takes the name, and loses it if cleared (#210).
     const key = newRow.querySelector('.edit-key') as HTMLInputElement;
     const value = newRow.querySelector('.edit-value') as HTMLElement;
+    assert.equal(value.getAttribute('aria-label'), 'Value');
     assert.equal(value.getAttribute('aria-labelledby'), null);
     key.value = 'PIN';
     dispatch(key, 'input');
