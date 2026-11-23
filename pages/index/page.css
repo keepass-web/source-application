@@ -37,7 +37,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: ui-monospace, monospace;
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.6;
   min-height: 100vh;
   display: flex;
@@ -189,4 +189,11 @@ a:hover {
   font-size: 0.8rem;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Forced colors paint every background alike, so the mark's body needs a system color (#210). */
+@media (forced-colors: active) {
+  .mark::after {
+    background: CanvasText;
+  }
 }

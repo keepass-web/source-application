@@ -21,6 +21,10 @@ Refer to [Reproducing a build][reproducing] to verify for yourself how these fil
 
 The whole point of shipping as a multi-page application of un-minified HTML pages is that you don't have to take our word for anything. Read the source, watch the network tab, verify the release checksum. The app (`0x67.html`) and every offline page load nothing but their own inlined code — on those pages the network tab stays empty. A cloud connector is the one exception: it is inherently online, and to browse your files it loads the SDK of the very provider you chose to sign in to (e.g. Google's Picker from `apis.google.com` in the Drive connector) — never code from any party unrelated to that provider. Even then, your master password and every byte of decryption stay inside the embedded `0x67.html` iframe, which loads no external code; the connector only ever handles the sign-in and your still-encrypted database. The design philosophy behind that approach and the org's overall rationale is written up in the [org level][philosophy]. For how this repo's own pipeline enforces it, see [Pipeline][pipeline] and [Releases][releases].
 
+## Accessibility
+
+Every page should work from the keyboard, with a screen reader, and with your own font size, motion and contrast settings. [Accessibility][accessibility] says how close we are and how to report a barrier.
+
 ## Contributing
 
 See [Contributing][contributing] for how to report a bug, propose a change, and build/test/lint locally. See each package's own `README.md`/`SPEC.md` (`packages/argon2`, `packages/chacha20`, `packages/kdbx`) for the algorithms implemented and why.
@@ -43,6 +47,7 @@ KeePass Web is MIT-licensed and free to use. If it's useful to you, [tell someon
 [philosophy]: https://github.com/keepass-web/.github/blob/main/profile/PHILOSOPHY.md
 [pipeline]: docs/PIPELINE.md
 [contributing]: docs/CONTRIBUTING.md
+[accessibility]: docs/ACCESSIBILITY.md
 [share]: https://github.com/keepass-web/.github/blob/main/profile/FAQ.md#how-can-i-help
 [repo]: https://github.com/keepass-web/source-application
 [sponsors]: https://github.com/sponsors/keepass-web

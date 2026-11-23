@@ -66,7 +66,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: ui-monospace, monospace;
-  font-size: 15px;
+  font-size: 0.9375rem;
   height: 100vh;
   line-height: 1.5;
   display: flex;
@@ -277,4 +277,38 @@ a:hover {
   flex: 1;
   width: 100%;
   border: none;
+}
+
+/* The file picker's own input: announced and reached by Tab, but drawn by its label (#210). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+label.btn:has(:focus-visible) {
+  outline: auto;
+}
+
+@supports not selector(:has(*)) {
+  label.btn:focus-within {
+    outline: auto;
+  }
+}
+
+/* Forced colors paint every border and background alike, so a state shown by color alone
+needs a system color (#210). */
+@media (forced-colors: active) {
+  .drop-zone.drag-over {
+    border-color: Highlight;
+  }
+
+  .mark::after {
+    background: CanvasText;
+  }
 }

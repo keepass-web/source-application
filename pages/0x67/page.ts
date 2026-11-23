@@ -1253,8 +1253,11 @@ function buildColumnPickerMenu(): void {
 }
 
 function updateViewToggleUI(): void {
-  qs('[data-action="view-tile"]').classList.toggle('active', app.entryView === 'tile');
-  qs('[data-action="view-table"]').classList.toggle('active', app.entryView === 'table');
+  for (const view of ['tile', 'table'] as const) {
+    const toggle = qs(`[data-action="view-${view}"]`);
+    toggle.classList.toggle('active', app.entryView === view);
+    toggle.setAttribute('aria-pressed', String(app.entryView === view));
+  }
   qs<HTMLButtonElement>('#column-picker-btn').hidden = app.entryView !== 'table';
   qs<HTMLElement>('#column-picker-menu').hidden = true;
   qs<HTMLElement>('#panel-menu').classList.remove('panel-menu-open');
@@ -2071,6 +2074,7 @@ function renderEditAttachments(attachments: EditAttachment[], container: HTMLEle
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.className = 'attachment-name';
+    nameInput.setAttribute('aria-label', 'Attachment name');
     nameInput.value = attachment.name;
     nameInput.addEventListener('change', () => {
       const newName = nameInput.value.trim();
@@ -2089,6 +2093,8 @@ function renderEditAttachments(attachments: EditAttachment[], container: HTMLEle
   }
 }
 
+let editFieldCount = 0;
+
 function buildEditField(
   key: string,
   value: string,
@@ -2101,6 +2107,7 @@ function buildEditField(
 
   const keyInput = document.createElement('input');
   keyInput.className = 'edit-key';
+  keyInput.id = `edit-key-${++editFieldCount}`;
   keyInput.type = 'text';
   keyInput.value = key;
   keyInput.placeholder = 'Field name';
@@ -2112,6 +2119,15 @@ function buildEditField(
   const multiLine = key === 'Notes' || isCustomField(key) || lines > 1;
   const valueInput = document.createElement(multiLine ? 'textarea' : 'input');
   valueInput.className = 'edit-value';
+  /* Named by the key box's text, so a renamed custom field is heard by its new name; while the
+  key is blank, aria-label names it instead (#210). */
+  valueInput.setAttribute('aria-label', 'Value');
+  const nameByKey = (): void => {
+    if (keyInput.value.trim()) valueInput.setAttribute('aria-labelledby', keyInput.id);
+    else valueInput.removeAttribute('aria-labelledby');
+  };
+  nameByKey();
+  keyInput.addEventListener('input', nameByKey);
   valueInput.value = value;
   valueInput.placeholder = 'Value';
   if (multiLine) {
