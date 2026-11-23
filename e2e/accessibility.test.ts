@@ -4,7 +4,12 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import puppeteer, { type Browser, type ElementHandle, type Frame } from 'puppeteer-core';
+import puppeteer, {
+  type Browser,
+  type CDPSession,
+  type ElementHandle,
+  type Frame,
+} from 'puppeteer-core';
 import { openApp } from './support/app.ts';
 import { resolveChromePath } from './support/chrome.ts';
 import { type DistServer, startDistServer } from './support/dist-server.ts';
@@ -108,6 +113,49 @@ test('every box on the edit screen is named for what it holds', async () => {
       await app.$('aria/Attachment name[role="textbox"]'),
       'a box named for the attachment',
     );
+  } finally {
+    await page.close();
+  }
+});
+
+test('an icon-only button is named once, by its title', async () => {
+  const page = await browser.newPage();
+  try {
+    const app = await openApp(page, server.origin, fixture);
+    /* An aria-label that repeats a title makes the title a description, which a screen reader
+     * can read out as the name again. Only the frame's own CDP session, which puppeteer keeps
+     * internal, can resolve the frame's handles. */
+    const client = (app as unknown as { client: CDPSession }).client;
+    const check = async (screen: string): Promise<void> => {
+      let checked = 0;
+      for (const button of await app.$$('button[title]')) {
+        // A group's actions button stays visibility: hidden until its row is hovered.
+        const { title, iconOnly } = await button.evaluate((el) => ({
+          title: el.title,
+          iconOnly: el.checkVisibility({ visibilityProperty: true }) && !el.textContent?.trim(),
+        }));
+        if (!iconOnly) continue;
+        const { objectId } = button.remoteObject();
+        assert.ok(objectId, `${screen}: ${title} has a handle`);
+        const { node } = await client.send('DOM.describeNode', { objectId });
+        const { nodes } = await client.send('Accessibility.getPartialAXTree', {
+          backendNodeId: node.backendNodeId,
+          fetchRelatives: false,
+        });
+        const ax = nodes.find((n) => n.backendDOMNodeId === node.backendNodeId);
+        assert.equal(ax?.name?.value, title, `${screen}: ${title}`);
+        assert.equal(ax?.description?.value ?? '', '', `${screen}: ${title} has no description`);
+        checked++;
+      }
+      assert.ok(checked > 0, `${screen} has icon-only buttons to check`);
+    };
+    await check('the entry list');
+    await app.click('.entry-table-open button');
+    await app.waitForSelector('[data-action="edit"]', { visible: true });
+    await check('an entry');
+    await app.click('[data-action="edit"]');
+    await app.waitForSelector('#edit-fields .edit-field');
+    await check('the edit screen');
   } finally {
     await page.close();
   }
