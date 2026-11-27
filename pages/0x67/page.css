@@ -105,15 +105,17 @@ body.app-mode #root {
 }
 
 /* ============================================================
-   Centred-content body: upload and unlock screens
+   Top-anchored body: a phone keyboard leaves Unlock in view (#214)
    ============================================================ */
 
 body:not(.app-mode) {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   padding: 2rem;
+}
+
+body:not(.app-mode) #root {
+  flex: 1;
 }
 
 /* ============================================================
@@ -380,6 +382,7 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
   gap: 2rem;
   max-width: 440px;
   width: 100%;
+  margin: 1rem auto 0;
   text-align: center;
 }
 
@@ -422,6 +425,7 @@ through to notice unsaved edits, unlike every other dirty-aware prompt. */
   gap: 1.25rem;
   max-width: 400px;
   width: 100%;
+  margin: 1rem auto 0;
 }
 
 .db-filename {
@@ -1157,11 +1161,6 @@ body.app-mode .screen-detail {
   height: 100%;
 }
 
-/* Centered, #root shrinks to its content and leaves width: 100% nothing to fill (#89). */
-body:not(.app-mode) #root:has(> .screen-detail, > .screen-edit) {
-  align-self: stretch;
-}
-
 body:not(.app-mode) .screen-detail {
   max-width: 640px;
   width: 100%;
@@ -1733,8 +1732,7 @@ input.attachment-name:focus {
    Footer
    (a flex-shrink:0 sibling of #root in both body layouts above, so it
    claims its own space instead of being clipped by app-mode's
-   height:100vh/overflow:hidden or centered away by the upload/unlock
-   layout's justify-content:center)
+   height:100vh/overflow:hidden)
    ============================================================ */
 
 /* Embedded: the host page has its own footer, so hide this copy. */
