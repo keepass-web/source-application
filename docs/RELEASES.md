@@ -38,9 +38,11 @@ Deploy is the one step that lives in a separate repository (`keepass-web.app`) â
 
 ## Cutting a release
 
-From `main`:
+Start from an up-to-date `main`, since `npm version` bumps whatever the local `main` holds, and anything merged since the last pull would be left out of the release:
 
 ```sh
+git switch main
+git pull --ff-only
 tag=$(npm version patch)   # or minor / major
 git push origin "$tag"
 git push origin HEAD:refs/heads/release/${tag}
