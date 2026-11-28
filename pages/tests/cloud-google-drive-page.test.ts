@@ -90,11 +90,16 @@ let lastPickerView: DocsViewMock | null = null;
 class DocsViewMock {
   viewId: string;
   query: string | null = null;
+  mode: string | null = null;
   constructor(viewId: string) {
     this.viewId = viewId;
   }
   setQuery(query: string): this {
     this.query = query;
+    return this;
+  }
+  setMode(mode: string): this {
+    this.mode = mode;
     return this;
   }
 }
@@ -143,6 +148,7 @@ const googleMock = {
   },
   picker: {
     ViewId: { DOCS: 'docs' },
+    DocsViewMode: { LIST: 'list' },
     DocsView: DocsViewMock,
     Action: { PICKED: 'picked' },
     Response: { ACTION: 'action', DOCUMENTS: 'documents' },
@@ -319,9 +325,10 @@ test('Google Drive connector', async (t) => {
     assert.ok(q('[data-action="pick"]'), 'still on the chooser');
   });
 
-  await t.test('the Picker opens on all of Drive, searching for kdbx', () => {
+  await t.test('the Picker opens on all of Drive as a list, searching for kdbx', () => {
     assert.equal(lastPickerView?.viewId, 'docs');
     assert.equal(lastPickerView?.query, 'kdbx');
+    assert.equal(lastPickerView?.mode, 'list');
   });
 
   await t.test('picking a file whose download fails by HTTP is reported', async () => {
