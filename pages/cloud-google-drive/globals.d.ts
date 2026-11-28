@@ -172,6 +172,7 @@ interface PickerInstance {
 
 interface DocsViewInstance {
   setQuery(query: string): DocsViewInstance;
+  setMode(mode: string): DocsViewInstance;
 }
 
 interface PickerBuilderInstance {
@@ -185,6 +186,7 @@ interface PickerBuilderInstance {
 
 interface GooglePicker {
   ViewId: { DOCS: string };
+  DocsViewMode: { LIST: string };
   DocsView: new (viewId: string) => DocsViewInstance;
   Action: { PICKED: string };
   Response: { ACTION: string; DOCUMENTS: string };
